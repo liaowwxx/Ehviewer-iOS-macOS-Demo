@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode user-specific data
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+
+# Xcode build products and indexes
+DerivedData/
+build/
+*.xcresult/
+*.dSYM/
+*.dSYM.zip
+
+# Swift Package Manager build products and local state
+.build/
+.swiftpm/configuration/
+.swiftpm/xcode/
+
+# SwiftPM checkouts are regenerated from Package.swift/Package.resolved
+.swiftpm/repositories/
+
+# Coverage and profiling output
+*.profdata
+*.coverage
+
+# Temporary/editor files
+*.swp
+*.swo
+*.tmp
+*.orig
+
+# Local environment files
+.env
+.env.*
+!.env.example

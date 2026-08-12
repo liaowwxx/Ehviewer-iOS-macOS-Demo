@@ -1,0 +1,37 @@
+import Foundation
+
+public enum EHError: LocalizedError, Hashable, Sendable {
+    case invalidURL
+    case invalidResponse
+    case httpStatus(Int)
+    case networkFailed(String)
+    case notFound
+    case authenticationRequired
+    case rateLimited
+    case bandwidthLimited
+    case parsingFailed(String)
+    case invalidCookie
+    case diskSpaceLow
+    case storageFailed(String)
+    case unsupportedFeature(String)
+    case cancelled
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidURL: "无效的站点地址"
+        case .invalidResponse: "服务器响应无效"
+        case .httpStatus(let code): "服务器返回 HTTP \(code)"
+        case .networkFailed(let reason): "网络请求失败：\(reason)"
+        case .notFound: "找不到画廊"
+        case .authenticationRequired: "此操作需要登录"
+        case .rateLimited: "请求过于频繁，请稍后再试"
+        case .bandwidthLimited: "已达到站点流量限制"
+        case .parsingFailed(let reason): "页面解析失败：\(reason)"
+        case .invalidCookie: "Cookie 格式无效"
+        case .diskSpaceLow: "磁盘空间不足，下载已暂停"
+        case .storageFailed(let reason): "本地存储失败：\(reason)"
+        case .unsupportedFeature(let feature): "当前版本暂不支持：\(feature)"
+        case .cancelled: "操作已取消"
+        }
+    }
+}

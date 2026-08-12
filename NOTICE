@@ -1,0 +1,9 @@
+EhViewer iOS/macOS port
+
+Behavior baseline: EhViewer Android BiLi_PC_Gamer branch 17769e4 (2.0.2.3).
+Original project notice:
+EhViewer
+Copyright 2014-2016 Hippo Seven
+
+This project is an independent SwiftUI port for personal use. Android UI,
+JNI, Firebase, and Android service code are not copied into this repository.
