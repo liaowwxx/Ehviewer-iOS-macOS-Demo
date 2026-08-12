@@ -267,6 +267,28 @@ public actor PersistenceStore {
         return try modelContext.fetch(descriptor).map(\.query)
     }
 
+    public func quickSearchSuggestions(prefix: String, limit: Int = 100) throws -> [String] {
+        let normalizedPrefix = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        var descriptor = FetchDescriptor<QuickSearchRecord>(sortBy: [SortDescriptor(\.lastUsedAt, order: .reverse)])
+        descriptor.fetchLimit = max(limit, 0)
+        let searches = try modelContext.fetch(descriptor).map(\.query)
+        guard normalizedPrefix.isEmpty == false else { return searches }
+        return searches.filter {
+            $0 != normalizedPrefix
+                && $0.range(of: normalizedPrefix, options: [.caseInsensitive, .anchored]) != nil
+        }
+    }
+
+    public func deleteQuickSearch(_ query: String) throws {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.isEmpty == false else { return }
+        let records = try modelContext.fetch(FetchDescriptor<QuickSearchRecord>(predicate: #Predicate {
+            $0.query == normalized
+        }))
+        for record in records { modelContext.delete(record) }
+        if records.isEmpty == false { try modelContext.save() }
+    }
+
     public func downloadLabels() throws -> [String] {
         try modelContext.fetch(FetchDescriptor<DownloadLabelRecord>(sortBy: [SortDescriptor(\.createdAt)] )).map(\.name)
     }

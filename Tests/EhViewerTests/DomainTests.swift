@@ -4,6 +4,20 @@ import EHDomain
 import EHNetworking
 
 struct DomainTests {
+    @Test("Search composer follows the original tag completion syntax")
+    func searchQueryComposer() throws {
+        #expect(SearchQueryComposer.suggestionFragment(in: "language:english  blue archive") == "blue archive")
+        #expect(SearchQueryComposer.searchSyntax(for: "artist:john doe") == "a:\"john doe$\"")
+        #expect(
+            SearchQueryComposer.completing(tag: "female:big breasts", in: "language:english  big")
+                == "language:english  f:\"big breasts$\""
+        )
+        #expect(
+            SearchQueryComposer.galleryKey(in: "https://e-hentai.org/g/12345/token/")
+                == GalleryKey(gid: 12_345, token: "token")
+        )
+    }
+
     @Test("Gallery URL is converted into a stable key")
     func galleryURL() throws {
         let builder = SiteRequestBuilder(site: .eHentai)
@@ -81,5 +95,67 @@ struct DomainTests {
         let cookie = try #require(CookieHeader.parse(" ipb_member_id = 42; ipb_pass_hash = abc "))
         #expect(cookie.values["ipb_member_id"] == "42")
         #expect(cookie.headerValue == "ipb_member_id=42; ipb_pass_hash=abc")
+        #expect(cookie.isAuthenticated)
+    }
+
+    @Test("Cookie authentication requires both original-project session values")
+    func cookieAuthenticationRequirements() throws {
+        let incomplete = try #require(CookieHeader.parse("ipb_member_id=42; unrelated=value"))
+        #expect(incomplete.isAuthenticated == false)
+
+        let complete = try #require(CookieHeader.parse("igneous=optional; ipb_pass_hash=abc; ipb_member_id=42; unrelated=value"))
+        #expect(complete.isAuthenticated)
+        #expect(complete.isExHentaiAuthenticated)
+        #expect(complete.sessionHeaderValue == "igneous=optional; ipb_member_id=42; ipb_pass_hash=abc")
+
+        let rejected = try #require(CookieHeader.parse("igneous=mystery; ipb_pass_hash=abc; ipb_member_id=42"))
+        #expect(rejected.isAuthenticated)
+        #expect(rejected.isExHentaiAuthenticated == false)
+        #expect(rejected.sessionHeaderValue == "ipb_member_id=42; ipb_pass_hash=abc")
+    }
+
+    @Test("Session vault rejects unrelated cookies")
+    func sessionVaultRejectsUnrelatedCookies() async throws {
+        let vault = SessionVault(service: "EhViewerInvalidCookieTests-\(UUID().uuidString)")
+        defer { Task { try? await vault.clear() } }
+        do {
+            try await vault.saveCookieHeader("foo=bar")
+            Issue.record("expected invalid cookie error")
+        } catch let error as EHError {
+            #expect(error == .invalidCookie)
+        }
+    }
+
+    @Test("A response cookie is merged into the authenticated session")
+    func responseCookieMergesIntoSession() async throws {
+        let vault = SessionVault(service: "EhViewerCookieMergeTests-\(UUID().uuidString)")
+        try await vault.clear()
+        try await vault.saveCookieHeader("ipb_member_id=42; ipb_pass_hash=secret")
+
+        let changed = try await vault.saveSetCookieHeaders(
+            ["igneous=valid-session; Domain=.exhentai.org; Path=/"],
+            url: URL(string: "https://exhentai.org/")!
+        )
+
+        #expect(changed)
+        #expect(try await vault.loadAuthenticatedCookieHeader() == "igneous=valid-session; ipb_member_id=42; ipb_pass_hash=secret")
+        try await vault.clear()
+    }
+
+    @Test("Rejected igneous placeholders are not persisted")
+    func rejectedIgneousIsDiscarded() async throws {
+        let vault = SessionVault(service: "EhViewerRejectedIgneousTests-\(UUID().uuidString)")
+        try await vault.clear()
+        try await vault.saveCookieHeader("ipb_member_id=42; ipb_pass_hash=secret")
+
+        let changed = try await vault.saveSetCookieHeaders(
+            ["igneous=mystery; Domain=.exhentai.org; Path=/"],
+            url: URL(string: "https://exhentai.org/")!
+        )
+
+        #expect(changed == false)
+        #expect(try await vault.loadAuthenticatedCookieHeader() == "ipb_member_id=42; ipb_pass_hash=secret")
+        #expect(try await vault.hasExHentaiSession() == false)
+        try await vault.clear()
     }
 }

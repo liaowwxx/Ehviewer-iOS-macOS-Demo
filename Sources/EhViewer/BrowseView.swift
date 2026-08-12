@@ -12,6 +12,8 @@ struct BrowseView: View {
     @State private var showingImageSearch = false
     @State private var showingAdvancedSearch = false
     @State private var advancedSearch: GalleryAdvancedSearch?
+    @State private var submittedAdvancedSearch: GalleryAdvancedSearch?
+    @State private var searchGalleryKey: GalleryKey?
 
     var body: some View {
         @Bindable var model = model
@@ -53,12 +55,12 @@ struct BrowseView: View {
         .navigationTitle(title)
         .searchable(text: $model.searchText, prompt: "搜索画廊或标签")
         .searchSuggestions {
-            ForEach(model.quickSearches, id: \.self) { query in
-                Text(query).searchCompletion(query)
-            }
+            BrowseSearchSuggestions(searchGalleryKey: $searchGalleryKey)
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button("搜索", systemImage: "magnifyingglass", action: submitSearch)
+                    .accessibilityIdentifier("submit-search")
                 Button("刷新", systemImage: "arrow.clockwise") { Task { await model.load(query: listQuery) } }
                 if kind == .home || kind == .search {
                     Button("按图片搜索", systemImage: "camera") { showingImageSearch = true }
@@ -85,8 +87,14 @@ struct BrowseView: View {
         .task {
             await model.loadQuickSearches()
         }
-        .task(id: listQuery) {
+        .task(id: model.searchText) {
+            await model.updateSearchSuggestions(for: model.searchText)
+        }
+        .task(id: model.site) {
             await model.loadBrowseQuery(listQuery)
+        }
+        .navigationDestination(item: $searchGalleryKey) { key in
+            GalleryDetailView(key: key)
         }
         .overlay {
             if model.isLoading && model.galleries.isEmpty { ProgressView("加载中…") }
@@ -109,9 +117,25 @@ struct BrowseView: View {
         GalleryListQuery(
             site: model.site,
             kind: kind,
-            searchText: model.searchText.isEmpty ? nil : model.searchText,
-            advancedSearch: advancedSearch
+            searchText: model.submittedSearchText.isEmpty ? nil : model.submittedSearchText,
+            advancedSearch: submittedAdvancedSearch
         )
+    }
+
+    private func submitSearch() {
+        if let key = SearchQueryComposer.galleryKey(in: model.searchText) {
+            searchGalleryKey = key
+        } else {
+            model.submitSearch()
+            submittedAdvancedSearch = advancedSearch
+            let query = GalleryListQuery(
+                site: model.site,
+                kind: kind,
+                searchText: model.submittedSearchText.isEmpty ? nil : model.submittedSearchText,
+                advancedSearch: submittedAdvancedSearch
+            )
+            Task { await model.load(query: query) }
+        }
     }
 
     @ViewBuilder

@@ -44,6 +44,12 @@
 		EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002B /* ReaderContinuousView.swift */; };
 		EHB0000000000000000002C /* ReaderPagedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002C /* ReaderPagedView.swift */; };
 		EHB0000000000000000002D /* icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002D /* icon.icon */; };
+		EHB0000000000000000002E /* PasswordLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002E /* PasswordLoginSheet.swift */; };
+		EHB0000000000000000002F /* CookieLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002F /* CookieLoginSheet.swift */; };
+		EHB00000000000000000030 /* WebLoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000030 /* WebLoginSheet.swift */; };
+		EHB00000000000000000031 /* WebLoginCookieSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000031 /* WebLoginCookieSupport.swift */; };
+		EHB00000000000000000032 /* SiteWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000032 /* SiteWebView.swift */; };
+		EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000033 /* BrowseSearchSuggestions.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -114,6 +120,12 @@
 		EHF0000000000000000002B /* ReaderContinuousView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderContinuousView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000002C /* ReaderPagedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPagedView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000002D /* icon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = icon.icon; sourceTree = "<group>"; };
+		EHF0000000000000000002E /* PasswordLoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordLoginSheet.swift; sourceTree = "<group>"; };
+		EHF0000000000000000002F /* CookieLoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookieLoginSheet.swift; sourceTree = "<group>"; };
+		EHF00000000000000000030 /* WebLoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLoginSheet.swift; sourceTree = "<group>"; };
+		EHF00000000000000000031 /* WebLoginCookieSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLoginCookieSupport.swift; sourceTree = "<group>"; };
+		EHF00000000000000000032 /* SiteWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteWebView.swift; sourceTree = "<group>"; };
+		EHF00000000000000000033 /* BrowseSearchSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseSearchSuggestions.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -171,11 +183,14 @@
 				EHF00000000000000000025 /* AdvancedSearchView.swift */,
 				EHF00000000000000000001 /* AppModel.swift */,
 				EHF00000000000000000002 /* BrowseView.swift */,
+				EHF00000000000000000033 /* BrowseSearchSuggestions.swift */,
 				EHF00000000000000000024 /* BrowsePaginationFooter.swift */,
+				EHF0000000000000000002F /* CookieLoginSheet.swift */,
 				EHF00000000000000000003 /* DownloadsView.swift */,
 				EHF00000000000000000004 /* EhViewerApp.swift */,
 				EHF00000000000000000005 /* GalleryDetailView.swift */,
 				EHF00000000000000000006 /* LibraryView.swift */,
+				EHF0000000000000000002E /* PasswordLoginSheet.swift */,
 				EHF00000000000000000026 /* ReadingMode.swift */,
 				EHF0000000000000000002B /* ReaderContinuousView.swift */,
 				EHF0000000000000000002A /* ReaderContinuousZoomState.swift */,
@@ -186,6 +201,9 @@
 				EHF00000000000000000029 /* ReaderZoomState.swift */,
 				EHF00000000000000000008 /* RootView.swift */,
 				EHF0000000000000000000A /* SettingsView.swift */,
+				EHF00000000000000000032 /* SiteWebView.swift */,
+				EHF00000000000000000031 /* WebLoginCookieSupport.swift */,
+				EHF00000000000000000030 /* WebLoginSheet.swift */,
 				EHF0000000000000000000E /* AppLock.swift */,
 				EHF00000000000000000016 /* LocalArchiveView.swift */,
 			);
@@ -362,11 +380,14 @@
 				EHB00000000000000000025 /* AdvancedSearchView.swift in Sources */,
 				EHB00000000000000000001 /* AppModel.swift in Sources */,
 				EHB00000000000000000002 /* BrowseView.swift in Sources */,
+				EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */,
 				EHB00000000000000000024 /* BrowsePaginationFooter.swift in Sources */,
+				EHB0000000000000000002F /* CookieLoginSheet.swift in Sources */,
 				EHB00000000000000000003 /* DownloadsView.swift in Sources */,
 				EHB00000000000000000004 /* EhViewerApp.swift in Sources */,
 				EHB00000000000000000005 /* GalleryDetailView.swift in Sources */,
 				EHB00000000000000000006 /* LibraryView.swift in Sources */,
+				EHB0000000000000000002E /* PasswordLoginSheet.swift in Sources */,
 				EHB00000000000000000026 /* ReadingMode.swift in Sources */,
 				EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */,
 				EHB0000000000000000002A /* ReaderContinuousZoomState.swift in Sources */,
@@ -377,6 +398,9 @@
 				EHB00000000000000000029 /* ReaderZoomState.swift in Sources */,
 				EHB00000000000000000008 /* RootView.swift in Sources */,
 				EHB0000000000000000000A /* SettingsView.swift in Sources */,
+				EHB00000000000000000032 /* SiteWebView.swift in Sources */,
+				EHB00000000000000000031 /* WebLoginCookieSupport.swift in Sources */,
+				EHB00000000000000000030 /* WebLoginSheet.swift in Sources */,
 				EHB0000000000000000000D /* AppLock.swift in Sources */,
 				EHB00000000000000000021 /* LocalArchiveView.swift in Sources */,
 			);

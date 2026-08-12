@@ -18,6 +18,7 @@ final class AppModel {
     let imagePipeline: ImagePipeline
     let backgroundSession: BackgroundDownloadSession
     let downloadFiles: DownloadFileStore
+    let tagSuggestionProvider: TagSuggestionProvider
 
     var site: SiteMode
     var galleries: [GallerySummary] = []
@@ -26,11 +27,14 @@ final class AppModel {
     var filterRules: [FilterRuleSnapshot] = []
     var tagTranslations: [String: String] = [:]
     var quickSearches: [String] = []
+    var searchHistorySuggestions: [String] = []
+    var tagSearchSuggestions: [SearchTagSuggestion] = []
     var imageQuota: ImageQuota?
     var localArchive: LocalArchiveDocument?
     var selectedRoute: AppRoute? = .browse
     var isLoading = false
     var searchText = ""
+    var submittedSearchText = ""
     var isGuestMode = true
     var isPasswordLoginInProgress = false
     var appLockEnabled: Bool
@@ -46,10 +50,12 @@ final class AppModel {
         api: (any EHAPI)? = nil,
         sessionVault: SessionVault = SessionVault(),
         defaults: UserDefaults = .standard,
-        downloadFiles: DownloadFileStore? = nil
+        downloadFiles: DownloadFileStore? = nil,
+        tagSuggestionProvider: TagSuggestionProvider = TagSuggestionProvider()
     ) {
         self.defaults = defaults
-        site = SiteMode(rawValue: defaults.string(forKey: "site") ?? "") ?? .eHentai
+        site = .eHentai
+        defaults.set(SiteMode.eHentai.rawValue, forKey: "site")
         let arguments = ProcessInfo.processInfo.arguments
         let forceGuestModeForUITest = arguments.contains("-UITestUseGuestMode")
         forceGuestMode = forceGuestModeForUITest
@@ -59,6 +65,7 @@ final class AppModel {
         appLockEnabled = defaults.object(forKey: "appLockEnabled") as? Bool ?? false
         isLocked = defaults.object(forKey: "appLockEnabled") as? Bool ?? false
         self.sessionVault = sessionVault
+        self.tagSuggestionProvider = tagSuggestionProvider
         let client: any EHAPI = api ?? EHClient(sessionVault: sessionVault)
         self.api = client
         let store = PersistenceStore(modelContainer: container)
@@ -89,7 +96,7 @@ final class AppModel {
                 request.httpMethod = "GET"
                 request.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
                 request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
-                if let cookieHeader = try? await sessionVault.loadCookieHeader() {
+                if let cookieHeader = try? await sessionVault.loadAuthenticatedCookieHeader() {
                     request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
                 }
                 return try await backgroundSession.data(
@@ -162,25 +169,72 @@ final class AppModel {
     }
 
     func loadBrowseQuery(_ query: GalleryListQuery) async {
-        activeListRequestID = UUID()
-        isLoading = false
-        nextPageURL = nil
-        if query.searchText?.isEmpty == false {
-            do {
-                try await Task.sleep(for: .milliseconds(350))
-            } catch {
-                return
-            }
-        }
-        guard Task.isCancelled == false else { return }
+        guard galleries.isEmpty || isActiveList(query) == false else { return }
         await load(query: query)
+    }
+
+    private func isActiveList(_ query: GalleryListQuery) -> Bool {
+        var requestedQuery = query
+        requestedQuery.page = 0
+        var currentQuery = activeQuery
+        currentQuery.page = 0
+        return requestedQuery == currentQuery
     }
 
     func searchTag(_ tag: String) {
         let normalizedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTag.isEmpty == false else { return }
-        searchText = normalizedTag
+        let searchSyntax = SearchQueryComposer.searchSyntax(for: normalizedTag)
+        searchText = searchSyntax
+        submittedSearchText = searchSyntax
         selectedRoute = .browse
+    }
+
+    func updateSearchSuggestions(for query: String) async {
+        let normalizedQuery = SearchQueryComposer.normalized(query)
+        do {
+            if normalizedQuery.isEmpty == false {
+                try await Task.sleep(for: .milliseconds(120))
+            }
+            async let history = persistence.quickSearchSuggestions(prefix: normalizedQuery)
+            let fragment = SearchQueryComposer.suggestionFragment(in: normalizedQuery)
+            async let tags = tagSuggestionProvider.suggestions(for: fragment)
+            let (loadedHistory, loadedTags) = try await (history, tags)
+            try Task.checkCancellation()
+            guard SearchQueryComposer.normalized(searchText) == normalizedQuery else { return }
+            searchHistorySuggestions = loadedHistory
+            tagSearchSuggestions = loadedTags
+        } catch is CancellationError {
+            return
+        } catch {
+            searchHistorySuggestions = (try? await persistence.quickSearchSuggestions(prefix: normalizedQuery)) ?? []
+            tagSearchSuggestions = []
+        }
+    }
+
+    func completeTagSuggestion(_ tag: String) {
+        searchText = SearchQueryComposer.completing(tag: tag, in: searchText)
+    }
+
+    func selectSearchHistory(_ query: String) {
+        let normalized = SearchQueryComposer.normalized(query)
+        searchText = normalized
+    }
+
+    func deleteSearchHistory(_ query: String) async {
+        do {
+            try await persistence.deleteQuickSearch(query)
+            await loadQuickSearches()
+            await updateSearchSuggestions(for: searchText)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func submitSearch() {
+        let normalized = SearchQueryComposer.normalized(searchText)
+        searchText = normalized
+        submittedSearchText = normalized
     }
 
     func loadMore() async {
@@ -585,9 +639,10 @@ final class AppModel {
     func saveCookie(_ cookieHeader: String) async -> Bool {
         do {
             try await sessionVault.saveCookieHeader(cookieHeader)
-            isGuestMode = false
-            persistSettings()
-            errorMessage = nil
+            guard try await sessionVault.hasAuthenticatedSession() else {
+                throw EHError.invalidCookie
+            }
+            completeAuthentication()
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -601,13 +656,16 @@ final class AppModel {
         defer { isPasswordLoginInProgress = false }
         do {
             _ = try await api.login(username: username, password: password)
-            isGuestMode = false
-            persistSettings()
-            errorMessage = nil
+            guard try await sessionVault.hasAuthenticatedSession() else {
+                throw EHError.invalidCookie
+            }
+            completeAuthentication()
             return true
         } catch is CancellationError {
+            isGuestMode = true
             return false
         } catch {
+            isGuestMode = true
             errorMessage = error.localizedDescription
             return false
         }
@@ -617,6 +675,7 @@ final class AppModel {
         do {
             try await sessionVault.clear()
             isGuestMode = true
+            site = .eHentai
             persistSettings()
         } catch {
             errorMessage = error.localizedDescription
@@ -624,7 +683,17 @@ final class AppModel {
     }
 
     func refreshSessionStatus() async {
-        isGuestMode = (try? await sessionVault.loadCookieHeader()) == nil
+        isGuestMode = (try? await sessionVault.hasAuthenticatedSession()) != true
+        site = .eHentai
+        persistSettings()
+    }
+
+    private func completeAuthentication() {
+        isGuestMode = false
+        site = .eHentai
+        selectedRoute = .browse
+        errorMessage = nil
+        persistSettings()
     }
 
     func setAppLockEnabled(_ enabled: Bool) async {

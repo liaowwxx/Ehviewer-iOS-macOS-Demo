@@ -62,9 +62,13 @@ struct PersistenceTests {
         let store = PersistenceStore(modelContainer: container)
         try await store.recordQuickSearch("  cats  ")
         try await store.recordQuickSearch("dogs")
+        try await store.recordQuickSearch("catgirl")
         try await store.setFilterRule(pattern: "spoiler", isEnabled: true)
 
-        #expect(Set(try await store.quickSearches()) == ["dogs", "cats"])
+        #expect(Set(try await store.quickSearches()) == ["dogs", "cats", "catgirl"])
+        #expect(Set(try await store.quickSearchSuggestions(prefix: "cat")) == ["cats", "catgirl"])
+        try await store.deleteQuickSearch("cats")
+        #expect(try await store.quickSearchSuggestions(prefix: "cat") == ["catgirl"])
         #expect(try await store.filterRules().first?.pattern == "spoiler")
     }
 

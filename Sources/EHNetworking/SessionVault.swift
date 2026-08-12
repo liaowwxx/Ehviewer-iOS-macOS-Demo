@@ -30,9 +30,27 @@ public actor SessionVault {
         #endif
     }
 
+    public func loadAuthenticatedCookieHeader() throws -> String? {
+        guard let storedHeader = try loadCookieHeader(),
+              let parsed = CookieHeader.parse(storedHeader),
+              parsed.isAuthenticated else { return nil }
+        return parsed.sessionHeaderValue
+    }
+
+    public func hasExHentaiSession() throws -> Bool {
+        guard let storedHeader = try loadCookieHeader(),
+              let parsed = CookieHeader.parse(storedHeader) else { return false }
+        return parsed.isExHentaiAuthenticated
+    }
+
     public func saveCookieHeader(_ cookieHeader: String) throws {
-        guard let parsed = CookieHeader.parse(cookieHeader) else { throw EHError.invalidCookie }
-        let normalizedHeader = parsed.headerValue
+        guard let parsed = CookieHeader.parse(cookieHeader), parsed.isAuthenticated else {
+            throw EHError.invalidCookie
+        }
+        if parsed.values[CookieHeader.igneousName] != nil, parsed.hasValidIgneous == false {
+            throw EHError.invalidCookie
+        }
+        let normalizedHeader = parsed.sessionHeaderValue
         #if canImport(Security)
         let data = Data(normalizedHeader.utf8)
         let query = baseQuery as CFDictionary
@@ -51,14 +69,61 @@ public actor SessionVault {
         #endif
     }
 
-    public func saveSetCookieHeaders(_ headers: [String], url: URL) throws {
-        var responseHeaders: [String: String] = [:]
-        responseHeaders["Set-Cookie"] = headers.joined(separator: ", ")
-        let cookies = HTTPCookie.cookies(withResponseHeaderFields: responseHeaders, for: url)
-        let cookieHeader = cookies
-            .map { "\($0.name)=\($0.value)" }
-            .joined(separator: "; ")
-        try saveCookieHeader(cookieHeader)
+    @discardableResult
+    public func saveSetCookieHeaders(_ headers: [String], url: URL) throws -> Bool {
+        let previous = try loadCookieHeader().flatMap(CookieHeader.parse)
+        var values = previous?.values ?? [:]
+        let previousHeader = previous?.sessionHeaderValue
+        var foundSessionCookie = false
+        for header in headers {
+            let cookies = HTTPCookie.cookies(
+                withResponseHeaderFields: ["Set-Cookie": header],
+                for: url
+            )
+            for cookie in cookies where CookieHeader.persistedCookieNames.contains(cookie.name) {
+                foundSessionCookie = true
+                if cookie.value.isEmpty
+                    || cookie.expiresDate.map({ $0 <= Date() }) == true
+                    || (cookie.name == CookieHeader.igneousName
+                        && CookieHeader.isValidIgneousValue(cookie.value) == false) {
+                    values.removeValue(forKey: cookie.name)
+                } else {
+                    values[cookie.name] = cookie.value
+                }
+            }
+        }
+        guard foundSessionCookie else { return false }
+
+        let merged = CookieHeader(values: values)
+        guard merged.isAuthenticated else {
+            if previous?.isAuthenticated == true { try clear() }
+            throw EHError.invalidCookie
+        }
+        let hadRejectedIgneous = previous?.values[CookieHeader.igneousName]
+            .map { CookieHeader.isValidIgneousValue($0) == false } == true
+        guard merged.sessionHeaderValue != previousHeader || hadRejectedIgneous else { return false }
+        try saveCookieHeader(merged.sessionHeaderValue)
+        return true
+    }
+
+    @discardableResult
+    public func clearIgneous() throws -> Bool {
+        guard let storedHeader = try loadCookieHeader(),
+              let parsed = CookieHeader.parse(storedHeader),
+              parsed.values[CookieHeader.igneousName] != nil else { return false }
+        var values = parsed.values
+        values.removeValue(forKey: CookieHeader.igneousName)
+        let updated = CookieHeader(values: values)
+        guard updated.isAuthenticated else {
+            try clear()
+            return true
+        }
+        try saveCookieHeader(updated.sessionHeaderValue)
+        return true
+    }
+
+    public func hasAuthenticatedSession() throws -> Bool {
+        try loadAuthenticatedCookieHeader() != nil
     }
 
     public func clear() throws {
@@ -83,7 +148,17 @@ public actor SessionVault {
 }
 
 public struct CookieHeader: Hashable, Sendable {
+    public static let memberIDName = "ipb_member_id"
+    public static let passwordHashName = "ipb_pass_hash"
+    public static let igneousName = "igneous"
+    public static let requiredAuthenticationNames: Set<String> = [memberIDName, passwordHashName]
+    public static let persistedCookieNames: Set<String> = requiredAuthenticationNames.union([igneousName])
+
     public let values: [String: String]
+
+    public init(values: [String: String]) {
+        self.values = values
+    }
 
     public static func parse(_ header: String) -> CookieHeader? {
         var values: [String: String] = [:]
@@ -99,6 +174,40 @@ public struct CookieHeader: Hashable, Sendable {
     }
 
     public var headerValue: String {
-        values.keys.sorted().map { "\($0)=\(values[$0]!)" }.joined(separator: "; ")
+        values.keys.sorted().compactMap { name in
+            values[name].map { "\(name)=\($0)" }
+        }.joined(separator: "; ")
+    }
+
+    public var sessionHeaderValue: String {
+        values.keys
+            .filter { name in
+                guard Self.persistedCookieNames.contains(name) else { return false }
+                guard name == Self.igneousName else { return true }
+                return Self.isValidIgneousValue(values[name])
+            }
+            .sorted()
+            .compactMap { name in values[name].map { "\(name)=\($0)" } }
+            .joined(separator: "; ")
+    }
+
+    public var isAuthenticated: Bool {
+        Self.requiredAuthenticationNames.allSatisfy { name in
+            values[name]?.isEmpty == false
+        }
+    }
+
+    public var hasValidIgneous: Bool {
+        Self.isValidIgneousValue(values[Self.igneousName])
+    }
+
+    public var isExHentaiAuthenticated: Bool {
+        isAuthenticated && hasValidIgneous
+    }
+
+    public static func isValidIgneousValue(_ value: String?) -> Bool {
+        guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              normalized.isEmpty == false else { return false }
+        return normalized != "mystery" && normalized != "null"
     }
 }

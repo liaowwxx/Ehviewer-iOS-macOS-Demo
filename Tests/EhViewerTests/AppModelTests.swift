@@ -28,6 +28,90 @@ struct AppModelTests {
         #expect(model.isGuestMode)
     }
 
+    @Test("Unrelated cookies cannot leave guest mode")
+    func unrelatedCookieDoesNotAuthenticate() async throws {
+        let suiteName = "EhViewerCookieLoginTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let sessionVault = SessionVault(service: suiteName)
+        try await sessionVault.clear()
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: sessionVault,
+            defaults: defaults
+        )
+
+        #expect(await model.saveCookie("foo=bar") == false)
+        #expect(model.isGuestMode)
+        #expect(try await sessionVault.hasAuthenticatedSession() == false)
+    }
+
+    @Test("A complete session cookie leaves guest mode")
+    func completeCookieAuthenticates() async throws {
+        let suiteName = "EhViewerValidCookieLoginTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let sessionVault = SessionVault(service: suiteName)
+        try await sessionVault.clear()
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: sessionVault,
+            defaults: defaults
+        )
+
+        #expect(await model.saveCookie("ipb_member_id=42; ipb_pass_hash=secret; unrelated=value"))
+        #expect(model.isGuestMode == false)
+        #expect(model.site == .eHentai)
+        #expect(model.selectedRoute == .browse)
+        #expect(try await sessionVault.loadAuthenticatedCookieHeader() == "ipb_member_id=42; ipb_pass_hash=secret")
+        await model.clearSession()
+        #expect(model.site == .eHentai)
+    }
+
+    @Test("E-Hentai remains the default site for saved sessions")
+    func authenticatedSessionDefaultsToEHentai() async throws {
+        let suiteName = "EhViewerDefaultSiteTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SiteMode.exHentai.rawValue, forKey: "site")
+        let vault = SessionVault(service: suiteName)
+        try await vault.saveCookieHeader("ipb_member_id=42; ipb_pass_hash=secret")
+
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: vault,
+            defaults: defaults
+        )
+        await model.refreshSessionStatus()
+
+        #expect(model.isGuestMode == false)
+        #expect(model.site == .eHentai)
+        #expect(defaults.string(forKey: "site") == SiteMode.eHentai.rawValue)
+        try await vault.clear()
+    }
+
+    @Test("Typing a query does not commit it before search submission")
+    func searchSubmissionIsExplicit() throws {
+        let suiteName = "EhViewerExplicitSearchTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+
+        model.searchText = "  artist:test\n"
+        #expect(model.submittedSearchText.isEmpty)
+        model.submitSearch()
+        #expect(model.searchText == "artist:test")
+        #expect(model.submittedSearchText == "artist:test")
+    }
+
     @Test("A slower old search cannot overwrite the latest result")
     func latestListRequestWins() async throws {
         let api = ControlledListAPI()
@@ -100,6 +184,38 @@ struct AppModelTests {
         #expect(model.galleries == [first, last, next])
         #expect(await api.requestedPageURLs() == [cursorURL])
         #expect(model.hasMorePage == false)
+    }
+
+    @Test("Returning from gallery detail keeps the loaded list and pagination position")
+    func returningFromDetailDoesNotReloadBrowseList() async throws {
+        let first = GallerySummary(key: GalleryKey(gid: 2, token: "first"), title: "First")
+        let second = GallerySummary(key: GalleryKey(gid: 1, token: "second"), title: "Second")
+        let next = GallerySummary(key: GalleryKey(gid: 3, token: "next"), title: "Next")
+        let cursorURL = try #require(URL(string: "https://e-hentai.org/?next=1"))
+        let api = SearchPaginationAPI(
+            firstPage: GalleryListPage(
+                items: [first, second],
+                cursor: GalleryCursor(page: 0, nextPageURL: cursorURL)
+            ),
+            secondPage: GalleryListPage(items: [next])
+        )
+        let suiteName = "EhViewerBrowseReturnTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: api,
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        let query = GalleryListQuery()
+
+        await model.loadBrowseQuery(query)
+        await model.loadMoreIfNeeded(after: second.key)
+        await model.loadBrowseQuery(query)
+
+        #expect(await api.firstPageRequestCount() == 1)
+        #expect(model.galleries == [first, second, next])
     }
 
     @Test("Downloaded reader loads a completed page without a network request")
@@ -185,6 +301,7 @@ private actor SearchPaginationAPI: EHAPI {
     let firstPage: GalleryListPage
     let secondPage: GalleryListPage
     private var pageURLs: [URL] = []
+    private var firstPageRequests = 0
 
     init(firstPage: GalleryListPage, secondPage: GalleryListPage) {
         self.firstPage = firstPage
@@ -192,7 +309,8 @@ private actor SearchPaginationAPI: EHAPI {
     }
 
     func list(query: GalleryListQuery) async throws -> GalleryListPage {
-        firstPage
+        firstPageRequests += 1
+        return firstPage
     }
 
     func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage {
@@ -206,5 +324,9 @@ private actor SearchPaginationAPI: EHAPI {
 
     func requestedPageURLs() -> [URL] {
         pageURLs
+    }
+
+    func firstPageRequestCount() -> Int {
+        firstPageRequests
     }
 }

@@ -107,6 +107,7 @@ public struct EHClient: EHAPI, Sendable {
     private let parser: GalleryHTMLParser
     private let pageParser: GalleryPageParser
     private let sessionVault: SessionVault
+    private let exHentaiRefreshGate: ExHentaiRefreshGate
 
     public init(
         transport: any HTTPTransport = URLSessionTransport(),
@@ -118,12 +119,16 @@ public struct EHClient: EHAPI, Sendable {
         self.parser = parser
         self.pageParser = pageParser
         self.sessionVault = sessionVault
+        self.exHentaiRefreshGate = ExHentaiRefreshGate()
     }
 
     public func login(username: String, password: String) async throws -> LoginResult {
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         guard username.isEmpty == false else { throw EHError.parsingFailed("用户名不能为空") }
         guard password.isEmpty == false else { throw EHError.parsingFailed("密码不能为空") }
+        try await sessionVault.clear()
+        Self.clearTransientAuthenticationCookies()
+        defer { Self.clearTransientAuthenticationCookies() }
         let url = URL(string: "https://forums.e-hentai.org/index.php?act=Login&CODE=01")!
         var request = formRequest(
             url: url,
@@ -147,14 +152,11 @@ public struct EHClient: EHAPI, Sendable {
             let displayName = text.replacingOccurrences(of: prefix, with: "", options: [.caseInsensitive])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard displayName.isEmpty == false else { throw EHError.parsingFailed("登录响应缺少用户名") }
-            let setCookieHeaders = response.allHeaderFields.compactMap { key, value -> String? in
-                guard String(describing: key).caseInsensitiveCompare("Set-Cookie") == .orderedSame else { return nil }
-                if let values = value as? [String] { return values.joined(separator: ", ") }
-                return String(describing: value)
-            }
-            if setCookieHeaders.isEmpty == false {
-                try await sessionVault.saveSetCookieHeaders(setCookieHeaders, url: url)
-            }
+            var setCookieHeaders = Self.setCookieHeaders(from: response)
+            setCookieHeaders.append(contentsOf: Self.transientAuthenticationCookieHeaders())
+            guard setCookieHeaders.isEmpty == false else { throw EHError.invalidCookie }
+            try await sessionVault.saveSetCookieHeaders(setCookieHeaders, url: url)
+            guard try await sessionVault.hasAuthenticatedSession() else { throw EHError.invalidCookie }
             return LoginResult(displayName: displayName)
         }
 
@@ -164,36 +166,59 @@ public struct EHClient: EHAPI, Sendable {
         throw EHError.parsingFailed("登录响应无法识别")
     }
 
+    private static func clearTransientAuthenticationCookies() {
+        for cookie in HTTPCookieStorage.shared.cookies ?? []
+        where CookieHeader.persistedCookieNames.contains(cookie.name) && isAuthenticationDomain(cookie.domain) {
+            HTTPCookieStorage.shared.deleteCookie(cookie)
+        }
+    }
+
+    private static func transientAuthenticationCookieHeaders() -> [String] {
+        (HTTPCookieStorage.shared.cookies ?? []).compactMap { cookie in
+            guard CookieHeader.persistedCookieNames.contains(cookie.name),
+                  isAuthenticationDomain(cookie.domain) else { return nil }
+            return "\(cookie.name)=\(cookie.value)"
+        }
+    }
+
+    private static func isAuthenticationDomain(_ domain: String) -> Bool {
+        let normalized = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return normalized == "e-hentai.org"
+            || normalized.hasSuffix(".e-hentai.org")
+            || normalized == "exhentai.org"
+            || normalized.hasSuffix(".exhentai.org")
+    }
+
     public func list(query: GalleryListQuery) async throws -> GalleryListPage {
         try await list(query: query, pageURL: nil)
     }
 
     public func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage {
         let builder = SiteRequestBuilder(site: query.site)
-        var request = if let pageURL {
+        let request = if let pageURL {
             try builder.galleryListRequest(pageURL: pageURL)
         } else {
             try builder.galleryListRequest(query: query)
         }
-        try await attachSessionCookie(to: &request)
-        let (data, response) = try await send(request)
+        let (data, response) = try await authorized(request)
         try validate(response)
+        if query.site == .exHentai, Self.isBlank(data) {
+            throw EHError.exHentaiAccessDenied
+        }
         return try parser.parseList(data: data, query: query)
     }
 
     public func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
         let builder = SiteRequestBuilder(site: site)
-        var request = try builder.galleryRequest(key: key)
-        try await attachSessionCookie(to: &request)
-        let (data, response) = try await send(request)
+        let request = try builder.galleryRequest(key: key)
+        let (data, response) = try await authorized(request)
         try validate(response)
         return try parser.parseDetail(data: data, key: key, site: site)
     }
 
     public func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage {
-        var request = try SiteRequestBuilder(site: site).pageRequest(descriptor)
-        try await attachSessionCookie(to: &request)
-        let (data, response) = try await send(request)
+        let request = try SiteRequestBuilder(site: site).pageRequest(descriptor)
+        let (data, response) = try await authorized(request)
         try validate(response)
         return try pageParser.parse(data: data, descriptor: descriptor, site: site)
     }
@@ -204,8 +229,7 @@ public struct EHClient: EHAPI, Sendable {
         request.httpMethod = "GET"
         request.setValue("image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
         request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
-        try await attachSessionCookie(to: &request)
-        let (data, response) = try await send(request)
+        let (data, response) = try await authorized(request)
         try validate(response)
         return data
     }
@@ -233,14 +257,13 @@ public struct EHClient: EHAPI, Sendable {
             URLQueryItem(name: "t", value: key.token),
             URLQueryItem(name: "act", value: "addfav")
         ])
-        var request = formRequest(url: url, referer: url, fields: [
+        let request = formRequest(url: url, referer: url, fields: [
             ("favcat", category.map(String.init) ?? "favdel"),
             ("favnote", note ?? ""),
             ("submit", "Apply Changes"),
             ("update", "1")
         ])
-        try await attachSessionCookie(to: &request)
-        let (_, response) = try await send(request)
+        let (_, response) = try await authorized(request)
         try validate(response)
     }
 
@@ -276,9 +299,8 @@ public struct EHClient: EHAPI, Sendable {
             fields.append(("commenttext_new", body))
         }
         let url = galleryURL(key, site: site)
-        var request = formRequest(url: url, referer: url, fields: fields)
-        try await attachSessionCookie(to: &request)
-        let (data, response) = try await send(request)
+        let request = formRequest(url: url, referer: url, fields: fields)
+        let (data, response) = try await authorized(request)
         try validate(response)
         if let message = try? parseSiteError(data), message.isEmpty == false {
             throw EHError.networkFailed(message)
@@ -314,7 +336,7 @@ public struct EHClient: EHAPI, Sendable {
         let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalized.isEmpty == false else { throw EHError.parsingFailed("标签不能为空") }
         let url = try makeURL(site: site, path: "/mytags", query: [])
-        var request = formRequest(url: url, referer: url, fields: [
+        let request = formRequest(url: url, referer: url, fields: [
             ("usertag_action", "add"),
             ("tagname_new", normalized),
             ("tagwatch_new", "on"),
@@ -323,8 +345,7 @@ public struct EHClient: EHAPI, Sendable {
             ("tagweight_new", "10"),
             ("usertag_target", "0")
         ])
-        try await attachSessionCookie(to: &request)
-        let (data, response) = try await send(request)
+        let (data, response) = try await authorized(request)
         try validate(response)
         return try AdvancedHTMLParser().parseWatchedTags(data: data)
     }
@@ -349,9 +370,8 @@ public struct EHClient: EHAPI, Sendable {
 
     public func archiveDownloadURL(for key: GalleryKey, site: SiteMode, resolution: String) async throws -> URL {
         guard let url = try await detail(for: key, site: site).archiveURL else { throw EHError.notFound }
-        var request = formRequest(url: url, referer: galleryURL(key, site: site), fields: [("hathdl_xres", resolution)])
-        try await attachSessionCookie(to: &request)
-        let (data, response) = try await send(request)
+        let request = formRequest(url: url, referer: galleryURL(key, site: site), fields: [("hathdl_xres", resolution)])
+        let (data, response) = try await authorized(request)
         try validate(response)
         guard let downloadURL = try AdvancedHTMLParser().parseArchiveDownloadURL(data: data, site: site) else {
             throw EHError.parsingFailed("归档服务器未返回下载地址")
@@ -388,9 +408,8 @@ public struct EHClient: EHAPI, Sendable {
 
     public func resetImageQuota(site: SiteMode) async throws -> ImageQuota {
         let url = try makeURL(site: site, path: "/home.php", query: [])
-        var request = formRequest(url: url, referer: url, fields: [("reset_imagelimit", "Reset Limit")])
-        try await attachSessionCookie(to: &request)
-        let (data, response) = try await send(request)
+        let request = formRequest(url: url, referer: url, fields: [("reset_imagelimit", "Reset Limit")])
+        let (data, response) = try await authorized(request)
         try validate(response)
         return try AdvancedHTMLParser().parseImageQuota(data: data)
     }
@@ -405,12 +424,18 @@ public struct EHClient: EHAPI, Sendable {
             default: throw EHError.httpStatus(response.statusCode)
             }
         }
+        if response.value(forHTTPHeaderField: "Content-Disposition") == "inline; filename=\"sadpanda.jpg\"",
+           response.value(forHTTPHeaderField: "Content-Type") == "image/gif",
+           response.value(forHTTPHeaderField: "Content-Length") == "9615" {
+            throw EHError.exHentaiAccessDenied
+        }
     }
 
     private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         for attempt in 0..<3 {
             do {
                 let result = try await transport.send(request)
+                await persistResponseCookies(from: result.1)
                 if result.1.statusCode >= 400 {
                     EHLog.network.warning("HTTP status \(result.1.statusCode, privacy: .public)")
                 }
@@ -435,15 +460,132 @@ public struct EHClient: EHAPI, Sendable {
     }
 
     private func attachSessionCookie(to request: inout URLRequest) async throws {
-        if let cookieHeader = try await sessionVault.loadCookieHeader() {
+        if let cookieHeader = try await sessionVault.loadAuthenticatedCookieHeader() {
             request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         }
     }
 
     private func authorized(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        var request = request
-        try await attachSessionCookie(to: &request)
-        return try await send(request)
+        let previousSession = try await sessionVault.loadAuthenticatedCookieHeader()
+        var authorizedRequest = request
+        try await attachSessionCookie(to: &authorizedRequest)
+        let result = try await send(authorizedRequest)
+
+        guard isExHentaiGET(request), isExHentaiAccessFailure(result, for: request) else {
+            return result
+        }
+
+        let updatedSession = try await sessionVault.loadAuthenticatedCookieHeader()
+        if updatedSession != previousSession, try await sessionVault.hasExHentaiSession() {
+            return try await replayExHentaiRequest(request)
+        }
+
+        let refreshed = try await exHentaiRefreshGate.run {
+            try await refreshExHentaiSession()
+        }
+        guard refreshed else { throw EHError.exHentaiAccessDenied }
+        return try await replayExHentaiRequest(request)
+    }
+
+    private func replayExHentaiRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        var replayRequest = request
+        try await attachSessionCookie(to: &replayRequest)
+        let replay = try await send(replayRequest)
+        guard isExHentaiAccessFailure(replay, for: request) == false else {
+            throw EHError.exHentaiAccessDenied
+        }
+        return replay
+    }
+
+    private func refreshExHentaiSession() async throws -> Bool {
+        guard try await sessionVault.hasAuthenticatedSession() else { return false }
+        try await sessionVault.clearIgneous()
+
+        if let refresher = transport as? any ExHentaiCookieRefreshing,
+           let authenticationHeader = try await sessionVault.loadAuthenticatedCookieHeader(),
+           let igneous = try await refresher.refreshExHentaiCookie(
+               authenticationHeader: authenticationHeader
+           ),
+           let base = CookieHeader.parse(authenticationHeader) {
+            var values = base.values
+            values[CookieHeader.igneousName] = igneous
+            try await sessionVault.saveCookieHeader(CookieHeader(values: values).sessionHeaderValue)
+            return true
+        }
+
+        var eHentaiRequest = Self.authenticationBootstrapRequest(
+            url: URL(string: "https://e-hentai.org/")!
+        )
+        try await attachSessionCookie(to: &eHentaiRequest)
+        let (_, eHentaiResponse) = try await send(eHentaiRequest)
+        try validate(eHentaiResponse)
+
+        for attempt in 0..<3 {
+            var exHentaiRequest = Self.authenticationBootstrapRequest(
+                url: URL(string: "https://exhentai.org/")!
+            )
+            try await attachSessionCookie(to: &exHentaiRequest)
+            let (_, response) = try await send(exHentaiRequest)
+            if try await sessionVault.hasExHentaiSession() { return true }
+            if [429, 509].contains(response.statusCode) { try validate(response) }
+            if attempt < 2 { try await Task.sleep(for: .milliseconds(500)) }
+        }
+        return false
+    }
+
+    private func isExHentaiGET(_ request: URLRequest) -> Bool {
+        request.httpMethod?.uppercased() == "GET"
+            && request.url?.host?.lowercased() == SiteMode.exHentai.host
+    }
+
+    private func isExHentaiAccessFailure(
+        _ result: (Data, HTTPURLResponse),
+        for request: URLRequest
+    ) -> Bool {
+        guard isExHentaiGET(request) else { return false }
+        let (data, response) = result
+        if response.url?.host?.lowercased() != SiteMode.exHentai.host { return true }
+        if response.statusCode == 302 || response.statusCode == 403 { return true }
+        if response.value(forHTTPHeaderField: "Content-Disposition") == "inline; filename=\"sadpanda.jpg\"",
+           response.value(forHTTPHeaderField: "Content-Type") == "image/gif" {
+            return true
+        }
+        return Self.isBlank(data)
+    }
+
+    private static func authenticationBootstrapRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+        request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
+        return request
+    }
+
+    private static func isBlank(_ data: Data) -> Bool {
+        if data.isEmpty { return true }
+        guard let body = String(data: data, encoding: .utf8) else { return false }
+        return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func persistResponseCookies(from response: HTTPURLResponse) async {
+        guard let url = response.url else { return }
+        let headers = Self.setCookieHeaders(from: response)
+        guard headers.isEmpty == false else { return }
+        do {
+            try await sessionVault.saveSetCookieHeaders(headers, url: url)
+        } catch let error as EHError where error == .invalidCookie {
+            // A guest response can set an isolated optional cookie; it is not an authenticated session.
+        } catch {
+            EHLog.network.error("response cookie persistence failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private static func setCookieHeaders(from response: HTTPURLResponse) -> [String] {
+        response.allHeaderFields.compactMap { key, value -> String? in
+            guard String(describing: key).caseInsensitiveCompare("Set-Cookie") == .orderedSame else { return nil }
+            if let values = value as? [String] { return values.joined(separator: ", ") }
+            return String(describing: value)
+        }
     }
 
     private func galleryURL(_ key: GalleryKey, site: SiteMode) -> URL {
@@ -547,5 +689,17 @@ public struct EHClient: EHAPI, Sendable {
     private func parseSiteError(_ data: Data) throws -> String? {
         let document = try SwiftSoup.parse(String(decoding: data, as: UTF8.self))
         return try document.select("#chd + p, .d p").first()?.text()
+    }
+}
+
+private actor ExHentaiRefreshGate {
+    private var task: Task<Bool, any Error>?
+
+    func run(_ operation: @escaping @Sendable () async throws -> Bool) async throws -> Bool {
+        if let task { return try await task.value }
+        let task = Task { try await operation() }
+        self.task = task
+        defer { self.task = nil }
+        return try await task.value
     }
 }

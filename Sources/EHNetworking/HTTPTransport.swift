@@ -5,10 +5,21 @@ public protocol HTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
 }
 
+protocol ExHentaiCookieRefreshing: Sendable {
+    func refreshExHentaiCookie(authenticationHeader: String) async throws -> String?
+}
+
 public struct URLSessionTransport: HTTPTransport, Sendable {
     private let session: URLSession
 
-    public init(session: URLSession = .shared) {
+    public init() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        session = URLSession(configuration: configuration)
+    }
+
+    public init(session: URLSession) {
         self.session = session
     }
 
@@ -18,6 +29,68 @@ public struct URLSessionTransport: HTTPTransport, Sendable {
             throw EHError.invalidResponse
         }
         return (data, httpResponse)
+    }
+}
+
+extension URLSessionTransport: ExHentaiCookieRefreshing {
+    func refreshExHentaiCookie(authenticationHeader: String) async throws -> String? {
+        guard let parsed = CookieHeader.parse(authenticationHeader), parsed.isAuthenticated else {
+            throw EHError.invalidCookie
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieAcceptPolicy = .always
+        configuration.httpShouldSetCookies = true
+        guard let cookieStore = configuration.httpCookieStorage else {
+            throw EHError.invalidResponse
+        }
+
+        for domain in [".e-hentai.org", ".exhentai.org"] {
+            for name in CookieHeader.requiredAuthenticationNames {
+                guard let value = parsed.values[name],
+                      let cookie = HTTPCookie(properties: [
+                        .domain: domain,
+                        .path: "/",
+                        .name: name,
+                        .value: value,
+                        .secure: "TRUE"
+                      ]) else { throw EHError.invalidCookie }
+                cookieStore.setCookie(cookie)
+            }
+        }
+
+        let refreshSession = URLSession(configuration: configuration)
+        defer { refreshSession.invalidateAndCancel() }
+        _ = try await refreshSession.data(for: Self.bootstrapRequest(
+            url: URL(string: "https://e-hentai.org/")!
+        ))
+
+        let exHentaiURL = URL(string: "https://exhentai.org/")!
+        for attempt in 0..<3 {
+            let (_, response) = try await refreshSession.data(for: Self.bootstrapRequest(url: exHentaiURL))
+            if let response = response as? HTTPURLResponse {
+                switch response.statusCode {
+                case 429: throw EHError.rateLimited
+                case 509: throw EHError.bandwidthLimited
+                default: break
+                }
+            }
+            if let value = cookieStore.cookies(for: exHentaiURL)?
+                .first(where: { $0.name == CookieHeader.igneousName })?.value,
+               CookieHeader.isValidIgneousValue(value) {
+                return value
+            }
+            if attempt < 2 { try await Task.sleep(for: .milliseconds(500)) }
+        }
+        return nil
+    }
+
+    private static func bootstrapRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
+        request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
+        return request
     }
 }
 

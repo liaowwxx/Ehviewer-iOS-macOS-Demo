@@ -14,6 +14,9 @@ public struct GalleryHTMLParser: Sendable {
             let candidates = try document.select("table.itg > tr, table.itg > tbody > tr, tr.gtr0, tr.gtr1, div.gl1t3")
             let summaries = try candidates.compactMap { try parseSummary(from: $0) }
             let nextPageURL = try parseNextPageURL(from: document, html: html, site: query.site)
+            if summaries.isEmpty, nextPageURL == nil, isNoHitsPage(document) == false {
+                throw EHError.parsingFailed("站点没有返回可识别的画廊列表")
+            }
             return GalleryListPage(
                 items: summaries,
                 cursor: GalleryCursor(
@@ -26,6 +29,11 @@ public struct GalleryHTMLParser: Sendable {
         } catch {
             throw EHError.parsingFailed(error.localizedDescription)
         }
+    }
+
+    private func isNoHitsPage(_ document: Document) -> Bool {
+        let text = (try? document.text())?.lowercased() ?? ""
+        return text.contains("no hits found") || text.contains("no galleries found")
     }
 
     private func parseNextPageURL(from document: Document, html: String, site: SiteMode) throws -> URL? {

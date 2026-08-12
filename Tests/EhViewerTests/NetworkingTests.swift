@@ -4,6 +4,20 @@ import EHDomain
 import EHNetworking
 
 struct NetworkingTests {
+    @Test("Original tag database format decodes English and localized suggestions")
+    func tagSuggestionDatabase() throws {
+        let translation = Data("画师测试".utf8).base64EncodedString()
+        let payload = Data("a:test artist\r\(translation)\nf:sample\rbnVsbA==\n".utf8)
+        let length = UInt32(payload.count).bigEndian
+        var data = withUnsafeBytes(of: length) { Data($0) }
+        data.append(payload)
+
+        let decoded = try TagSuggestionProvider.decodeDatabase(data)
+
+        #expect(decoded.first == SearchTagSuggestion(english: "artist:test artist", localizedText: "画师测试"))
+        #expect(decoded.last == SearchTagSuggestion(english: "female:sample", localizedText: nil))
+    }
+
     @Test("HTML list parser extracts gallery keys and cursor")
     func listParser() throws {
         let fixtureURL = try #require(Bundle.module.url(forResource: "list", withExtension: "html"))
@@ -158,6 +172,131 @@ struct NetworkingTests {
         #expect(try await vault.loadCookieHeader()?.contains("ipb_member_id=42") == true)
         #expect(try await vault.loadCookieHeader()?.contains("ipb_pass_hash=secret") == true)
         try? await vault.clear()
+    }
+
+    @Test("Password login does not succeed without persisted authentication cookies")
+    func passwordLoginWithoutCookies() async throws {
+        let response = try #require(HTTPURLResponse(
+            url: URL(string: "https://forums.e-hentai.org/index.php?act=Login&CODE=01")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+        let vault = SessionVault(service: "EhViewerMissingLoginCookieTests-\(UUID().uuidString)")
+        let client = EHClient(
+            transport: StubTransport(
+                data: Data("<p>You are now logged in as: test-user</p>".utf8),
+                response: response
+            ),
+            sessionVault: vault
+        )
+
+        do {
+            _ = try await client.login(username: "test-user", password: "not-persisted")
+            Issue.record("expected invalid cookie error")
+        } catch let error as EHError {
+            #expect(error == .invalidCookie)
+        }
+        #expect(try await vault.hasAuthenticatedSession() == false)
+        try? await vault.clear()
+    }
+
+    @Test("ExHentai rebuilds the E-Hentai to ExHentai cookie chain after a rejected igneous")
+    func exHentaiCookieBootstrap() async throws {
+        let fixtureURL = try #require(Bundle.module.url(forResource: "list", withExtension: "html"))
+        let listData = try Data(contentsOf: fixtureURL)
+        let firstResponse = try #require(HTTPURLResponse(
+            url: URL(string: "https://exhentai.org/")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Set-Cookie": "igneous=mystery; Domain=.exhentai.org; Path=/"]
+        ))
+        let eHentaiResponse = try #require(HTTPURLResponse(
+            url: URL(string: "https://e-hentai.org/")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+        let issuedResponse = try #require(HTTPURLResponse(
+            url: URL(string: "https://exhentai.org/")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Set-Cookie": "igneous=real-session; Domain=.exhentai.org; Path=/"]
+        ))
+        let finalResponse = try #require(HTTPURLResponse(
+            url: URL(string: "https://exhentai.org/")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+        let transport = SequenceTransport(responses: [
+            (Data(), firstResponse),
+            (Data("<html>e-hentai session</html>".utf8), eHentaiResponse),
+            (Data(), issuedResponse),
+            (listData, finalResponse)
+        ])
+        let vault = SessionVault(service: "EhViewerExHCookieTests-\(UUID().uuidString)")
+        try await vault.clear()
+        try await vault.saveCookieHeader("ipb_member_id=42; ipb_pass_hash=secret")
+        let client = EHClient(transport: transport, sessionVault: vault)
+
+        let page = try await client.list(query: GalleryListQuery(site: .exHentai))
+        let cookieHeaders = await transport.cookieHeaders()
+
+        #expect(page.items.isEmpty == false)
+        #expect(cookieHeaders.count == 4)
+        #expect(cookieHeaders[0]?.contains("igneous=") == false)
+        #expect(cookieHeaders[1]?.contains("igneous=") == false)
+        #expect(cookieHeaders[2]?.contains("igneous=") == false)
+        #expect(cookieHeaders[3]?.contains("igneous=real-session") == true)
+        #expect(try await vault.loadAuthenticatedCookieHeader()?.contains("igneous=real-session") == true)
+        try await vault.clear()
+    }
+
+    @Test("ExHentai blank responses are access errors instead of empty result pages")
+    func exHentaiBlankResponse() async throws {
+        let response = try #require(HTTPURLResponse(
+            url: URL(string: "https://exhentai.org/")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Set-Cookie": "igneous=mystery; Domain=.exhentai.org; Path=/"]
+        ))
+        let vault = SessionVault(service: "EhViewerExHBlankTests-\(UUID().uuidString)")
+        try await vault.saveCookieHeader("ipb_member_id=42; ipb_pass_hash=secret")
+        let client = EHClient(
+            transport: SequenceTransport(responses: Array(repeating: (Data(), response), count: 5)),
+            sessionVault: vault
+        )
+
+        do {
+            _ = try await client.list(query: GalleryListQuery(site: .exHentai))
+            Issue.record("expected ExHentai access denial")
+        } catch let error as EHError {
+            #expect(error == .exHentaiAccessDenied)
+        }
+        try await vault.clear()
+    }
+
+    @Test("Sad Panda is reported as ExHentai access denial")
+    func sadPandaResponse() async throws {
+        let response = try #require(HTTPURLResponse(
+            url: URL(string: "https://exhentai.org/")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: [
+                "Content-Disposition": "inline; filename=\"sadpanda.jpg\"",
+                "Content-Type": "image/gif",
+                "Content-Length": "9615"
+            ]
+        ))
+        let client = EHClient(transport: StubTransport(data: Data(repeating: 0, count: 9_615), response: response))
+
+        do {
+            _ = try await client.list(query: GalleryListQuery(site: .exHentai))
+            Issue.record("expected ExHentai access denial")
+        } catch let error as EHError {
+            #expect(error == .exHentaiAccessDenied)
+        }
     }
 
     @Test("Guest list requests work without a session cookie")
@@ -337,5 +476,24 @@ private actor RecordingTransport: HTTPTransport {
 
     func lastRequest() -> URLRequest? {
         requests.last
+    }
+}
+
+private actor SequenceTransport: HTTPTransport {
+    private let responses: [(Data, HTTPURLResponse)]
+    private var requests: [URLRequest] = []
+
+    init(responses: [(Data, HTTPURLResponse)]) {
+        self.responses = responses
+    }
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests.append(request)
+        let index = min(requests.count - 1, responses.count - 1)
+        return responses[index]
+    }
+
+    func cookieHeaders() -> [String?] {
+        requests.map { $0.value(forHTTPHeaderField: "Cookie") }
     }
 }
