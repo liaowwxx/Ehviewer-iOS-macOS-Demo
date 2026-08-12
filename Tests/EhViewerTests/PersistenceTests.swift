@@ -29,7 +29,8 @@ struct PersistenceTests {
             GalleryPageDescriptor(
                 galleryKey: key,
                 index: index,
-                pageURL: URL(string: "https://example.invalid/page/\(index)")!
+                pageURL: URL(string: "https://example.invalid/page/\(index)")!,
+                previewURL: URL(string: "https://example.invalid/preview/\(index).jpg")!
             )
         }
 
@@ -45,6 +46,7 @@ struct PersistenceTests {
         let restored = try await store.downloadJobs()
         #expect(restored.count == 1)
         #expect(restored.first?.pages.map(\.index) == [0, 1, 2])
+        #expect(restored.first?.pages.first?.previewURL?.absoluteString == "https://example.invalid/preview/0.jpg")
         #expect(restored.first?.completedPageIndexes == [0, 2])
         #expect(restored.first?.stateRaw == "paused")
         #expect(restored.first?.errorMessage == "磁盘空间不足")

@@ -69,8 +69,12 @@ final class AppModel {
             orphanCompletion: { description, data, statusCode in
                 guard (200..<300).contains(statusCode),
                       let (key, pageIndex) = parseDownloadTaskDescription(description) else { return }
-                _ = try? await fileStore.write(data, for: key, pageIndex: pageIndex)
-                try? await store.markDownloadPageCompleted(for: key, pageIndex: pageIndex, bytes: Int64(data.count))
+                do {
+                    _ = try await fileStore.write(data, for: key, pageIndex: pageIndex)
+                    try await store.markDownloadPageCompleted(for: key, pageIndex: pageIndex, bytes: Int64(data.count))
+                } catch {
+                    return
+                }
             }
         )
         self.backgroundSession = backgroundSession
@@ -135,6 +139,13 @@ final class AppModel {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func searchTag(_ tag: String) {
+        let normalizedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedTag.isEmpty == false else { return }
+        searchText = normalizedTag
+        selectedRoute = .browse
     }
 
     func loadMore() async {
@@ -457,17 +468,31 @@ final class AppModel {
 
     private func restoreDownloads() async {
         guard let persisted = try? await persistence.downloadJobs() else { return }
-        let jobs = persisted.map { item -> DownloadJob in
+        var jobs: [DownloadJob] = []
+        for item in persisted {
             var job = DownloadJob(key: item.key, title: item.title, pages: item.pages)
-            job.completedPageIndexes = item.completedPageIndexes
+            let expectedPageIndexes = Set(item.pages.map(\.index))
+            let readablePageIndexes = await downloadFiles.readablePageIndexes(
+                for: item.key,
+                pageIndexes: Array(expectedPageIndexes)
+            )
+            job.completedPageIndexes = readablePageIndexes
             job.state = DownloadState(rawValue: item.stateRaw) ?? .queued
             job.label = item.label
             job.errorMessage = item.errorMessage
-            if item.inFlightPageIndexes.isEmpty == false {
+            if expectedPageIndexes.isEmpty == false,
+               readablePageIndexes == expectedPageIndexes,
+               job.state != .cancelled {
+                job.state = .completed
+                job.errorMessage = nil
+            } else if job.state == .completed {
+                job.state = .paused
+                job.errorMessage = "部分下载文件缺失或无效，请继续下载"
+            } else if item.inFlightPageIndexes.isEmpty == false {
                 job.state = .paused
                 job.errorMessage = "后台下载任务恢复中"
             }
-            return job
+            jobs.append(job)
         }
         await downloads.restore(jobs)
     }

@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import EHDomain
 
 public actor DownloadFileStore {
@@ -23,8 +24,29 @@ public actor DownloadFileStore {
         FileManager.default.fileExists(atPath: finalURL(for: key, pageIndex: pageIndex).path)
     }
 
+    public func readablePageIndexes(for key: GalleryKey, pageIndexes: [Int]) -> Set<Int> {
+        Set(pageIndexes.filter { pageIndex in
+            let url = finalURL(for: key, pageIndex: pageIndex)
+            guard FileManager.default.fileExists(atPath: url.path),
+                  let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
+            return CGImageSourceGetCount(source) > 0
+        })
+    }
+
+    public func data(for key: GalleryKey, pageIndex: Int) throws -> Data {
+        do {
+            return try Data(contentsOf: finalURL(for: key, pageIndex: pageIndex), options: .mappedIfSafe)
+        } catch {
+            throw EHError.storageFailed(error.localizedDescription)
+        }
+    }
+
     @discardableResult
     public func write(_ data: Data, for key: GalleryKey, pageIndex: Int) throws -> URL {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0 else {
+            throw EHError.parsingFailed("下载结果不是有效图片")
+        }
         if let available = try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage,
            available < minimumFreeBytes {
             throw EHError.diskSpaceLow

@@ -206,7 +206,7 @@ public struct GalleryHTMLParser: Sendable {
                 .components(separatedBy: " by:").first?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let postedAt = dateText.flatMap(formatter.date(from:))
-            let body = try element.select(".c6").first()?.html() ?? ""
+            let body = try parseCommentBody(from: element.select(".c6").first())
             guard body.isEmpty == false || author.isEmpty == false else { return nil }
             let score = Int(try element.select(".c5").first()?.text().trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 0
             let voteState = try element.select(".c7").first()?.text().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -223,6 +223,41 @@ public struct GalleryHTMLParser: Sendable {
                 canVoteDown: actions.contains("Vote-")
             )
         }
+    }
+
+    private func parseCommentBody(from element: Element?) throws -> String {
+        guard let element else { return "" }
+
+        var text = try plainText(fromHTML: element.html())
+        let escapedMarkupPattern = #"</?(?:a|br|p|div|span|strong|em|b|i|u|s|code|pre|blockquote|li)(?:\s[^>]*)?>"#
+
+        // The site sometimes returns markup as escaped text. Decode at most two
+        // extra layers so links and line breaks read naturally without exposing HTML.
+        for _ in 0..<2 where text.range(
+            of: escapedMarkupPattern,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil {
+            let decoded = try plainText(fromHTML: text)
+            guard decoded != text else { break }
+            text = decoded
+        }
+
+        return text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func plainText(fromHTML html: String) throws -> String {
+        let lineBreakMarker = "\u{E000}"
+        let source = html.replacingOccurrences(
+            of: #"<br\s*/?>|</(?:p|div|li|blockquote|pre)\s*>"#,
+            with: lineBreakMarker,
+            options: [.regularExpression, .caseInsensitive]
+        )
+        let fragment = try SwiftSoup.parseBodyFragment(source)
+        return try fragment.text().replacingOccurrences(of: lineBreakMarker, with: "\n")
     }
 
     private static func parseAPIInfo(from html: String) -> (uid: Int64?, key: String?) {

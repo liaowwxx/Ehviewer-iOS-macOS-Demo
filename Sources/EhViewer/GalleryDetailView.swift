@@ -83,26 +83,46 @@ struct GalleryDetailView: View {
                                 }
                             }
                         }
-                        HStack {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 150, maximum: 240), spacing: 10)],
+                            alignment: .leading,
+                            spacing: 10
+                        ) {
                             NavigationLink(value: AppRoute.reader(key, page: 0)) {
                                 Label("开始阅读", systemImage: "book")
+                                    .frame(maxWidth: .infinity, minHeight: 44)
                             }
                             .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("start-reading-action")
                             #if os(macOS)
-                            Button("新窗口阅读", systemImage: "rectangle.split.2x1") {
+                            Button {
                                 openWindow(value: AppRoute.reader(key, page: 0))
+                            } label: {
+                                Label("新窗口阅读", systemImage: "rectangle.split.2x1")
+                                    .frame(maxWidth: .infinity, minHeight: 44)
                             }
                             .buttonStyle(.bordered)
+                            .accessibilityIdentifier("new-window-reader-action")
                             #endif
-                            Button("加入下载", systemImage: "arrow.down.circle") { Task { await model.enqueue(detail) } }
-                                .buttonStyle(.bordered)
-                            Button(isFavorite ? "取消收藏" : "收藏", systemImage: isFavorite ? "heart.fill" : "heart") {
-                                Task {
-                            await model.toggleFavorite(for: key, remoteDetail: detail)
-                            isFavorite = await model.favoriteState(for: key)
-                                }
+                            Button {
+                                Task { await model.enqueue(detail) }
+                            } label: {
+                                Label("加入下载", systemImage: "arrow.down.circle")
+                                    .frame(maxWidth: .infinity, minHeight: 44)
                             }
-                                .buttonStyle(.bordered)
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("enqueue-download-action")
+                            Button {
+                                Task {
+                                    await model.toggleFavorite(for: key, remoteDetail: detail)
+                                    isFavorite = await model.favoriteState(for: key)
+                                }
+                            } label: {
+                                Label(isFavorite ? "取消收藏" : "收藏", systemImage: isFavorite ? "heart.fill" : "heart")
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("favorite-action")
                         }
                     }
                     .padding()
@@ -159,6 +179,8 @@ private struct GalleryCommentsSection: View {
                     }
                     Text(comment.body)
                         .font(.callout)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }
                 .padding(10)
@@ -212,16 +234,28 @@ private struct GalleryDetailHero: View {
 
 private struct FlowTags: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     let tags: [String]
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), alignment: .leading)], alignment: .leading, spacing: 8) {
             ForEach(tags, id: \.self) { tag in
-                Text(model.localizedTag(tag))
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.quaternary, in: Capsule())
+                Button {
+                    dismiss()
+                    model.searchTag(tag)
+                } label: {
+                    Text(model.localizedTag(tag))
+                        .font(.caption)
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .background(.quaternary, in: Capsule())
+                .contentShape(Capsule())
+                .accessibilityIdentifier("tag-search-\(tag)")
+                .accessibilityLabel("搜索标签 \(model.localizedTag(tag))")
+                .accessibilityHint("在浏览页显示这个标签的结果")
             }
         }
     }

@@ -194,6 +194,26 @@ struct NetworkingTests {
         #expect(try parser.parseWatchedTags(data: data).first?.isWatched == true)
     }
 
+    @Test("Comment parser renders escaped links and line breaks as readable text")
+    func commentFormatting() throws {
+        let html = """
+        <div id="cdiv">
+          <div class="c1">
+            <div class="c3"><a>reader</a></div>
+            <div class="c6">RAW: &lt;a href=\"https://example.com/g/1/\"&gt;https://example.com/g/1/&lt;/a&gt;&lt;br /&gt;翻译：中文</div>
+          </div>
+          <div class="c1">
+            <div class="c3"><a>translator</a></div>
+            <div class="c6"><a href="https://example.com/g/2/">第二个链接</a><br><br><strong>校对：</strong>完成</div>
+          </div>
+        </div>
+        """
+        let key = GalleryKey(gid: 1, token: "sample")
+        let detail = try GalleryHTMLParser().parseDetail(data: Data(html.utf8), key: key, site: .eHentai)
+        #expect(detail.comments.first?.body == "RAW: https://example.com/g/1/\n翻译：中文")
+        #expect(detail.comments.last?.body == "第二个链接\n\n校对：完成")
+    }
+
     @Test("Remote mutation requests use the reference endpoints and form/API payloads")
     func advancedRequests() async throws {
         let key = GalleryKey(gid: 1_366_222, token: "7e7a4305a4")

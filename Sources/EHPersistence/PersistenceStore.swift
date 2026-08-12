@@ -170,6 +170,7 @@ public actor PersistenceStore {
                 modelContext.insert(pageRecord)
             }
             pageRecord.directURLString = page.pageURL.absoluteString
+            pageRecord.previewURLString = page.previewURL?.absoluteString
             pageRecord.stateRaw = completedPageIndexes.contains(page.index) ? "completed" : "queued"
             if completedPageIndexes.contains(page.index) {
                 pageRecord.backgroundTaskIdentifier = nil
@@ -183,7 +184,12 @@ public actor PersistenceStore {
         return records.map { record in
             let pages = record.pages.compactMap { page -> GalleryPageDescriptor? in
                 guard let directURLString = page.directURLString, let pageURL = URL(string: directURLString) else { return nil }
-                return GalleryPageDescriptor(galleryKey: record.key, index: page.pageIndex, pageURL: pageURL)
+                return GalleryPageDescriptor(
+                    galleryKey: record.key,
+                    index: page.pageIndex,
+                    pageURL: pageURL,
+                    previewURL: page.previewURLString.flatMap(URL.init(string:))
+                )
             }.sorted { $0.index < $1.index }
             let completed = Set(record.pages.filter { $0.stateRaw == "completed" }.map(\.pageIndex))
             let inFlight = Set(record.pages.compactMap { page in

@@ -32,11 +32,33 @@ struct DownloadTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ehviewer-download-\(UUID().uuidString)")
         let store = DownloadFileStore(root: root, minimumFreeBytes: 1)
         let key = GalleryKey(gid: 2, token: "file")
-        let finalURL = try await store.write(Data("payload".utf8), for: key, pageIndex: 0)
+        let imageData = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
+        let finalURL = try await store.write(imageData, for: key, pageIndex: 0)
         #expect(FileManager.default.fileExists(atPath: finalURL.path))
         #expect(FileManager.default.fileExists(atPath: finalURL.appendingPathExtension("part").path) == false)
-        #expect(try Data(contentsOf: finalURL) == Data("payload".utf8))
+        #expect(try Data(contentsOf: finalURL) == imageData)
+        #expect(try await store.data(for: key, pageIndex: 0) == imageData)
+        #expect(await store.readablePageIndexes(for: key, pageIndexes: [0, 1]) == [0])
         try await store.remove(key)
+    }
+
+    @Test("Download file store rejects successful HTML responses as image pages")
+    func fileStoreRejectsNonImageData() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ehviewer-download-invalid-\(UUID().uuidString)")
+        let store = DownloadFileStore(root: root, minimumFreeBytes: 1)
+        let key = GalleryKey(gid: 3, token: "invalid")
+
+        do {
+            _ = try await store.write(Data("<html>login required</html>".utf8), for: key, pageIndex: 0)
+            Issue.record("non-image data must not be marked as a completed page")
+        } catch let error as EHError {
+            guard case .parsingFailed = error else {
+                Issue.record("unexpected error: \(error)")
+                return
+            }
+        }
+
+        #expect(await store.contains(key, pageIndex: 0) == false)
     }
 
     @Test("Download coordinator runs only one gallery while keeping three-page batches")

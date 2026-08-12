@@ -156,10 +156,11 @@ public actor DownloadCoordinator {
         jobs.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
-    public func restore(_ restoredJobs: [DownloadJob]) {
+    public func restore(_ restoredJobs: [DownloadJob]) async {
         for var job in restoredJobs {
             if job.state == .running { job.state = .queued }
             jobs[job.key] = job
+            await save(job)
             emit(.changed(job))
         }
         startNextQueuedJobIfNeeded()

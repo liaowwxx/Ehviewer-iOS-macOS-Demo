@@ -95,6 +95,7 @@ public final class DownloadPageRecord {
     public var fileName: String
     public var bytes: Int64
     public var directURLString: String?
+    public var previewURLString: String?
     public var stateRaw: String
     public var retryCount: Int
     public var backgroundTaskIdentifier: Int?

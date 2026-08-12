@@ -78,9 +78,10 @@ private struct PresentedError: Identifiable {
 
 private struct CompactRootView: View {
     @Environment(AppModel.self) private var model
+    @State private var selection: AppRoute = .browse
 
     var body: some View {
-        TabView {
+        TabView(selection: $selection) {
             NavigationStack {
                 BrowseView()
                     .navigationDestination(for: AppRoute.self) { route in
@@ -88,6 +89,7 @@ private struct CompactRootView: View {
                     }
             }
             .tabItem { Label("browse_title", systemImage: "square.grid.2x2") }
+            .tag(AppRoute.browse)
 
             NavigationStack {
                 DownloadsView()
@@ -96,6 +98,7 @@ private struct CompactRootView: View {
                     }
             }
             .tabItem { Label("downloads_title", systemImage: "arrow.down.circle") }
+            .tag(AppRoute.downloads)
 
             NavigationStack {
                 LibraryView()
@@ -104,6 +107,7 @@ private struct CompactRootView: View {
                     }
             }
             .tabItem { Label("history_title", systemImage: "clock") }
+            .tag(AppRoute.history)
 
             NavigationStack {
                 SettingsView()
@@ -112,8 +116,25 @@ private struct CompactRootView: View {
                     }
             }
             .tabItem { Label("settings_title", systemImage: "gearshape").accessibilityIdentifier("settings-tab") }
+            .tag(AppRoute.settings)
         }
         .tint(.accentColor)
+        .onChange(of: selection) { _, route in
+            model.selectedRoute = route
+        }
+        .onChange(of: model.selectedRoute) { _, route in
+            guard let route else { return }
+            switch route {
+            case .downloads:
+                selection = .downloads
+            case .history, .favorites:
+                selection = .history
+            case .settings:
+                selection = .settings
+            default:
+                selection = .browse
+            }
+        }
     }
 }
 
@@ -137,6 +158,7 @@ private struct SplitRootView: View {
                 }
                 Section {
                     NavigationLink(value: AppRoute.settings) { Label("settings_title", systemImage: "gearshape") }
+                        .accessibilityIdentifier("settings-sidebar")
                 }
             }
             .navigationTitle("EhViewer")
