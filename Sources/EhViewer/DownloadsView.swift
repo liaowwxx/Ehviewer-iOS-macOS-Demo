@@ -11,7 +11,6 @@ struct DownloadsView: View {
     @State private var labelInput = ""
     @State private var showingArchiveImporter = false
     @State private var archiveDocument: LocalArchiveDocument?
-    @State private var selectedDownloadedJob: DownloadJob?
 
     var body: some View {
         Group {
@@ -19,9 +18,7 @@ struct DownloadsView: View {
                 ContentUnavailableView("暂无下载", systemImage: "arrow.down.circle", description: Text("从画廊详情页加入下载队列"))
             } else {
                 List(jobs) { job in
-                    DownloadRow(job: job, open: job.state == .completed ? {
-                        selectedDownloadedJob = job
-                    } : nil) {
+                    DownloadCard(job: job) {
                         Task {
                             if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
                             else { await model.downloads.resume(job.key) }
@@ -41,7 +38,13 @@ struct DownloadsView: View {
                         labelInput = job.label ?? ""
                         editingJob = job
                     }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(.secondary.opacity(0.08))
             }
         }
         .navigationTitle("downloads_title")
@@ -99,68 +102,72 @@ struct DownloadsView: View {
             }
             .presentationDetents([.medium])
         }
-        .sheet(item: $selectedDownloadedJob) { job in
-            NavigationStack {
-                DownloadedGalleryView(job: job)
-                    .environment(model)
-            }
-        }
     }
 }
 
-private struct DownloadRow: View {
+private struct DownloadCard: View {
     let job: DownloadJob
-    let open: (() -> Void)?
     let toggle: () -> Void
     let cancel: () -> Void
     let remove: () -> Void
     let label: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            DownloadCover(job: job)
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top) {
-                    Text(job.title).font(.headline).lineLimit(2)
-                    Spacer(minLength: 8)
-                    Menu("下载操作", systemImage: "ellipsis.circle") {
-                        if let open {
-                            Button("打开下载", systemImage: "book") { open() }
+        HStack(alignment: .top, spacing: 8) {
+            NavigationLink {
+                ReaderView(downloaded: job, initialPage: 0)
+            } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    DownloadCover(job: job)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(job.title)
+                            .font(.headline)
+                            .lineLimit(2)
+                        if let label = job.label, label.isEmpty == false {
+                            Label(label, systemImage: "tag")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        if canToggle {
-                            Button(job.state == .running || job.state == .queued ? "暂停" : "继续", systemImage: job.state == .running ? "pause" : "play", action: toggle)
+                        ProgressView(value: job.progress)
+                        HStack {
+                            Text(statusTitle)
+                            Spacer()
+                            Text("\(job.completedPageIndexes.count)/\(job.pages.count) 页")
                         }
-                        if job.state != .completed && job.state != .cancelled {
-                            Button("取消下载", systemImage: "xmark.circle", role: .destructive, action: cancel)
-                        }
-                        Button("设置标签", systemImage: "tag", action: label)
-                        Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
-                    }
-                }
-                if let label = job.label, label.isEmpty == false {
-                    Label(label, systemImage: "tag")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
-                ProgressView(value: job.progress)
-                HStack {
-                    Text(statusTitle)
-                    Spacer()
-                    Text("\(job.completedPageIndexes.count)/\(job.pages.count) 页")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                if let open {
-                    Button(action: open) {
-                        Label("打开下载", systemImage: "book")
-                            .frame(maxWidth: .infinity, minHeight: 44)
+                        if let errorMessage = job.errorMessage {
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .lineLimit(2)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if let errorMessage = job.errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.red) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("打开《\(job.title)》")
+            .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+
+            Menu("下载操作", systemImage: "ellipsis.circle") {
+                if canToggle {
+                    Button(job.state == .running || job.state == .queued ? "暂停" : "继续", systemImage: job.state == .running ? "pause" : "play", action: toggle)
+                }
+                if job.state != .completed && job.state != .cancelled {
+                    Button("取消下载", systemImage: "xmark.circle", role: .destructive, action: cancel)
+                }
+                Button("设置标签", systemImage: "tag", action: label)
+                Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
+            }
+            .labelStyle(.iconOnly)
+            .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
+            .accessibilityLabel("《\(job.title)》下载操作")
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var statusTitle: String {
@@ -242,75 +249,6 @@ private struct DownloadCover: View {
 
     private var coverTaskID: String {
         "\(job.key.id)|\(coverPageIndex.map(String.init) ?? "remote")|\(previewURL?.absoluteString ?? "none")"
-    }
-}
-
-private struct DownloadedGalleryView: View {
-    @Environment(\.dismiss) private var dismiss
-    let job: DownloadJob
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 14) {
-                ForEach(job.pages) { page in
-                    DownloadedPageView(job: job, page: page)
-                }
-            }
-            .padding()
-        }
-        .navigationTitle("已下载 · \(job.title)")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("完成", action: dismiss.callAsFunction)
-            }
-        }
-    }
-}
-
-private struct DownloadedPageView: View {
-    @Environment(AppModel.self) private var model
-    let job: DownloadJob
-    let page: GalleryPageDescriptor
-    @State private var image: Image?
-    @State private var isMissing = false
-
-    var body: some View {
-        Group {
-            if let image {
-                image
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity)
-            } else if isMissing {
-                Label("第 \(page.index + 1) 页文件不可用", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 180)
-            } else {
-                ProgressView("读取第 \(page.index + 1) 页…")
-                    .frame(maxWidth: .infinity, minHeight: 180)
-            }
-        }
-        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .task(id: page.id) {
-            image = nil
-            isMissing = false
-            do {
-                let data = try await model.downloadFiles.data(for: job.key, pageIndex: page.index)
-                guard let decoded = decodedImage(from: data, maxPixelSize: 2_800) else {
-                    isMissing = true
-                    return
-                }
-                image = decoded
-            } catch is CancellationError {
-                return
-            } catch {
-                isMissing = true
-            }
-        }
     }
 }
 

@@ -45,7 +45,8 @@ final class AppModel {
         container: ModelContainer,
         api: (any EHAPI)? = nil,
         sessionVault: SessionVault = SessionVault(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        downloadFiles: DownloadFileStore? = nil
     ) {
         self.defaults = defaults
         site = SiteMode(rawValue: defaults.string(forKey: "site") ?? "") ?? .eHentai
@@ -63,7 +64,7 @@ final class AppModel {
         let store = PersistenceStore(modelContainer: container)
         persistence = store
         imagePipeline = ImagePipeline()
-        let fileStore = DownloadFileStore()
+        let fileStore = downloadFiles ?? DownloadFileStore()
         self.downloadFiles = fileStore
         let backgroundSession = BackgroundDownloadSession(
             taskObserver: { description, identifier in
@@ -302,8 +303,30 @@ final class AppModel {
         }
     }
 
+    func downloadedPageData(
+        for descriptor: GalleryPageDescriptor,
+        resolution: ImageResolution = .preview
+    ) async throws -> Data {
+        do {
+            return try await downloadFiles.data(
+                for: descriptor.galleryKey,
+                pageIndex: descriptor.index
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            let directImage = GalleryPageImage(
+                galleryKey: descriptor.galleryKey,
+                index: descriptor.index,
+                imageURL: descriptor.pageURL
+            )
+            return try await imageData(for: directImage, resolution: resolution)
+        }
+    }
+
     func savePage(_ descriptor: GalleryPageDescriptor, resolution: ImageResolution = .preview) async {
         do {
+            if await downloadFiles.contains(descriptor.galleryKey, pageIndex: descriptor.index) { return }
             let image = try await pageImage(for: descriptor)
             let data = try await imageData(for: image, resolution: resolution)
             _ = try await downloadFiles.write(data, for: descriptor.galleryKey, pageIndex: descriptor.index)

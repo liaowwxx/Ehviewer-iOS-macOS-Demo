@@ -1,10 +1,18 @@
 import SwiftUI
 import EHDomain
+import EHDownloads
+
+enum ReaderContentSource: Hashable, Sendable {
+    case remote
+    case download
+}
 
 struct ReaderView: View {
     @Environment(AppModel.self) private var model
     let key: GalleryKey
     let initialPage: Int
+    private let source: ReaderContentSource
+    private let downloadedJob: DownloadJob?
     @State private var detail: GalleryDetail?
     @State private var position: ReaderPositionState
     @AppStorage("readerReadingMode") private var readingMode: ReadingMode = .rightToLeft
@@ -17,6 +25,16 @@ struct ReaderView: View {
     init(key: GalleryKey, initialPage: Int) {
         self.key = key
         self.initialPage = initialPage
+        source = .remote
+        downloadedJob = nil
+        _position = State(initialValue: ReaderPositionState(page: initialPage))
+    }
+
+    init(downloaded job: DownloadJob, initialPage: Int) {
+        key = job.key
+        self.initialPage = initialPage
+        source = .download
+        downloadedJob = job
         _position = State(initialValue: ReaderPositionState(page: initialPage))
     }
 
@@ -28,6 +46,7 @@ struct ReaderView: View {
                         descriptors: detail.pages,
                         resolution: resolution,
                         resetToken: zoomResetToken,
+                        source: source,
                         position: $position
                     )
                 } else {
@@ -36,6 +55,7 @@ struct ReaderView: View {
                         resolution: resolution,
                         resetToken: zoomResetToken,
                         readingMode: readingMode,
+                        source: source,
                         position: $position
                     )
                 }
@@ -44,7 +64,7 @@ struct ReaderView: View {
             }
         }
         .task(id: position.page) {
-            guard let detail else { return }
+            guard source == .remote, let detail else { return }
             await model.prefetch(
                 prefetchDescriptors(in: detail.pages, around: position.page),
                 resolution: resolution
@@ -71,6 +91,7 @@ struct ReaderView: View {
                         Text("预览图").tag(ImageResolution.preview)
                         Text("原图").tag(ImageResolution.original)
                     }
+                    .disabled(source == .download)
                     Button("保存当前页", systemImage: "bookmark") {
                         Task { await model.updateProgress(for: key, page: position.page) }
                     }
@@ -96,8 +117,14 @@ struct ReaderView: View {
                 }
             }
         }
-        .task(id: key) {
-            guard let loadedDetail = await model.detail(for: key), Task.isCancelled == false else { return }
+        .task(id: "\(key.id)-\(source)") {
+            let loadedDetail: GalleryDetail?
+            if let downloadedJob {
+                loadedDetail = Self.downloadedDetail(for: downloadedJob, site: model.site)
+            } else {
+                loadedDetail = await model.detail(for: key)
+            }
+            guard let loadedDetail, Task.isCancelled == false else { return }
             let savedPage = await model.readingPage(for: key)
             guard Task.isCancelled == false else { return }
             position.prepare(page: savedPage ?? initialPage, pageCount: loadedDetail.pages.count)
@@ -171,5 +198,16 @@ struct ReaderView: View {
         let upperBound = min(pages.count, index + 2)
         guard lowerBound < upperBound else { return [] }
         return Array(pages[lowerBound..<upperBound])
+    }
+
+    static func downloadedDetail(for job: DownloadJob, site: SiteMode) -> GalleryDetail {
+        let summary = GallerySummary(
+            key: job.key,
+            title: job.title,
+            thumbnailURL: job.pages.lazy.compactMap(\.previewURL).first,
+            pageCount: job.pages.count
+        )
+        let externalURL = URL(string: "https://\(site.host)/g/\(job.key.gid)/\(job.key.token)/")
+        return GalleryDetail(summary: summary, pages: job.pages, externalURL: externalURL)
     }
 }

@@ -1,5 +1,8 @@
 import CoreGraphics
+import Foundation
 import Testing
+import EHDomain
+import EHDownloads
 @testable import EhViewerPreview
 
 struct ReaderInteractionTests {
@@ -119,5 +122,29 @@ struct ReaderInteractionTests {
 
         #expect(state.scale == 2)
         #expect(state.offset == CGSize(width: -100, height: 0))
+    }
+
+    @Test("Downloaded galleries reuse the normal reader detail model")
+    @MainActor
+    func downloadedGalleryBuildsReaderDetail() throws {
+        let key = GalleryKey(gid: 42, token: "downloaded")
+        let pages = (0..<3).map { index in
+            GalleryPageDescriptor(
+                galleryKey: key,
+                index: index,
+                pageURL: URL(string: "https://images.example/\(index).jpg")!,
+                previewURL: index == 0 ? URL(string: "https://images.example/cover.jpg")! : nil
+            )
+        }
+        let job = DownloadJob(key: key, title: "Offline gallery", pages: pages)
+
+        let detail = ReaderView.downloadedDetail(for: job, site: .eHentai)
+
+        #expect(detail.summary.key == key)
+        #expect(detail.summary.title == "Offline gallery")
+        #expect(detail.summary.pageCount == 3)
+        #expect(detail.summary.thumbnailURL == pages[0].previewURL)
+        #expect(detail.pages == pages)
+        #expect(detail.externalURL?.absoluteString == "https://e-hentai.org/g/42/downloaded/")
     }
 }

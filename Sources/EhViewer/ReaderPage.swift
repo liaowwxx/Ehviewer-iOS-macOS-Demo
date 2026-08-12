@@ -7,6 +7,7 @@ struct ReaderPage: View {
     let descriptor: GalleryPageDescriptor
     let resolution: ImageResolution
     let resetToken: UUID
+    let source: ReaderContentSource
     let fitsViewport: Bool
     let allowsZoom: Bool
     let parentScrollAxis: Axis
@@ -76,7 +77,7 @@ struct ReaderPage: View {
                     .accessibilityHidden(true)
             }
         }
-        .task(id: "\(descriptor.id)-\(resolution.rawValue)") { await loadImage() }
+        .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)") { await loadImage() }
         .onChange(of: aspectRatio) {
             updateZoom {
                 $0.contentSizeChanged(
@@ -212,12 +213,18 @@ struct ReaderPage: View {
     private func loadImage() async {
         failed = false
         do {
-            let metadata = try await model.pageImage(for: descriptor)
-            if let width = metadata.width, let height = metadata.height, height > 0 {
-                aspectRatio = CGFloat(width) / CGFloat(height)
-                imagePixelSize = CGSize(width: CGFloat(width), height: CGFloat(height))
+            let data: Data
+            switch source {
+            case .remote:
+                let metadata = try await model.pageImage(for: descriptor)
+                if let width = metadata.width, let height = metadata.height, height > 0 {
+                    aspectRatio = CGFloat(width) / CGFloat(height)
+                    imagePixelSize = CGSize(width: CGFloat(width), height: CGFloat(height))
+                }
+                data = try await model.imageData(for: metadata, resolution: resolution)
+            case .download:
+                data = try await model.downloadedPageData(for: descriptor, resolution: resolution)
             }
-            let data = try await model.imageData(for: metadata, resolution: resolution)
             try Task.checkCancellation()
             guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                   let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [

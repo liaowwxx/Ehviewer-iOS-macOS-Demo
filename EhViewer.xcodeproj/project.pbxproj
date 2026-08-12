@@ -43,6 +43,7 @@
 		EHB0000000000000000002A /* ReaderContinuousZoomState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002A /* ReaderContinuousZoomState.swift */; };
 		EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002B /* ReaderContinuousView.swift */; };
 		EHB0000000000000000002C /* ReaderPagedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002C /* ReaderPagedView.swift */; };
+		EHB0000000000000000002D /* icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002D /* icon.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -112,6 +113,7 @@
 		EHF0000000000000000002A /* ReaderContinuousZoomState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderContinuousZoomState.swift; sourceTree = "<group>"; };
 		EHF0000000000000000002B /* ReaderContinuousView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderContinuousView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000002C /* ReaderPagedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPagedView.swift; sourceTree = "<group>"; };
+		EHF0000000000000000002D /* icon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = icon.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -146,6 +148,7 @@
 		EHG00000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				EHF0000000000000000002D /* icon.icon */,
 				EHG00000000000000000002 /* Sources/EhViewer */,
 				EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */,
 				EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */,
@@ -336,6 +339,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EHB0000000000000000002D /* icon.icon in Resources */,
 				EHB0000000000000000000B /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings in Resources */,
 				EHB0000000000000000000C /* Sources/EhViewer/Resources/en.lproj/Localizable.strings in Resources */,
 				EHB0000000000000000000F /* Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings in Resources */,
@@ -437,6 +441,7 @@
 		EHC00000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -462,6 +467,7 @@
 		EHC00000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;

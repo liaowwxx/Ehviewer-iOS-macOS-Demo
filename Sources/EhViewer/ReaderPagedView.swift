@@ -6,6 +6,7 @@ struct ReaderPagedView: View {
     let resolution: ImageResolution
     let resetToken: UUID
     let readingMode: ReadingMode
+    let source: ReaderContentSource
     @Binding var position: ReaderPositionState
 
     var body: some View {
@@ -17,6 +18,7 @@ struct ReaderPagedView: View {
                             descriptor: descriptor,
                             resolution: resolution,
                             resetToken: resetToken,
+                            source: source,
                             fitsViewport: true,
                             allowsZoom: true,
                             parentScrollAxis: .horizontal,

@@ -1,0 +1,46 @@
+{
+  "fill" : "automatic",
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "ic_launcher_foreground.png",
+          "name" : "ic_launcher_foreground",
+          "position" : {
+            "scale" : 3.4,
+            "translation-in-points" : [
+              -4.610689803001378,
+              -5.573297639824773
+            ]
+          }
+        },
+        {
+          "hidden" : false,
+          "image-name" : "ic_launcher_background.png",
+          "name" : "ic_launcher_background",
+          "position" : {
+            "scale" : 3.3,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
