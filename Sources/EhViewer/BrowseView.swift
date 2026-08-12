@@ -10,6 +10,8 @@ struct BrowseView: View {
     var kind: GalleryListQuery.ListKind = .home
     @State private var isGrid = true
     @State private var showingImageSearch = false
+    @State private var showingAdvancedSearch = false
+    @State private var advancedSearch: GalleryAdvancedSearch?
 
     var body: some View {
         @Bindable var model = model
@@ -17,15 +19,33 @@ struct BrowseView: View {
             if isGrid {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 16)], spacing: 16) {
-                        ForEach(model.galleries) { gallery in
-                            galleryLink(gallery)
+                        Section {
+                            ForEach(model.galleries) { gallery in
+                                galleryLink(gallery)
+                                    .task(id: model.nextPageURL) {
+                                        await model.loadMoreIfNeeded(after: gallery.key)
+                                    }
+                            }
+                        } footer: {
+                            if model.hasMorePage {
+                                BrowsePaginationFooter()
+                            }
                         }
                     }
                     .padding()
                 }
             } else {
-                List(model.galleries) { gallery in
-                    galleryLink(gallery)
+                List {
+                    ForEach(model.galleries) { gallery in
+                        galleryLink(gallery)
+                            .task(id: model.nextPageURL) {
+                                await model.loadMoreIfNeeded(after: gallery.key)
+                            }
+                    }
+                    if model.hasMorePage {
+                        BrowsePaginationFooter()
+                            .listRowSeparator(.hidden)
+                    }
                 }
                 .listStyle(.inset)
             }
@@ -43,8 +63,9 @@ struct BrowseView: View {
                 if kind == .home || kind == .search {
                     Button("按图片搜索", systemImage: "camera") { showingImageSearch = true }
                 }
-                if model.hasMorePage {
-                    Button("加载更多", systemImage: "chevron.down") { Task { await model.loadMore() } }
+                if kind == .home || kind == .search || kind == .subscriptions {
+                    Button("高级搜索", systemImage: "slider.horizontal.3") { showingAdvancedSearch = true }
+                        .accessibilityIdentifier("advanced-search-action")
                 }
                 Button(isGrid ? "列表视图" : "网格视图", systemImage: isGrid ? "list.bullet" : "square.grid.2x2") {
                     isGrid.toggle()
@@ -52,18 +73,20 @@ struct BrowseView: View {
                 .accessibilityLabel(isGrid ? "切换到列表视图" : "切换到网格视图")
             }
         }
-        .refreshable { await model.load() }
+        .refreshable { await model.load(query: listQuery) }
         .sheet(isPresented: $showingImageSearch) { ImageSearchSheet() }
-        .onChange(of: model.searchText) { _, _ in
-            if model.useDemoData {
-                model.galleries = model.filteredSampleGalleries
-            } else {
-                Task { await model.load(query: listQuery) }
-            }
+        .sheet(isPresented: $showingAdvancedSearch) {
+            AdvancedSearchView(
+                initialValue: advancedSearch,
+                apply: { advancedSearch = $0 },
+                clear: { advancedSearch = nil }
+            )
         }
-        .task(id: kind) {
+        .task {
             await model.loadQuickSearches()
-            await model.load(query: listQuery)
+        }
+        .task(id: listQuery) {
+            await model.loadBrowseQuery(listQuery)
         }
         .overlay {
             if model.isLoading && model.galleries.isEmpty { ProgressView("加载中…") }
@@ -86,7 +109,8 @@ struct BrowseView: View {
         GalleryListQuery(
             site: model.site,
             kind: kind,
-            searchText: model.searchText.isEmpty ? nil : model.searchText
+            searchText: model.searchText.isEmpty ? nil : model.searchText,
+            advancedSearch: advancedSearch
         )
     }
 

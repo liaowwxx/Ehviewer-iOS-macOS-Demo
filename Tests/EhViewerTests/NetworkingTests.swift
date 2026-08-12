@@ -14,6 +14,24 @@ struct NetworkingTests {
         #expect(page.cursor?.nextPageURL?.absoluteString == "https://e-hentai.org/?page=1")
     }
 
+    @Test("Search cursor accepts bottom navigation and JavaScript fallback")
+    func searchCursorVariants() throws {
+        let query = GalleryListQuery(site: .eHentai, kind: .search, searchText: "blue archive")
+        let bottomNavigation = """
+        <html><body>
+        <div class="searchnav"><a id="dnext" href="/?f_search=blue+archive&amp;next=4113797">Next</a></div>
+        </body></html>
+        """
+        let bottomPage = try GalleryHTMLParser().parseList(data: Data(bottomNavigation.utf8), query: query)
+        #expect(bottomPage.cursor?.nextPageURL?.absoluteString == "https://e-hentai.org/?f_search=blue+archive&next=4113797")
+
+        let scriptFallback = """
+        <html><body><script>var nexturl="https:\\/\\/e-hentai.org\\/?f_search=blue+archive\\u0026next=4113700";</script></body></html>
+        """
+        let scriptPage = try GalleryHTMLParser().parseList(data: Data(scriptFallback.utf8), query: query)
+        #expect(scriptPage.cursor?.nextPageURL?.absoluteString == "https://e-hentai.org/?f_search=blue+archive&next=4113700")
+    }
+
     @Test("Gallery list parser handles the Android compact table layout")
     func compactListParser() throws {
         let fixtureURL = try #require(Bundle.module.url(forResource: "list-real", withExtension: "html"))
@@ -151,6 +169,24 @@ struct NetworkingTests {
         let page = try await client.list(query: GalleryListQuery(site: .eHentai, kind: .home))
         #expect(page.items.isEmpty == false)
         let request = try #require(await recording.lastRequest())
+        #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+    }
+
+    @Test("Guest pagination follows the exact server cursor URL")
+    func guestPaginationCursorRequest() async throws {
+        let fixtureURL = try #require(Bundle.module.url(forResource: "list", withExtension: "html"))
+        let recording = RecordingTransport(data: try Data(contentsOf: fixtureURL))
+        let vault = SessionVault(service: "EhViewerGuestPaginationTests-\(UUID().uuidString)")
+        let client = EHClient(transport: recording, sessionVault: vault)
+        let cursorURL = try #require(URL(string: "https://e-hentai.org/?next=1366222&f_search=blue%20archive"))
+
+        _ = try await client.list(
+            query: GalleryListQuery(site: .eHentai, kind: .search, searchText: "blue archive", page: 1),
+            pageURL: cursorURL
+        )
+
+        let request = try #require(await recording.lastRequest())
+        #expect(request.url == cursorURL)
         #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
     }
 

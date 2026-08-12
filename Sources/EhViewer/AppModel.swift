@@ -36,8 +36,10 @@ final class AppModel {
     var appLockEnabled: Bool
     var isLocked: Bool
     var errorMessage: String?
-    var hasMorePage = false
+    private(set) var nextPageURL: URL?
+    var hasMorePage: Bool { nextPageURL != nil }
     private var activeQuery = GalleryListQuery()
+    private var activeListRequestID = UUID()
 
     init(
         container: ModelContainer,
@@ -115,9 +117,20 @@ final class AppModel {
     }
 
     func load(query: GalleryListQuery? = nil) async {
-        guard isLoading == false else { return }
+        let requestID = UUID()
+        activeListRequestID = requestID
         isLoading = true
-        defer { isLoading = false }
+        nextPageURL = nil
+        var loadedNextPageURL: URL?
+        var didLoadPage = false
+        defer {
+            if activeListRequestID == requestID {
+                isLoading = false
+                if didLoadPage {
+                    nextPageURL = loadedNextPageURL
+                }
+            }
+        }
         let query = query ?? GalleryListQuery(site: site, searchText: searchText.nilIfEmpty)
         activeQuery = query
         do {
@@ -129,15 +142,40 @@ final class AppModel {
             } else {
                 result = try await api.list(query: query)
             }
+            try Task.checkCancellation()
+            guard activeListRequestID == requestID else { return }
             galleries = result.items.filter(matchesFilter)
-            hasMorePage = result.cursor?.nextPageURL != nil
+            loadedNextPageURL = result.cursor?.nextPageURL
+            didLoadPage = true
             try await persistence.upsert(result.items)
             if let searchText = query.searchText { try? await persistence.recordQuickSearch(searchText) }
             quickSearches = (try? await persistence.quickSearches()) ?? quickSearches
         } catch is CancellationError {
             // View lifecycle cancellation is expected.
         } catch {
-            errorMessage = error.localizedDescription
+            if activeListRequestID == requestID {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func loadBrowseQuery(_ query: GalleryListQuery) async {
+        activeListRequestID = UUID()
+        isLoading = false
+        nextPageURL = nil
+        if query.searchText?.isEmpty == false {
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return
+            }
+        }
+        guard Task.isCancelled == false else { return }
+        if useDemoData {
+            activeQuery = query
+            galleries = filteredSampleGalleries
+        } else {
+            await load(query: query)
         }
     }
 
@@ -149,38 +187,74 @@ final class AppModel {
     }
 
     func loadMore() async {
-        guard useDemoData == false, hasMorePage == true, isLoading == false else { return }
+        guard useDemoData == false, let pageURL = nextPageURL, isLoading == false else { return }
+        let requestID = activeListRequestID
         var query = activeQuery
         query.page += 1
         isLoading = true
-        defer { isLoading = false }
+        var loadedNextPageURL: URL?
+        var didLoadPage = false
+        defer {
+            if activeListRequestID == requestID {
+                isLoading = false
+                if didLoadPage {
+                    nextPageURL = loadedNextPageURL
+                }
+            }
+        }
         do {
-            let result = try await (query.kind == .favorites ? api.favorites(query: query) : api.list(query: query))
-            galleries.append(contentsOf: result.items.filter(matchesFilter))
-            hasMorePage = result.cursor?.nextPageURL != nil
+            let result = try await api.list(query: query, pageURL: pageURL)
+            try Task.checkCancellation()
+            guard activeListRequestID == requestID else { return }
+            appendUniqueGalleries(result.items)
+            loadedNextPageURL = result.cursor?.nextPageURL
+            didLoadPage = true
             activeQuery = query
             try await persistence.upsert(result.items)
         } catch is CancellationError {
             return
         } catch {
-            errorMessage = error.localizedDescription
+            if activeListRequestID == requestID {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
+    func loadMoreIfNeeded(after galleryKey: GalleryKey) async {
+        guard galleries.last?.key == galleryKey else { return }
+        await loadMore()
+    }
+
     func searchByImage(data: Data, fileName: String, options: ImageSearchOptions) async {
-        guard isLoading == false else { return }
+        let requestID = UUID()
+        activeListRequestID = requestID
         isLoading = true
-        defer { isLoading = false }
+        nextPageURL = nil
+        var loadedNextPageURL: URL?
+        var didLoadPage = false
+        defer {
+            if activeListRequestID == requestID {
+                isLoading = false
+                if didLoadPage {
+                    nextPageURL = loadedNextPageURL
+                }
+            }
+        }
         do {
             let result = try await api.imageSearch(imageData: data, fileName: fileName, site: site, options: options)
+            try Task.checkCancellation()
+            guard activeListRequestID == requestID else { return }
             galleries = result.items.filter(matchesFilter)
             activeQuery = GalleryListQuery(site: site, kind: .search)
-            hasMorePage = result.cursor?.nextPageURL != nil
+            loadedNextPageURL = result.cursor?.nextPageURL
+            didLoadPage = true
             try await persistence.upsert(result.items)
         } catch is CancellationError {
             return
         } catch {
-            errorMessage = error.localizedDescription
+            if activeListRequestID == requestID {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -606,6 +680,13 @@ final class AppModel {
     private func matchesFilter(_ gallery: GallerySummary) -> Bool {
         let haystack = ([gallery.title, gallery.secondaryTitle ?? ""] + gallery.tags).joined(separator: " ").lowercased()
         return filterRules.contains { $0.isEnabled && haystack.localizedCaseInsensitiveContains($0.pattern) } == false
+    }
+
+    private func appendUniqueGalleries(_ newGalleries: [GallerySummary]) {
+        var existingKeys = Set(galleries.map(\.key))
+        galleries.append(contentsOf: newGalleries.filter {
+            matchesFilter($0) && existingKeys.insert($0.key).inserted
+        })
     }
 }
 

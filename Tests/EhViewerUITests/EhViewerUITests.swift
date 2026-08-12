@@ -70,4 +70,25 @@ final class EhViewerUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 5))
         XCTAssertEqual(searchField.value as? String, "language:chinese")
     }
+
+    func testAdvancedSearchCanBeConfiguredAndApplied() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestUseDemoData", "YES"]
+        app.launch()
+
+        let advancedSearch = app.buttons["advanced-search-action"]
+        XCTAssertTrue(advancedSearch.waitForExistence(timeout: 5))
+        advancedSearch.tap()
+
+        let form = app.descendants(matching: .any)["advanced-search-form"]
+        XCTAssertTrue(form.waitForExistence(timeout: 5))
+        let category = app.buttons["advanced-search-category-doujinshi"]
+        XCTAssertTrue(category.waitForExistence(timeout: 5))
+        category.tap()
+
+        let apply = app.buttons["apply-advanced-search"]
+        XCTAssertTrue(apply.isEnabled)
+        apply.tap()
+        XCTAssertFalse(form.exists)
+    }
 }

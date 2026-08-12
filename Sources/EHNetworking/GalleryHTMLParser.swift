@@ -13,14 +13,12 @@ public struct GalleryHTMLParser: Sendable {
             let document = try SwiftSoup.parse(html)
             let candidates = try document.select("table.itg > tr, table.itg > tbody > tr, tr.gtr0, tr.gtr1, div.gl1t3")
             let summaries = try candidates.compactMap { try parseSummary(from: $0) }
-            let nextPage = try document.select("a[rel=next], a.next, #unext, table.ptt td:last-child a").first()?.attr("href")
+            let nextPageURL = try parseNextPageURL(from: document, html: html, site: query.site)
             return GalleryListPage(
                 items: summaries,
                 cursor: GalleryCursor(
                     page: query.page,
-                    nextPageURL: nextPage.flatMap {
-                        URL(string: $0, relativeTo: URL(string: "https://\(query.site.host)/"))?.absoluteURL
-                    }
+                    nextPageURL: nextPageURL
                 )
             )
         } catch let error as EHError {
@@ -28,6 +26,34 @@ public struct GalleryHTMLParser: Sendable {
         } catch {
             throw EHError.parsingFailed(error.localizedDescription)
         }
+    }
+
+    private func parseNextPageURL(from document: Document, html: String, site: SiteMode) throws -> URL? {
+        let baseURL = URL(string: "https://\(site.host)/")
+        let selectors = [
+            "a[rel=next][href]",
+            "a.next[href]",
+            "a#unext[href]",
+            "a#dnext[href]",
+            ".searchnav a[id$=next][href]",
+            "table.ptt td:last-child a[href]"
+        ]
+
+        for selector in selectors {
+            guard let href = try document.select(selector).first()?.attr("href"),
+                  href.isEmpty == false,
+                  let url = URL(string: href, relativeTo: baseURL)?.absoluteURL else { continue }
+            return url
+        }
+
+        let pattern = #"\bnexturl\s*=\s*[\"']([^\"']+)[\"']"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              let range = Range(match.range(at: 1), in: html) else { return nil }
+        let value = String(html[range])
+            .replacingOccurrences(of: #"\/"#, with: "/")
+            .replacingOccurrences(of: #"\u0026"#, with: "&", options: .caseInsensitive)
+        return URL(string: value, relativeTo: baseURL)?.absoluteURL
     }
 
     public func parseDetail(data: Data, key: GalleryKey, site: SiteMode) throws -> GalleryDetail {

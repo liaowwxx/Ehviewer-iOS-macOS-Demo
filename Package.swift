@@ -54,7 +54,7 @@ let package = Package(
         ),
         .testTarget(
             name: "EhViewerTests",
-            dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads"],
+            dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads", "EhViewerPreview"],
             resources: [.process("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         )

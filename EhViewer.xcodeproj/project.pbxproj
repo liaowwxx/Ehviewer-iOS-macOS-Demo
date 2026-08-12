@@ -3,10 +3,14 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 71;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0DA41857302C7798007B166F /* EHDomain in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000001 /* EHDomain */; };
+		0DA41858302C7798007B166F /* EHNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000002 /* EHNetworking */; };
+		0DA41859302C7798007B166F /* EHPersistence in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000003 /* EHPersistence */; };
+		0DA4185A302C7798007B166F /* EHDownloads in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000004 /* EHDownloads */; };
 		EHB00000000000000000001 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000001 /* AppModel.swift */; };
 		EHB00000000000000000002 /* BrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000002 /* BrowseView.swift */; };
 		EHB00000000000000000003 /* DownloadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000003 /* DownloadsView.swift */; };
@@ -17,21 +21,54 @@
 		EHB00000000000000000008 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000008 /* RootView.swift */; };
 		EHB00000000000000000009 /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000009 /* SampleData.swift */; };
 		EHB0000000000000000000A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000A /* SettingsView.swift */; };
+		EHB0000000000000000000B /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */; };
+		EHB0000000000000000000C /* Sources/EhViewer/Resources/en.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */; };
 		EHB0000000000000000000D /* AppLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000E /* AppLock.swift */; };
-		EHB0000000000000000000B /* zh-Hans Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000C /* zh-Hans Localizable.strings */; };
-		EHB0000000000000000000C /* en Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000D /* en Localizable.strings */; };
-		EHB0000000000000000000F /* zh-Hant Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000F /* zh-Hant Localizable.strings */; };
-		EHB00000000000000000010 /* ja Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000010 /* ja Localizable.strings */; };
-		EHB00000000000000000011 /* ko Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000011 /* ko Localizable.strings */; };
-		EHB00000000000000000012 /* es Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000012 /* es Localizable.strings */; };
-		EHB00000000000000000013 /* fr Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000013 /* fr Localizable.strings */; };
-		EHB00000000000000000014 /* de Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000014 /* de Localizable.strings */; };
-		EHB00000000000000000015 /* th Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000015 /* th Localizable.strings */; };
+		EHB0000000000000000000F /* Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000F /* Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings */; };
+		EHB00000000000000000010 /* Sources/EhViewer/Resources/ja.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000010 /* Sources/EhViewer/Resources/ja.lproj/Localizable.strings */; };
+		EHB00000000000000000011 /* Sources/EhViewer/Resources/ko.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000011 /* Sources/EhViewer/Resources/ko.lproj/Localizable.strings */; };
+		EHB00000000000000000012 /* Sources/EhViewer/Resources/es.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000012 /* Sources/EhViewer/Resources/es.lproj/Localizable.strings */; };
+		EHB00000000000000000013 /* Sources/EhViewer/Resources/fr.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000013 /* Sources/EhViewer/Resources/fr.lproj/Localizable.strings */; };
+		EHB00000000000000000014 /* Sources/EhViewer/Resources/de.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000014 /* Sources/EhViewer/Resources/de.lproj/Localizable.strings */; };
+		EHB00000000000000000015 /* Sources/EhViewer/Resources/th.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000015 /* Sources/EhViewer/Resources/th.lproj/Localizable.strings */; };
 		EHB00000000000000000020 /* EhViewerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000020 /* EhViewerUITests.swift */; };
 		EHB00000000000000000021 /* LocalArchiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000016 /* LocalArchiveView.swift */; };
 		EHB00000000000000000022 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000017 /* ShareViewController.swift */; };
-		EHB00000000000000000023 /* EhViewerShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000022 /* EhViewerShare.appex */; platformFilters = (ios, iossimulator); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EHB00000000000000000023 /* EhViewerShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000022 /* EhViewerShare.appex */; platformFilters = (ios, iossimulator, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EHB00000000000000000024 /* BrowsePaginationFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000024 /* BrowsePaginationFooter.swift */; };
+		EHB00000000000000000025 /* AdvancedSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000025 /* AdvancedSearchView.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		EHPROXY00000000000000020 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EHP00000000000000000010 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EHT00000000000000000001;
+			remoteInfo = EhViewer;
+		};
+		EHPROXY00000000000000021 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EHP00000000000000000010 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EHT00000000000000000021;
+			remoteInfo = EhViewerShare;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		EHP00000000000000000022 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				EHB00000000000000000023 /* EhViewerShare.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		EHF00000000000000000001 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -44,23 +81,25 @@
 		EHF00000000000000000008 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000009 /* SampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleData.swift; sourceTree = "<group>"; };
 		EHF0000000000000000000A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		EHF0000000000000000000E /* AppLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLock.swift; sourceTree = "<group>"; };
 		EHF0000000000000000000B /* EhViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EhViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		EHF0000000000000000000C /* zh-Hans Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EHF0000000000000000000D /* en Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/en.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EHF0000000000000000000F /* zh-Hant Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EHF00000000000000000010 /* ja Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/ja.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EHF00000000000000000011 /* ko Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/ko.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EHF00000000000000000012 /* es Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/es.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EHF00000000000000000013 /* fr Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/fr.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EHF00000000000000000014 /* de Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/de.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EHF00000000000000000015 /* th Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/th.lproj/Localizable.strings; sourceTree = "<group>"; };
+		EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		EHF0000000000000000000E /* AppLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLock.swift; sourceTree = "<group>"; };
+		EHF0000000000000000000F /* Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		EHF00000000000000000010 /* Sources/EhViewer/Resources/ja.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/ja.lproj/Localizable.strings; sourceTree = "<group>"; };
+		EHF00000000000000000011 /* Sources/EhViewer/Resources/ko.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/ko.lproj/Localizable.strings; sourceTree = "<group>"; };
+		EHF00000000000000000012 /* Sources/EhViewer/Resources/es.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/es.lproj/Localizable.strings; sourceTree = "<group>"; };
+		EHF00000000000000000013 /* Sources/EhViewer/Resources/fr.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/fr.lproj/Localizable.strings; sourceTree = "<group>"; };
+		EHF00000000000000000014 /* Sources/EhViewer/Resources/de.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/de.lproj/Localizable.strings; sourceTree = "<group>"; };
+		EHF00000000000000000015 /* Sources/EhViewer/Resources/th.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/th.lproj/Localizable.strings; sourceTree = "<group>"; };
 		EHF00000000000000000016 /* LocalArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalArchiveView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000017 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
-		EHF00000000000000000018 /* Share Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		EHF00000000000000000018 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		EHF00000000000000000020 /* EhViewerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EhViewerUITests.swift; sourceTree = "<group>"; };
 		EHF00000000000000000021 /* EhViewerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EhViewerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		EHF00000000000000000022 /* EhViewerShare.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = EhViewerShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		EHF00000000000000000022 /* EhViewerShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EhViewerShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		EHF00000000000000000024 /* BrowsePaginationFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsePaginationFooter.swift; sourceTree = "<group>"; };
+		EHF00000000000000000025 /* AdvancedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSearchView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,18 +107,25 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0DA4185A302C7798007B166F /* EHDownloads in Frameworks */,
+				0DA41859302C7798007B166F /* EHPersistence in Frameworks */,
+				0DA41858302C7798007B166F /* EHNetworking in Frameworks */,
+				0DA41857302C7798007B166F /* EHDomain in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			};
-		EHP00000000000000000022 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
+		};
+		EHP00000000000000000021 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
 			files = (
-				EHB00000000000000000023 /* EhViewerShare.appex in Embed Foundation Extensions */,
 			);
-			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EHP00000000000000000024 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -88,27 +134,29 @@
 		EHG00000000000000000001 = {
 			isa = PBXGroup;
 			children = (
-				EHG00000000000000000002 /* EhViewer */,
-				EHF0000000000000000000C /* zh-Hans Localizable.strings */,
-				EHF0000000000000000000D /* en Localizable.strings */,
-				EHF0000000000000000000F /* zh-Hant Localizable.strings */,
-				EHF00000000000000000010 /* ja Localizable.strings */,
-				EHF00000000000000000011 /* ko Localizable.strings */,
-				EHF00000000000000000012 /* es Localizable.strings */,
-				EHF00000000000000000013 /* fr Localizable.strings */,
-				EHF00000000000000000014 /* de Localizable.strings */,
-				EHF00000000000000000015 /* th Localizable.strings */,
+				EHG00000000000000000002 /* Sources/EhViewer */,
+				EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */,
+				EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */,
+				EHF0000000000000000000F /* Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings */,
+				EHF00000000000000000010 /* Sources/EhViewer/Resources/ja.lproj/Localizable.strings */,
+				EHF00000000000000000011 /* Sources/EhViewer/Resources/ko.lproj/Localizable.strings */,
+				EHF00000000000000000012 /* Sources/EhViewer/Resources/es.lproj/Localizable.strings */,
+				EHF00000000000000000013 /* Sources/EhViewer/Resources/fr.lproj/Localizable.strings */,
+				EHF00000000000000000014 /* Sources/EhViewer/Resources/de.lproj/Localizable.strings */,
+				EHF00000000000000000015 /* Sources/EhViewer/Resources/th.lproj/Localizable.strings */,
 				EHG00000000000000000003 /* Products */,
-				EHG00000000000000000020 /* EhViewerUITests */,
-				EHG00000000000000000021 /* EhViewerShare */,
+				EHG00000000000000000020 /* Tests/EhViewerUITests */,
+				EHG00000000000000000021 /* Sources/EhViewerShare */,
 			);
 			sourceTree = "<group>";
 		};
-		EHG00000000000000000002 /* EhViewer */ = {
+		EHG00000000000000000002 /* Sources/EhViewer */ = {
 			isa = PBXGroup;
 			children = (
+				EHF00000000000000000025 /* AdvancedSearchView.swift */,
 				EHF00000000000000000001 /* AppModel.swift */,
 				EHF00000000000000000002 /* BrowseView.swift */,
+				EHF00000000000000000024 /* BrowsePaginationFooter.swift */,
 				EHF00000000000000000003 /* DownloadsView.swift */,
 				EHF00000000000000000004 /* EhViewerApp.swift */,
 				EHF00000000000000000005 /* GalleryDetailView.swift */,
@@ -133,7 +181,7 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		EHG00000000000000000020 /* EhViewerUITests */ = {
+		EHG00000000000000000020 /* Tests/EhViewerUITests */ = {
 			isa = PBXGroup;
 			children = (
 				EHF00000000000000000020 /* EhViewerUITests.swift */,
@@ -141,11 +189,11 @@
 			path = Tests/EhViewerUITests;
 			sourceTree = "<group>";
 		};
-		EHG00000000000000000021 /* EhViewerShare */ = {
+		EHG00000000000000000021 /* Sources/EhViewerShare */ = {
 			isa = PBXGroup;
 			children = (
 				EHF00000000000000000017 /* ShareViewController.swift */,
-				EHF00000000000000000018 /* Share Info.plist */,
+				EHF00000000000000000018 /* Info.plist */,
 			);
 			path = Sources/EhViewerShare;
 			sourceTree = "<group>";
@@ -165,7 +213,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				EHDPT000000000000000021 /* EhViewerShare target dependency */,
+				EHDPT000000000000000021 /* PBXTargetDependency */,
 			);
 			name = EhViewer;
 			packageProductDependencies = (
@@ -182,13 +230,13 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = EHL00000000000000000020 /* Build configuration list for PBXNativeTarget "EhViewerUITests" */;
 			buildPhases = (
-				EHP00000000000000000020 /* EhViewerUITests Sources */,
-				EHP00000000000000000021 /* EhViewerUITests Frameworks */,
+				EHP00000000000000000020 /* Sources */,
+				EHP00000000000000000021 /* Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				EHDPT000000000000000020 /* EhViewer target dependency */,
+				EHDPT000000000000000020 /* PBXTargetDependency */,
 			);
 			name = EhViewerUITests;
 			productName = EhViewerUITests;
@@ -199,8 +247,8 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = EHL00000000000000000021 /* Build configuration list for PBXNativeTarget "EhViewerShare" */;
 			buildPhases = (
-				EHP00000000000000000023 /* EhViewerShare Sources */,
-				EHP00000000000000000024 /* EhViewerShare Frameworks */,
+				EHP00000000000000000023 /* Sources */,
+				EHP00000000000000000024 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -213,37 +261,6 @@
 		};
 /* End PBXNativeTarget section */
 
-/* Begin PBXTargetDependency section */
-		EHDPT000000000000000020 /* EhViewer target dependency */ = {
-			isa = PBXTargetDependency;
-			target = EHT00000000000000000001 /* EhViewer */;
-			targetProxy = EHPROXY00000000000000020 /* EhViewer target proxy */;
-		};
-		EHDPT000000000000000021 /* EhViewerShare target dependency */ = {
-			isa = PBXTargetDependency;
-			platformFilters = (ios, iossimulator);
-			target = EHT00000000000000000021 /* EhViewerShare */;
-			targetProxy = EHPROXY00000000000000021 /* EhViewerShare target proxy */;
-		};
-/* End PBXTargetDependency section */
-
-/* Begin PBXContainerItemProxy section */
-		EHPROXY00000000000000020 /* EhViewer target proxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = EHP00000000000000000010 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = EHT00000000000000000001;
-			remoteInfo = EhViewer;
-		};
-		EHPROXY00000000000000021 /* EhViewerShare target proxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = EHP00000000000000000010 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = EHT00000000000000000021;
-			remoteInfo = EhViewerShare;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin PBXProject section */
 		EHP00000000000000000010 /* Project object */ = {
 			isa = PBXProject;
@@ -251,18 +268,18 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
-				EHT00000000000000000001 = {
-					CreatedOnToolsVersion = 26.0;
-					ProvisioningStyle = Automatic;
-				};
-				EHT00000000000000000020 = {
-					CreatedOnToolsVersion = 26.0;
-					ProvisioningStyle = Automatic;
-				};
-				EHT00000000000000000021 = {
-					CreatedOnToolsVersion = 26.0;
-					ProvisioningStyle = Automatic;
-				};
+					EHT00000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+						ProvisioningStyle = Automatic;
+					};
+					EHT00000000000000000020 = {
+						CreatedOnToolsVersion = 26.0;
+						ProvisioningStyle = Automatic;
+					};
+					EHT00000000000000000021 = {
+						CreatedOnToolsVersion = 26.0;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = EHL00000000000000000001 /* Build configuration list for PBXProject "EhViewer" */;
@@ -272,8 +289,8 @@
 			knownRegions = (
 				Base,
 				en,
-				zh-Hans,
-				zh-Hant,
+				"zh-Hans",
+				"zh-Hant",
 				ja,
 				ko,
 				es,
@@ -283,7 +300,7 @@
 			);
 			mainGroup = EHG00000000000000000001;
 			packageReferences = (
-				EHPKG000000000000000001 /* XCLocalSwiftPackageReference */,
+				EHPKG000000000000000001 /* XCLocalSwiftPackageReference "." */,
 			);
 			productRefGroup = EHG00000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -301,15 +318,15 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				EHB0000000000000000000B /* zh-Hans Localizable.strings in Resources */,
-				EHB0000000000000000000C /* en Localizable.strings in Resources */,
-				EHB0000000000000000000F /* zh-Hant Localizable.strings in Resources */,
-				EHB00000000000000000010 /* ja Localizable.strings in Resources */,
-				EHB00000000000000000011 /* ko Localizable.strings in Resources */,
-				EHB00000000000000000012 /* es Localizable.strings in Resources */,
-				EHB00000000000000000013 /* fr Localizable.strings in Resources */,
-				EHB00000000000000000014 /* de Localizable.strings in Resources */,
-				EHB00000000000000000015 /* th Localizable.strings in Resources */,
+				EHB0000000000000000000B /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings in Resources */,
+				EHB0000000000000000000C /* Sources/EhViewer/Resources/en.lproj/Localizable.strings in Resources */,
+				EHB0000000000000000000F /* Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings in Resources */,
+				EHB00000000000000000010 /* Sources/EhViewer/Resources/ja.lproj/Localizable.strings in Resources */,
+				EHB00000000000000000011 /* Sources/EhViewer/Resources/ko.lproj/Localizable.strings in Resources */,
+				EHB00000000000000000012 /* Sources/EhViewer/Resources/es.lproj/Localizable.strings in Resources */,
+				EHB00000000000000000013 /* Sources/EhViewer/Resources/fr.lproj/Localizable.strings in Resources */,
+				EHB00000000000000000014 /* Sources/EhViewer/Resources/de.lproj/Localizable.strings in Resources */,
+				EHB00000000000000000015 /* Sources/EhViewer/Resources/th.lproj/Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -320,8 +337,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EHB00000000000000000025 /* AdvancedSearchView.swift in Sources */,
 				EHB00000000000000000001 /* AppModel.swift in Sources */,
 				EHB00000000000000000002 /* BrowseView.swift in Sources */,
+				EHB00000000000000000024 /* BrowsePaginationFooter.swift in Sources */,
 				EHB00000000000000000003 /* DownloadsView.swift in Sources */,
 				EHB00000000000000000004 /* EhViewerApp.swift in Sources */,
 				EHB00000000000000000005 /* GalleryDetailView.swift in Sources */,
@@ -334,8 +353,8 @@
 				EHB00000000000000000021 /* LocalArchiveView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			};
-		EHP00000000000000000020 /* EhViewerUITests Sources */ = {
+		};
+		EHP00000000000000000020 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -343,14 +362,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EHP00000000000000000021 /* EhViewerUITests Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		EHP00000000000000000023 /* EhViewerShare Sources */ = {
+		EHP00000000000000000023 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -358,14 +370,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		EHP00000000000000000024 /* EhViewerShare Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		EHDPT000000000000000020 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EHT00000000000000000001 /* EhViewer */;
+			targetProxy = EHPROXY00000000000000020 /* PBXContainerItemProxy */;
+		};
+		EHDPT000000000000000021 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilters = (
+				ios,
+				iossimulator,
+			);
+			target = EHT00000000000000000021 /* EhViewerShare */;
+			targetProxy = EHPROXY00000000000000021 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		EHC00000000000000000001 /* Debug */ = {
@@ -373,8 +395,8 @@
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				SWIFT_VERSION = 6.0;
 				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -383,25 +405,22 @@
 			buildSettings = {
 				CLANG_ENABLE_MODULES = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				SWIFT_VERSION = 6.0;
 				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
 		EHC00000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = EhViewer;
-				INFOPLIST_KEY_CFBundleURLTypes = (
-					{
-						CFBundleTypeRole = Viewer;
-						CFBundleURLSchemes = (ehviewer);
-					}
-				);
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Viewer;\n    CFBundleURLSchemes =     (\n        ehviewer\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -419,18 +438,15 @@
 		EHC00000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = EhViewer;
-				INFOPLIST_KEY_CFBundleURLTypes = (
-					{
-						CFBundleTypeRole = Viewer;
-						CFBundleURLSchemes = (ehviewer);
-					}
-				);
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Viewer;\n    CFBundleURLSchemes =     (\n        ehviewer\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -455,8 +471,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_VERSION = 6.0;
 				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = EhViewer;
 			};
@@ -472,8 +488,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_VERSION = 6.0;
 				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = EhViewer;
 			};
@@ -484,6 +500,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -491,8 +508,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_VERSION = 6.0;
 				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -510,8 +527,8 @@
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_VERSION = 6.0;
 				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -558,7 +575,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		EHPKG000000000000000001 /* Local package */ = {
+		EHPKG000000000000000001 /* XCLocalSwiftPackageReference "." */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = .;
 		};
@@ -567,22 +584,22 @@
 /* Begin XCSwiftPackageProductDependency section */
 		EHD00000000000000000001 /* EHDomain */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = EHPKG000000000000000001 /* Local package */;
+			package = EHPKG000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = EHDomain;
 		};
 		EHD00000000000000000002 /* EHNetworking */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = EHPKG000000000000000001 /* Local package */;
+			package = EHPKG000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = EHNetworking;
 		};
 		EHD00000000000000000003 /* EHPersistence */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = EHPKG000000000000000001 /* Local package */;
+			package = EHPKG000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = EHPersistence;
 		};
 		EHD00000000000000000004 /* EHDownloads */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = EHPKG000000000000000001 /* Local package */;
+			package = EHPKG000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = EHDownloads;
 		};
 /* End XCSwiftPackageProductDependency section */

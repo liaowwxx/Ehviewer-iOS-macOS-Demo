@@ -333,6 +333,7 @@ public struct GalleryListQuery: Hashable, Codable, Sendable {
     public var sort: SortOrder
     public var category: String?
     public var favoriteCategory: Int?
+    public var advancedSearch: GalleryAdvancedSearch?
 
     public init(
         site: SiteMode = .eHentai,
@@ -341,7 +342,8 @@ public struct GalleryListQuery: Hashable, Codable, Sendable {
         page: Int = 0,
         sort: SortOrder = .newest,
         category: String? = nil,
-        favoriteCategory: Int? = nil
+        favoriteCategory: Int? = nil,
+        advancedSearch: GalleryAdvancedSearch? = nil
     ) {
         self.site = site
         self.kind = kind
@@ -350,6 +352,7 @@ public struct GalleryListQuery: Hashable, Codable, Sendable {
         self.sort = sort
         self.category = category
         self.favoriteCategory = favoriteCategory
+        self.advancedSearch = advancedSearch
     }
 
     public enum ListKind: String, Codable, CaseIterable, Hashable, Sendable {
@@ -365,6 +368,109 @@ public struct GalleryListQuery: Hashable, Codable, Sendable {
         case newest
         case popular
         case rating
+    }
+}
+
+public enum GalleryCategory: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+    case doujinshi = "Doujinshi"
+    case manga = "Manga"
+    case artistCG = "Artist CG"
+    case gameCG = "Game CG"
+    case western = "Western"
+    case nonH = "Non-H"
+    case imageSet = "Image Set"
+    case cosplay = "Cosplay"
+    case asianPorn = "Asian Porn"
+    case misc = "Misc"
+
+    public var id: Self { self }
+
+    public var bitMask: Int {
+        switch self {
+        case .misc: 0x001
+        case .doujinshi: 0x002
+        case .manga: 0x004
+        case .artistCG: 0x008
+        case .gameCG: 0x010
+        case .imageSet: 0x020
+        case .cosplay: 0x040
+        case .asianPorn: 0x080
+        case .nonH: 0x100
+        case .western: 0x200
+        }
+    }
+}
+
+public struct GalleryAdvancedSearch: Hashable, Codable, Sendable {
+    public static let allCategoryMask = 0x3ff
+
+    public var categories: Set<GalleryCategory>
+    public var searchName: Bool
+    public var searchTags: Bool
+    public var searchDescription: Bool
+    public var searchTorrentNames: Bool
+    public var onlyWithTorrents: Bool
+    public var searchLowPowerTags: Bool
+    public var searchDownvotedTags: Bool
+    public var onlyShowExpunged: Bool
+    public var minimumRating: Int
+    public var minimumPageCount: Int
+    public var maximumPageCount: Int
+    public var disableLanguageFilter: Bool
+    public var disableUploaderFilter: Bool
+    public var disableTagFilter: Bool
+
+    public init(
+        categories: Set<GalleryCategory> = Set(GalleryCategory.allCases),
+        searchName: Bool = true,
+        searchTags: Bool = true,
+        searchDescription: Bool = false,
+        searchTorrentNames: Bool = false,
+        onlyWithTorrents: Bool = false,
+        searchLowPowerTags: Bool = false,
+        searchDownvotedTags: Bool = false,
+        onlyShowExpunged: Bool = false,
+        minimumRating: Int = 0,
+        minimumPageCount: Int = 0,
+        maximumPageCount: Int = 0,
+        disableLanguageFilter: Bool = false,
+        disableUploaderFilter: Bool = false,
+        disableTagFilter: Bool = false
+    ) {
+        self.categories = categories
+        self.searchName = searchName
+        self.searchTags = searchTags
+        self.searchDescription = searchDescription
+        self.searchTorrentNames = searchTorrentNames
+        self.onlyWithTorrents = onlyWithTorrents
+        self.searchLowPowerTags = searchLowPowerTags
+        self.searchDownvotedTags = searchDownvotedTags
+        self.onlyShowExpunged = onlyShowExpunged
+        self.minimumRating = minimumRating
+        self.minimumPageCount = minimumPageCount
+        self.maximumPageCount = maximumPageCount
+        self.disableLanguageFilter = disableLanguageFilter
+        self.disableUploaderFilter = disableUploaderFilter
+        self.disableTagFilter = disableTagFilter
+    }
+
+    public var excludedCategoryMask: Int? {
+        let includedMask = categories.reduce(0) { $0 | $1.bitMask }
+        let excludedMask = Self.allCategoryMask & ~includedMask
+        return excludedMask == 0 ? nil : excludedMask
+    }
+
+    public var hasValidPageRange: Bool {
+        minimumPageCount >= 0 && maximumPageCount >= 0
+            && (minimumPageCount == 0 || maximumPageCount == 0 || minimumPageCount <= maximumPageCount)
+    }
+
+    public mutating func toggle(_ category: GalleryCategory) {
+        if categories.contains(category) {
+            categories.remove(category)
+        } else {
+            categories.insert(category)
+        }
     }
 }
 

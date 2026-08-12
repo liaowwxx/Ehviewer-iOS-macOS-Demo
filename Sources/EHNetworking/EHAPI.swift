@@ -5,6 +5,7 @@ import SwiftSoup
 public protocol EHAPI: Sendable {
     func login(username: String, password: String) async throws -> LoginResult
     func list(query: GalleryListQuery) async throws -> GalleryListPage
+    func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage
     func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail
     func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage
     func imageData(for image: GalleryPageImage, resolution: ImageResolution) async throws -> Data
@@ -31,6 +32,13 @@ public extension EHAPI {
 
     func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage {
         throw EHError.parsingFailed("当前 API 未实现页面解析")
+    }
+
+    func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage {
+        if query.kind == .favorites {
+            return try await favorites(query: query)
+        }
+        return try await list(query: query)
     }
 
     func imageData(for image: GalleryPageImage, resolution: ImageResolution) async throws -> Data {
@@ -157,8 +165,16 @@ public struct EHClient: EHAPI, Sendable {
     }
 
     public func list(query: GalleryListQuery) async throws -> GalleryListPage {
+        try await list(query: query, pageURL: nil)
+    }
+
+    public func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage {
         let builder = SiteRequestBuilder(site: query.site)
-        var request = try builder.galleryListRequest(query: query)
+        var request = if let pageURL {
+            try builder.galleryListRequest(pageURL: pageURL)
+        } else {
+            try builder.galleryListRequest(query: query)
+        }
         try await attachSessionCookie(to: &request)
         let (data, response) = try await send(request)
         try validate(response)
@@ -202,12 +218,10 @@ public struct EHClient: EHAPI, Sendable {
             page: query.page,
             sort: query.sort,
             category: query.category,
-            favoriteCategory: query.favoriteCategory
+            favoriteCategory: query.favoriteCategory,
+            advancedSearch: query.advancedSearch
         )
-        let request = try SiteRequestBuilder(site: query.site).galleryListRequest(query: favoriteQuery)
-        let (data, response) = try await authorized(request)
-        try validate(response)
-        return try parser.parseList(data: data, query: favoriteQuery)
+        return try await list(query: favoriteQuery, pageURL: nil)
     }
 
     public func setFavorite(for key: GalleryKey, site: SiteMode, category: Int?, note: String? = nil) async throws {
