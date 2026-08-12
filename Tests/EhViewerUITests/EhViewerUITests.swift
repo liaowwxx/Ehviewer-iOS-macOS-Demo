@@ -20,7 +20,7 @@ final class EhViewerUITests: XCTestCase {
         )
     }
 
-    func testSettingsExposesGuestAndDemoStateControls() throws {
+    func testSettingsExposesGuestState() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestUseGuestMode", "YES"]
         app.launch()
@@ -35,45 +35,14 @@ final class EhViewerUITests: XCTestCase {
         }
 
         XCTAssertTrue(app.staticTexts["站点"].waitForExistence(timeout: 5) || app.staticTexts["Site"].exists)
-        let demoToggle = app.switches["使用演示数据"].exists
-            ? app.switches["使用演示数据"]
-            : app.switches["Use demo data"]
-        XCTAssertTrue(demoToggle.exists)
         let sessionStatus = app.descendants(matching: .any)["session-status"]
         XCTAssertTrue(sessionStatus.waitForExistence(timeout: 5))
         XCTAssertEqual(sessionStatus.value as? String, "游客浏览")
     }
 
-    func testDetailActionsAndTagSearchStayUsable() throws {
-        let app = XCUIApplication()
-        app.launchArguments = ["-UITestUseDemoData", "YES"]
-        app.launch()
-
-        let galleryTitle = app.staticTexts["Sample Gallery · Browse baseline"]
-        XCTAssertTrue(galleryTitle.waitForExistence(timeout: 5))
-        galleryTitle.tap()
-
-        XCTAssertTrue(app.buttons["start-reading-action"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["enqueue-download-action"].isHittable)
-
-        let favorite = app.buttons["favorite-action"]
-        XCTAssertTrue(favorite.isHittable)
-        favorite.tap()
-        XCTAssertTrue(favorite.waitForExistence(timeout: 2))
-
-        let tag = app.buttons["tag-search-language:chinese"]
-        XCTAssertTrue(tag.waitForExistence(timeout: 5))
-        XCTAssertTrue(tag.isHittable)
-        tag.tap()
-
-        let searchField = app.searchFields.firstMatch
-        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
-        XCTAssertEqual(searchField.value as? String, "language:chinese")
-    }
-
     func testAdvancedSearchCanBeConfiguredAndApplied() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestUseDemoData", "YES"]
+        app.launchArguments = ["-UITestUseGuestMode", "YES"]
         app.launch()
 
         let advancedSearch = app.buttons["advanced-search-action"]

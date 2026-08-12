@@ -32,7 +32,7 @@ struct GalleryDetailView: View {
                         }
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        if model.useDemoData == false, detail.apiUID != nil, detail.apiKey != nil {
+                        if detail.apiUID != nil, detail.apiKey != nil {
                             Menu("我的评分", systemImage: "star") {
                                 ForEach(1...5, id: \.self) { value in
                                     Button("评分 \(value)") {
@@ -52,7 +52,7 @@ struct GalleryDetailView: View {
                             Link("在站点打开", destination: externalURL)
                                 .font(.subheadline)
                         }
-                        if model.useDemoData == false, (detail.torrentURL != nil || detail.archiveURL != nil) {
+                        if detail.torrentURL != nil || detail.archiveURL != nil {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text("下载资源").font(.headline)
                                 if torrents.isEmpty == false {
@@ -127,20 +127,18 @@ struct GalleryDetailView: View {
                     }
                     .padding()
                     .frame(maxWidth: 760, alignment: .leading)
-                    if comments.isEmpty == false || model.useDemoData == false {
-                        GalleryCommentsSection(comments: comments, commentText: $commentText, canSubmit: model.useDemoData == false && model.isGuestMode == false) {
-                            guard commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { return }
-                            let body = commentText
-                            commentText = ""
-                            Task {
-                                if let updated = await model.submitComment(for: detail, body: body) {
-                                    comments = updated
-                                }
+                    GalleryCommentsSection(comments: comments, commentText: $commentText, canSubmit: model.isGuestMode == false) {
+                        guard commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { return }
+                        let body = commentText
+                        commentText = ""
+                        Task {
+                            if let updated = await model.submitComment(for: detail, body: body) {
+                                comments = updated
                             }
                         }
-                        .padding(.horizontal)
-                        .frame(maxWidth: 760, alignment: .leading)
                     }
+                    .padding(.horizontal)
+                    .frame(maxWidth: 760, alignment: .leading)
                 }
             } else {
                 ProgressView("读取详情…")
@@ -151,7 +149,7 @@ struct GalleryDetailView: View {
             detail = await model.detail(for: key)
             isFavorite = await model.favoriteState(for: key)
             comments = detail?.comments ?? []
-            if detail != nil, model.useDemoData == false {
+            if detail != nil {
                 async let loadedTorrents = model.torrents(for: key)
                 async let loadedArchives = model.archiveOptions(for: key)
                 torrents = await loadedTorrents

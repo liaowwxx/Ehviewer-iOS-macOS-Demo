@@ -7,13 +7,32 @@ import EHPersistence
 
 @MainActor
 struct AppModelTests {
+    @Test("App starts in guest mode without a saved session")
+    func defaultsToGuestMode() async throws {
+        let suiteName = "EhViewerGuestModeTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let sessionVault = SessionVault(service: suiteName)
+        try await sessionVault.clear()
+
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: sessionVault,
+            defaults: defaults
+        )
+
+        #expect(model.isGuestMode)
+        await model.refreshSessionStatus()
+        #expect(model.isGuestMode)
+    }
+
     @Test("A slower old search cannot overwrite the latest result")
     func latestListRequestWins() async throws {
         let api = ControlledListAPI()
         let suiteName = "EhViewerAppModelTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(false, forKey: "useDemoData")
         let model = AppModel(
             container: try ModelContainerFactory.make(inMemory: true),
             api: api,
@@ -65,7 +84,6 @@ struct AppModelTests {
         let suiteName = "EhViewerSearchPaginationTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(false, forKey: "useDemoData")
         let model = AppModel(
             container: try ModelContainerFactory.make(inMemory: true),
             api: api,

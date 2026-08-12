@@ -19,7 +19,6 @@
 		EHB00000000000000000006 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000006 /* LibraryView.swift */; };
 		EHB00000000000000000007 /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000007 /* ReaderView.swift */; };
 		EHB00000000000000000008 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000008 /* RootView.swift */; };
-		EHB00000000000000000009 /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000009 /* SampleData.swift */; };
 		EHB0000000000000000000A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000A /* SettingsView.swift */; };
 		EHB0000000000000000000B /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */; };
 		EHB0000000000000000000C /* Sources/EhViewer/Resources/en.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */; };
@@ -37,6 +36,13 @@
 		EHB00000000000000000023 /* EhViewerShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000022 /* EhViewerShare.appex */; platformFilters = (ios, iossimulator, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		EHB00000000000000000024 /* BrowsePaginationFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000024 /* BrowsePaginationFooter.swift */; };
 		EHB00000000000000000025 /* AdvancedSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000025 /* AdvancedSearchView.swift */; };
+		EHB00000000000000000026 /* ReadingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000026 /* ReadingMode.swift */; };
+		EHB00000000000000000027 /* ReaderPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000027 /* ReaderPage.swift */; };
+		EHB00000000000000000028 /* ReaderPositionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000028 /* ReaderPositionState.swift */; };
+		EHB00000000000000000029 /* ReaderZoomState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000029 /* ReaderZoomState.swift */; };
+		EHB0000000000000000002A /* ReaderContinuousZoomState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002A /* ReaderContinuousZoomState.swift */; };
+		EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002B /* ReaderContinuousView.swift */; };
+		EHB0000000000000000002C /* ReaderPagedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002C /* ReaderPagedView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -79,7 +85,6 @@
 		EHF00000000000000000006 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000007 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000008 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		EHF00000000000000000009 /* SampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleData.swift; sourceTree = "<group>"; };
 		EHF0000000000000000000A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000000B /* EhViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EhViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -100,6 +105,13 @@
 		EHF00000000000000000022 /* EhViewerShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EhViewerShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		EHF00000000000000000024 /* BrowsePaginationFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsePaginationFooter.swift; sourceTree = "<group>"; };
 		EHF00000000000000000025 /* AdvancedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSearchView.swift; sourceTree = "<group>"; };
+		EHF00000000000000000026 /* ReadingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingMode.swift; sourceTree = "<group>"; };
+		EHF00000000000000000027 /* ReaderPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPage.swift; sourceTree = "<group>"; };
+		EHF00000000000000000028 /* ReaderPositionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPositionState.swift; sourceTree = "<group>"; };
+		EHF00000000000000000029 /* ReaderZoomState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderZoomState.swift; sourceTree = "<group>"; };
+		EHF0000000000000000002A /* ReaderContinuousZoomState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderContinuousZoomState.swift; sourceTree = "<group>"; };
+		EHF0000000000000000002B /* ReaderContinuousView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderContinuousView.swift; sourceTree = "<group>"; };
+		EHF0000000000000000002C /* ReaderPagedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPagedView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -161,9 +173,15 @@
 				EHF00000000000000000004 /* EhViewerApp.swift */,
 				EHF00000000000000000005 /* GalleryDetailView.swift */,
 				EHF00000000000000000006 /* LibraryView.swift */,
+				EHF00000000000000000026 /* ReadingMode.swift */,
+				EHF0000000000000000002B /* ReaderContinuousView.swift */,
+				EHF0000000000000000002A /* ReaderContinuousZoomState.swift */,
+				EHF00000000000000000027 /* ReaderPage.swift */,
+				EHF0000000000000000002C /* ReaderPagedView.swift */,
+				EHF00000000000000000028 /* ReaderPositionState.swift */,
 				EHF00000000000000000007 /* ReaderView.swift */,
+				EHF00000000000000000029 /* ReaderZoomState.swift */,
 				EHF00000000000000000008 /* RootView.swift */,
-				EHF00000000000000000009 /* SampleData.swift */,
 				EHF0000000000000000000A /* SettingsView.swift */,
 				EHF0000000000000000000E /* AppLock.swift */,
 				EHF00000000000000000016 /* LocalArchiveView.swift */,
@@ -345,9 +363,15 @@
 				EHB00000000000000000004 /* EhViewerApp.swift in Sources */,
 				EHB00000000000000000005 /* GalleryDetailView.swift in Sources */,
 				EHB00000000000000000006 /* LibraryView.swift in Sources */,
+				EHB00000000000000000026 /* ReadingMode.swift in Sources */,
+				EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */,
+				EHB0000000000000000002A /* ReaderContinuousZoomState.swift in Sources */,
+				EHB00000000000000000027 /* ReaderPage.swift in Sources */,
+				EHB0000000000000000002C /* ReaderPagedView.swift in Sources */,
+				EHB00000000000000000028 /* ReaderPositionState.swift in Sources */,
 				EHB00000000000000000007 /* ReaderView.swift in Sources */,
+				EHB00000000000000000029 /* ReaderZoomState.swift in Sources */,
 				EHB00000000000000000008 /* RootView.swift in Sources */,
-				EHB00000000000000000009 /* SampleData.swift in Sources */,
 				EHB0000000000000000000A /* SettingsView.swift in Sources */,
 				EHB0000000000000000000D /* AppLock.swift in Sources */,
 				EHB00000000000000000021 /* LocalArchiveView.swift in Sources */,

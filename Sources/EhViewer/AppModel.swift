@@ -10,6 +10,7 @@ import EHDownloads
 @Observable
 final class AppModel {
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let forceGuestMode: Bool
     let api: any EHAPI
     let persistence: PersistenceStore
     let downloads: DownloadCoordinator
@@ -30,7 +31,6 @@ final class AppModel {
     var selectedRoute: AppRoute? = .browse
     var isLoading = false
     var searchText = ""
-    var useDemoData: Bool
     var isGuestMode = true
     var isPasswordLoginInProgress = false
     var appLockEnabled: Bool
@@ -51,8 +51,10 @@ final class AppModel {
         site = SiteMode(rawValue: defaults.string(forKey: "site") ?? "") ?? .eHentai
         let arguments = ProcessInfo.processInfo.arguments
         let forceGuestModeForUITest = arguments.contains("-UITestUseGuestMode")
-        let forceDemoDataForUITest = arguments.contains("-UITestUseDemoData")
-        useDemoData = forceGuestModeForUITest ? false : (forceDemoDataForUITest || (defaults.object(forKey: "useDemoData") as? Bool ?? true))
+        forceGuestMode = forceGuestModeForUITest
+        if forceGuestModeForUITest {
+            isGuestMode = true
+        }
         appLockEnabled = defaults.object(forKey: "appLockEnabled") as? Bool ?? false
         isLocked = defaults.object(forKey: "appLockEnabled") as? Bool ?? false
         self.sessionVault = sessionVault
@@ -109,7 +111,9 @@ final class AppModel {
             removal: { key in try? await store.deleteDownload(for: key) }
         )
         Task { @MainActor [weak self] in
-            await self?.refreshSessionStatus()
+            if self?.forceGuestMode == false {
+                await self?.refreshSessionStatus()
+            }
             await self?.loadFilterRules()
             await self?.loadTagTranslations()
             await self?.restoreDownloads()
@@ -134,13 +138,10 @@ final class AppModel {
         let query = query ?? GalleryListQuery(site: site, searchText: searchText.nilIfEmpty)
         activeQuery = query
         do {
-            let result: GalleryListPage
-            if useDemoData {
-                result = GalleryListPage(items: filteredSampleGalleries)
-            } else if query.kind == .favorites {
-                result = try await api.favorites(query: query)
+            let result = if query.kind == .favorites {
+                try await api.favorites(query: query)
             } else {
-                result = try await api.list(query: query)
+                try await api.list(query: query)
             }
             try Task.checkCancellation()
             guard activeListRequestID == requestID else { return }
@@ -171,12 +172,7 @@ final class AppModel {
             }
         }
         guard Task.isCancelled == false else { return }
-        if useDemoData {
-            activeQuery = query
-            galleries = filteredSampleGalleries
-        } else {
-            await load(query: query)
-        }
+        await load(query: query)
     }
 
     func searchTag(_ tag: String) {
@@ -187,7 +183,7 @@ final class AppModel {
     }
 
     func loadMore() async {
-        guard useDemoData == false, let pageURL = nextPageURL, isLoading == false else { return }
+        guard let pageURL = nextPageURL, isLoading == false else { return }
         let requestID = activeListRequestID
         var query = activeQuery
         query.page += 1
@@ -283,9 +279,6 @@ final class AppModel {
     }
 
     func detail(for key: GalleryKey) async -> GalleryDetail? {
-        if let summary = galleries.first(where: { $0.key == key }) {
-            if useDemoData { return SampleData.detail(for: summary) }
-        }
         do {
             let detail = try await api.detail(for: key, site: site)
             try await persistence.upsert([detail.summary])
@@ -355,7 +348,7 @@ final class AppModel {
                 try await persistence.upsert([summary])
             }
             let current = try await persistence.isFavorite(for: key) ?? false
-            if remoteDetail != nil, useDemoData == false, isGuestMode == false {
+            if remoteDetail != nil, isGuestMode == false {
                 try await api.setFavorite(
                     for: key,
                     site: site,
@@ -511,26 +504,21 @@ final class AppModel {
         do {
             let client = self.api
             let currentSite = site
-            let resolvedPages: [GalleryPageDescriptor]
-            if useDemoData {
-                resolvedPages = detail.pages
-            } else {
-                resolvedPages = try await withThrowingTaskGroup(of: GalleryPageDescriptor.self, returning: [GalleryPageDescriptor].self) { group in
-                    for descriptor in detail.pages {
-                        group.addTask {
-                            let image = try await client.pageImage(for: descriptor, site: currentSite)
-                            return GalleryPageDescriptor(
-                                galleryKey: descriptor.galleryKey,
-                                index: descriptor.index,
-                                pageURL: image.imageURL,
-                                previewURL: descriptor.previewURL
-                            )
-                        }
+            let resolvedPages = try await withThrowingTaskGroup(of: GalleryPageDescriptor.self, returning: [GalleryPageDescriptor].self) { group in
+                for descriptor in detail.pages {
+                    group.addTask {
+                        let image = try await client.pageImage(for: descriptor, site: currentSite)
+                        return GalleryPageDescriptor(
+                            galleryKey: descriptor.galleryKey,
+                            index: descriptor.index,
+                            pageURL: image.imageURL,
+                            previewURL: descriptor.previewURL
+                        )
                     }
-                    var pages: [GalleryPageDescriptor] = []
-                    for try await page in group { pages.append(page) }
-                    return pages.sorted { $0.index < $1.index }
                 }
+                var pages: [GalleryPageDescriptor] = []
+                for try await page in group { pages.append(page) }
+                return pages.sorted { $0.index < $1.index }
             }
             await downloads.enqueue(key: detail.summary.key, title: detail.summary.title, pages: resolvedPages)
         } catch is CancellationError {
@@ -574,7 +562,6 @@ final class AppModel {
     func saveCookie(_ cookieHeader: String) async -> Bool {
         do {
             try await sessionVault.saveCookieHeader(cookieHeader)
-            useDemoData = false
             isGuestMode = false
             persistSettings()
             errorMessage = nil
@@ -591,7 +578,6 @@ final class AppModel {
         defer { isPasswordLoginInProgress = false }
         do {
             _ = try await api.login(username: username, password: password)
-            useDemoData = false
             isGuestMode = false
             persistSettings()
             errorMessage = nil
@@ -607,8 +593,7 @@ final class AppModel {
     func clearSession() async {
         do {
             try await sessionVault.clear()
-            useDemoData = false
-        isGuestMode = true
+            isGuestMode = true
             persistSettings()
         } catch {
             errorMessage = error.localizedDescription
@@ -662,15 +647,7 @@ final class AppModel {
 
     func persistSettings() {
         defaults.set(site.rawValue, forKey: "site")
-        defaults.set(useDemoData, forKey: "useDemoData")
         defaults.set(appLockEnabled, forKey: "appLockEnabled")
-    }
-
-    var filteredSampleGalleries: [GallerySummary] {
-        guard searchText.isEmpty == false else { return SampleData.galleries }
-        return SampleData.galleries.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText) || $0.tags.contains(where: { $0.localizedCaseInsensitiveContains(searchText) })
-        }
     }
 
     private func imageURL(for image: GalleryPageImage, resolution: ImageResolution) -> URL {

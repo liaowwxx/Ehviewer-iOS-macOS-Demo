@@ -17,24 +17,19 @@ struct SettingsView: View {
                     ForEach(SiteMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
                 .onChange(of: model.site) { _, _ in model.persistSettings() }
-                Toggle("使用演示数据", isOn: $model.useDemoData)
-                    .onChange(of: model.useDemoData) {
-                        model.persistSettings()
-                        Task { await model.load() }
-                    }
                 HStack {
                     Label(
-                        model.useDemoData ? "演示数据" : (model.isGuestMode ? "游客浏览" : "已登录"),
-                        systemImage: model.useDemoData ? "shippingbox" : (model.isGuestMode ? "person" : "person.crop.circle.badge.checkmark")
+                        model.isGuestMode ? "游客浏览" : "已登录",
+                        systemImage: model.isGuestMode ? "person" : "person.crop.circle.badge.checkmark"
                     )
                     Spacer()
-                    Text(model.useDemoData ? "本地样本" : (model.isGuestMode ? "公开内容" : "账户会话"))
+                    Text(model.isGuestMode ? "公开内容" : "账户会话")
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("session-status")
                 .accessibilityLabel("会话状态")
-                .accessibilityValue(model.useDemoData ? "演示数据" : (model.isGuestMode ? "游客浏览" : "已登录"))
+                .accessibilityValue(model.isGuestMode ? "游客浏览" : "已登录")
             }
             Section("登录") {
                 Button("用户名和密码登录", systemImage: "person.badge.key") { showingPasswordLogin = true }
@@ -57,7 +52,7 @@ struct SettingsView: View {
             }
             Section("关于") {
                 LabeledContent("版本", value: "0.1 基线")
-                Text("本项目是个人使用的原生 SwiftUI 移植，默认不访问真实站点。")
+                Text("游客模式仅访问站点公开内容；登录会话 Cookie 由 Keychain 管理。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

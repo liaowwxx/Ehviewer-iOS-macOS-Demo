@@ -10,7 +10,7 @@ xcodebuild -project EhViewer.xcodeproj -scheme EhViewer -sdk iphonesimulator COD
 xcodebuild -project EhViewer.xcodeproj -scheme EhViewer -sdk macosx CODE_SIGNING_ALLOWED=NO build
 ```
 
-The app starts with `使用演示数据` enabled for deterministic local browsing. Turn it off in Settings to use the built-in `EHClient` in guest mode; public lists, details and page images do not require a session, while remote favorites, comments, ratings and watched tags do. Local history and favorites remain available to guests. A valid session can be supplied through password login, the temporary WKWebView, or manual Cookie login. Passwords are never persisted; session cookies are isolated behind `SessionVault` and Keychain. Signing out returns to real guest browsing instead of silently switching back to demo data.
+The app starts in guest mode and uses the built-in `EHClient`; public lists, details and page images do not require a session, while remote favorites, comments, ratings and watched tags do. Local history and favorites remain available to guests. A valid session can be supplied through password login, the temporary WKWebView, or manual Cookie login. Passwords are never persisted; session cookies are isolated behind `SessionVault` and Keychain. Signing out returns to guest browsing.
 
 ## Modules
 
