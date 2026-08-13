@@ -45,17 +45,9 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("隐私") {
-                Button(model.appLockEnabled ? "关闭应用锁" : "启用应用锁", systemImage: model.appLockEnabled ? "lock.open" : "lock") {
-                    Task { await model.setAppLockEnabled(model.appLockEnabled == false) }
-                }
-                Text("启用后，应用进入后台再回来时需要 Face ID、Touch ID 或设备密码。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section("关于") {
-                LabeledContent("版本", value: "0.1 基线")
-                Text("游客模式仅访问站点公开内容；登录会话 Cookie 由 Keychain 管理。")
+            Section("About") {
+                LabeledContent("version:", value: "0.1")
+                Text("基于https://github.com/xiaojieonly/Ehviewer_CN_SXJ构建")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -37,15 +37,11 @@ struct DomainTests {
         #expect(items["page"] == "2")
     }
 
-    @Test("Advanced search maps all original filter options into query parameters")
+    @Test("Advanced search maps the current site filter options into query parameters")
     func advancedSearchURL() throws {
         let search = GalleryAdvancedSearch(
             categories: [.doujinshi, .manga],
-            searchDescription: true,
-            searchTorrentNames: true,
             onlyWithTorrents: true,
-            searchLowPowerTags: true,
-            searchDownvotedTags: true,
             onlyShowExpunged: true,
             minimumRating: 4,
             minimumPageCount: 20,
@@ -64,22 +60,17 @@ struct DomainTests {
         #expect(values["f_search"] == ["artist:test"])
         #expect(values["f_cats"] == ["1017"])
         #expect(values["advsearch"] == ["1"])
-        #expect(values["f_sname"] == ["on"])
-        #expect(values["f_stags"] == ["on"])
-        #expect(values["f_sdesc"] == ["on"])
-        #expect(values["f_storr"] == ["on"])
         #expect(values["f_sto"] == ["on"])
-        #expect(values["f_sdt1"] == ["on"])
-        #expect(values["f_sdt2"] == ["on"])
         #expect(values["f_sh"] == ["on"])
-        #expect(values["f_sr"] == ["on"])
         #expect(values["f_srdd"] == ["4"])
-        #expect(values["f_sp"] == ["on"])
         #expect(values["f_spf"] == ["20"])
         #expect(values["f_spt"] == ["80"])
         #expect(values["f_sfl"] == ["on"])
         #expect(values["f_sfu"] == ["on"])
         #expect(values["f_sft"] == ["on"])
+        #expect(values["f_sr"] == nil)
+        #expect(values["f_sp"] == nil)
+        #expect(values["f_sdesc"] == nil)
     }
 
     @Test("Advanced search validates page ranges")

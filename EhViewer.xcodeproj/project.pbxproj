@@ -22,7 +22,6 @@
 		EHB0000000000000000000A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000A /* SettingsView.swift */; };
 		EHB0000000000000000000B /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */; };
 		EHB0000000000000000000C /* Sources/EhViewer/Resources/en.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */; };
-		EHB0000000000000000000D /* AppLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000E /* AppLock.swift */; };
 		EHB0000000000000000000F /* Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000000F /* Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings */; };
 		EHB00000000000000000010 /* Sources/EhViewer/Resources/ja.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000010 /* Sources/EhViewer/Resources/ja.lproj/Localizable.strings */; };
 		EHB00000000000000000011 /* Sources/EhViewer/Resources/ko.lproj/Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000011 /* Sources/EhViewer/Resources/ko.lproj/Localizable.strings */; };
@@ -96,7 +95,6 @@
 		EHF0000000000000000000B /* EhViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EhViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/en.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EHF0000000000000000000E /* AppLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLock.swift; sourceTree = "<group>"; };
 		EHF0000000000000000000F /* Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = "Sources/EhViewer/Resources/zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		EHF00000000000000000010 /* Sources/EhViewer/Resources/ja.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		EHF00000000000000000011 /* Sources/EhViewer/Resources/ko.lproj/Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Sources/EhViewer/Resources/ko.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -204,7 +202,6 @@
 				EHF00000000000000000032 /* SiteWebView.swift */,
 				EHF00000000000000000031 /* WebLoginCookieSupport.swift */,
 				EHF00000000000000000030 /* WebLoginSheet.swift */,
-				EHF0000000000000000000E /* AppLock.swift */,
 				EHF00000000000000000016 /* LocalArchiveView.swift */,
 			);
 			path = Sources/EhViewer;
@@ -401,7 +398,6 @@
 				EHB00000000000000000032 /* SiteWebView.swift in Sources */,
 				EHB00000000000000000031 /* WebLoginCookieSupport.swift in Sources */,
 				EHB00000000000000000030 /* WebLoginSheet.swift in Sources */,
-				EHB0000000000000000000D /* AppLock.swift in Sources */,
 				EHB00000000000000000021 /* LocalArchiveView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -573,6 +569,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;

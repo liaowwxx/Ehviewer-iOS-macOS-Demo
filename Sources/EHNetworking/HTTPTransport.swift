@@ -154,13 +154,7 @@ public struct SiteRequestBuilder: Sendable {
     private func appendAdvancedSearch(_ search: GalleryAdvancedSearch, to items: inout [URLQueryItem]) {
         items.append(URLQueryItem(name: "advsearch", value: "1"))
         let flags: [(Bool, String)] = [
-            (search.searchName, "f_sname"),
-            (search.searchTags, "f_stags"),
-            (search.searchDescription, "f_sdesc"),
-            (search.searchTorrentNames, "f_storr"),
             (search.onlyWithTorrents, "f_sto"),
-            (search.searchLowPowerTags, "f_sdt1"),
-            (search.searchDownvotedTags, "f_sdt2"),
             (search.onlyShowExpunged, "f_sh"),
             (search.disableLanguageFilter, "f_sfl"),
             (search.disableUploaderFilter, "f_sfu"),
@@ -170,11 +164,9 @@ public struct SiteRequestBuilder: Sendable {
             items.append(URLQueryItem(name: name, value: "on"))
         }
         if (2...5).contains(search.minimumRating) {
-            items.append(URLQueryItem(name: "f_sr", value: "on"))
             items.append(URLQueryItem(name: "f_srdd", value: String(search.minimumRating)))
         }
         if search.minimumPageCount > 0 || search.maximumPageCount > 0 {
-            items.append(URLQueryItem(name: "f_sp", value: "on"))
             items.append(URLQueryItem(name: "f_spf", value: search.minimumPageCount > 0 ? String(search.minimumPageCount) : ""))
             items.append(URLQueryItem(name: "f_spt", value: search.maximumPageCount > 0 ? String(search.maximumPageCount) : ""))
         }

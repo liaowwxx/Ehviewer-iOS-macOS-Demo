@@ -8,8 +8,10 @@ struct BrowseSearchSuggestions: View {
     var body: some View {
         if let key = SearchQueryComposer.galleryKey(in: model.searchText) {
             Section("打开链接") {
-                Button("打开画廊 \(key.gid)", systemImage: "book") {
+                Button {
                     searchGalleryKey = key
+                } label: {
+                    Label("打开画廊 \(key.gid)", systemImage: "book")
                 }
             }
         }
@@ -17,8 +19,10 @@ struct BrowseSearchSuggestions: View {
         if model.searchHistorySuggestions.isEmpty == false {
             Section("搜索历史") {
                 ForEach(model.searchHistorySuggestions, id: \.self) { query in
-                    Button(query, systemImage: "clock.arrow.circlepath") {
+                    Button {
                         model.selectSearchHistory(query)
+                    } label: {
+                        Label(query, systemImage: "clock.arrow.circlepath")
                     }
                     .contextMenu {
                         Button("删除搜索记录", systemImage: "trash", role: .destructive) {
@@ -35,14 +39,18 @@ struct BrowseSearchSuggestions: View {
                     Button {
                         model.completeTagSuggestion(suggestion.english)
                     } label: {
-                        VStack(alignment: .leading) {
-                            Text(suggestion.english)
-                            if let localizedText = suggestion.localizedText,
-                               localizedText.localizedCaseInsensitiveCompare(suggestion.english) != .orderedSame {
-                                Text(localizedText)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                        Label {
+                            VStack(alignment: .leading) {
+                                Text(suggestion.english)
+                                if let localizedText = suggestion.localizedText,
+                                   localizedText.localizedCaseInsensitiveCompare(suggestion.english) != .orderedSame {
+                                    Text(localizedText)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
+                        } icon: {
+                            Image(systemName: "tag")
                         }
                     }
                     .accessibilityLabel(suggestion.localizedText.map { "\(suggestion.english)，\($0)" } ?? suggestion.english)

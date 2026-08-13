@@ -8,8 +8,6 @@ import EHDomain
 struct BrowseView: View {
     @Environment(AppModel.self) private var model
     var kind: GalleryListQuery.ListKind = .home
-    @State private var isGrid = true
-    @State private var showingImageSearch = false
     @State private var showingAdvancedSearch = false
     @State private var advancedSearch: GalleryAdvancedSearch?
     @State private var submittedAdvancedSearch: GalleryAdvancedSearch?
@@ -17,66 +15,44 @@ struct BrowseView: View {
 
     var body: some View {
         @Bindable var model = model
-        Group {
-            if isGrid {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 16)], spacing: 16) {
-                        Section {
-                            ForEach(model.galleries) { gallery in
-                                galleryLink(gallery)
-                                    .task(id: model.nextPageURL) {
-                                        await model.loadMoreIfNeeded(after: gallery.key)
-                                    }
-                            }
-                        } footer: {
-                            if model.hasMorePage {
-                                BrowsePaginationFooter()
-                            }
+
+        ScrollView {
+            LazyVStack(spacing: 4) {
+                ForEach(model.galleries) { gallery in
+                    galleryLink(gallery)
+                        .task(id: model.nextPageURL) {
+                            await model.loadMoreIfNeeded(after: gallery.key)
                         }
-                    }
-                    .padding()
                 }
-            } else {
-                List {
-                    ForEach(model.galleries) { gallery in
-                        galleryLink(gallery)
-                            .task(id: model.nextPageURL) {
-                                await model.loadMoreIfNeeded(after: gallery.key)
-                            }
-                    }
-                    if model.hasMorePage {
-                        BrowsePaginationFooter()
-                            .listRowSeparator(.hidden)
-                    }
+                if model.hasMorePage {
+                    BrowsePaginationFooter()
                 }
-                .listStyle(.inset)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+        }
+        .overlay {
+            if model.isLoading && model.galleries.isEmpty { ProgressView("加载中…") }
+            else if model.galleries.isEmpty { ContentUnavailableView("没有结果", systemImage: "magnifyingglass") }
         }
         .navigationTitle(title)
-        .searchable(text: $model.searchText, prompt: "搜索画廊或标签")
+#if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+#endif
+        .searchable(text: $model.searchText, placement: .toolbar, prompt: "搜索画廊或标签")
         .searchSuggestions {
             BrowseSearchSuggestions(searchGalleryKey: $searchGalleryKey)
         }
+        .onSubmit(of: .search, submitSearch)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button("搜索", systemImage: "magnifyingglass", action: submitSearch)
-                    .accessibilityIdentifier("submit-search")
-                Button("刷新", systemImage: "arrow.clockwise") { Task { await model.load(query: listQuery) } }
-                if kind == .home || kind == .search {
-                    Button("按图片搜索", systemImage: "camera") { showingImageSearch = true }
-                }
                 if kind == .home || kind == .search || kind == .subscriptions {
                     Button("高级搜索", systemImage: "slider.horizontal.3") { showingAdvancedSearch = true }
                         .accessibilityIdentifier("advanced-search-action")
                 }
-                Button(isGrid ? "列表视图" : "网格视图", systemImage: isGrid ? "list.bullet" : "square.grid.2x2") {
-                    isGrid.toggle()
-                }
-                .accessibilityLabel(isGrid ? "切换到列表视图" : "切换到网格视图")
             }
         }
         .refreshable { await model.load(query: listQuery) }
-        .sheet(isPresented: $showingImageSearch) { ImageSearchSheet() }
         .sheet(isPresented: $showingAdvancedSearch) {
             AdvancedSearchView(
                 initialValue: advancedSearch,
@@ -95,10 +71,6 @@ struct BrowseView: View {
         }
         .navigationDestination(item: $searchGalleryKey) { key in
             GalleryDetailView(key: key)
-        }
-        .overlay {
-            if model.isLoading && model.galleries.isEmpty { ProgressView("加载中…") }
-            else if model.galleries.isEmpty { ContentUnavailableView("没有结果", systemImage: "magnifyingglass") }
         }
     }
 
@@ -138,10 +110,9 @@ struct BrowseView: View {
         }
     }
 
-    @ViewBuilder
     private func galleryLink(_ gallery: GallerySummary) -> some View {
         NavigationLink(value: AppRoute.gallery(gallery.key)) {
-            GalleryCard(gallery: gallery, compact: isGrid == false)
+            GalleryCard(gallery: gallery)
         }
         .buttonStyle(.plain)
     }
@@ -240,27 +211,16 @@ private struct ImageSearchSheet: View {
 }
 
 private struct GalleryCard: View {
-    @Environment(AppModel.self) private var model
     let gallery: GallerySummary
-    let compact: Bool
 
     var body: some View {
-        Group {
-            if compact {
-                HStack(spacing: 12) {
-                    GalleryThumbnail(url: gallery.thumbnailURL, key: gallery.key, compact: true)
-                    textContent
-                    Spacer(minLength: 0)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    GalleryThumbnail(url: gallery.thumbnailURL, key: gallery.key, compact: false)
-                    textContent
-                }
-            }
+        HStack(spacing: 10) {
+            GalleryThumbnail(url: gallery.thumbnailURL, key: gallery.key)
+            textContent
+            Spacer(minLength: 0)
         }
-        .padding(compact ? 8 : 10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .padding(6)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(gallery.title)，\(gallery.pageCount ?? 0) 页")
     }
@@ -269,12 +229,12 @@ private struct GalleryCard: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(gallery.title)
                 .font(.headline)
-                .lineLimit(3)
+                .lineLimit(2)
             if let secondaryTitle = gallery.secondaryTitle {
                 Text(secondaryTitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
             }
             HStack {
                 if let category = gallery.category { Text(category) }
@@ -292,7 +252,6 @@ private struct GalleryThumbnail: View {
     @Environment(AppModel.self) private var model
     let url: URL?
     let key: GalleryKey
-    let compact: Bool
     @State private var image: Image?
 
     var body: some View {
@@ -305,7 +264,7 @@ private struct GalleryThumbnail: View {
                 PlaceholderThumbnail()
             }
         }
-        .frame(minWidth: 72, maxWidth: compact ? 96 : .infinity, minHeight: 112, maxHeight: 150)
+        .frame(width: 78, height: 108)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .task(id: url) {
@@ -331,10 +290,12 @@ private struct GalleryThumbnail: View {
 }
 
 private struct PlaceholderThumbnail: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         RoundedRectangle(cornerRadius: 10)
-            .fill(LinearGradient(colors: [.indigo.opacity(0.65), .purple.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay { Image(systemName: "photo").font(.title2).foregroundStyle(.white.opacity(0.85)) }
+            .fill(colorScheme == .dark ? Color(white: 0.18) : Color(white: 0.88))
+            .overlay { Image(systemName: "photo").font(.title2).foregroundStyle(.secondary) }
             .accessibilityHidden(true)
     }
 }

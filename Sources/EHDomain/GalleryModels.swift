@@ -405,13 +405,7 @@ public struct GalleryAdvancedSearch: Hashable, Codable, Sendable {
     public static let allCategoryMask = 0x3ff
 
     public var categories: Set<GalleryCategory>
-    public var searchName: Bool
-    public var searchTags: Bool
-    public var searchDescription: Bool
-    public var searchTorrentNames: Bool
     public var onlyWithTorrents: Bool
-    public var searchLowPowerTags: Bool
-    public var searchDownvotedTags: Bool
     public var onlyShowExpunged: Bool
     public var minimumRating: Int
     public var minimumPageCount: Int
@@ -422,13 +416,7 @@ public struct GalleryAdvancedSearch: Hashable, Codable, Sendable {
 
     public init(
         categories: Set<GalleryCategory> = Set(GalleryCategory.allCases),
-        searchName: Bool = true,
-        searchTags: Bool = true,
-        searchDescription: Bool = false,
-        searchTorrentNames: Bool = false,
         onlyWithTorrents: Bool = false,
-        searchLowPowerTags: Bool = false,
-        searchDownvotedTags: Bool = false,
         onlyShowExpunged: Bool = false,
         minimumRating: Int = 0,
         minimumPageCount: Int = 0,
@@ -438,13 +426,7 @@ public struct GalleryAdvancedSearch: Hashable, Codable, Sendable {
         disableTagFilter: Bool = false
     ) {
         self.categories = categories
-        self.searchName = searchName
-        self.searchTags = searchTags
-        self.searchDescription = searchDescription
-        self.searchTorrentNames = searchTorrentNames
         self.onlyWithTorrents = onlyWithTorrents
-        self.searchLowPowerTags = searchLowPowerTags
-        self.searchDownvotedTags = searchDownvotedTags
         self.onlyShowExpunged = onlyShowExpunged
         self.minimumRating = minimumRating
         self.minimumPageCount = minimumPageCount

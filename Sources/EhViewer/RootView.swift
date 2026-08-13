@@ -4,14 +4,11 @@ import EHDomain
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.scenePhase) private var scenePhase
     @State private var presentedError: PresentedError?
 
     var body: some View {
         Group {
-            if model.isLocked {
-                AppLockedView()
-            } else if horizontalSizeClass == .compact {
+            if horizontalSizeClass == .compact {
                 CompactRootView()
             } else {
                 SplitRootView()
@@ -21,14 +18,6 @@ struct RootView: View {
         .onChange(of: model.errorMessage) { _, newMessage in
             presentedError = newMessage.map(PresentedError.init)
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .background {
-                model.lockForBackground()
-            } else if phase == .active {
-                Task { await model.unlockIfNeeded() }
-            }
-        }
-        .task { await model.unlockIfNeeded() }
         .alert(item: $presentedError) { error in
             Alert(
                 title: Text("发生错误"),
@@ -40,34 +29,6 @@ struct RootView: View {
                 secondaryButton: .cancel(Text("好")) { model.errorMessage = nil }
             )
         }
-    }
-}
-
-private struct AppLockedView: View {
-    @Environment(AppModel.self) private var model
-    @State private var isAuthenticating = false
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "lock.shield")
-                .font(.system(size: 48))
-                .foregroundStyle(.tint)
-            Text("EhViewer 已锁定")
-                .font(.title2.weight(.semibold))
-            Button("解锁", systemImage: "faceid") {
-                guard isAuthenticating == false else { return }
-                isAuthenticating = true
-                Task {
-                    await model.unlockIfNeeded()
-                    isAuthenticating = false
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(isAuthenticating)
-            .accessibilityHint("使用 Face ID、Touch ID 或设备密码解锁")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task { await model.unlockIfNeeded() }
     }
 }
 
@@ -88,7 +49,7 @@ private struct CompactRootView: View {
                         DestinationView(route: route)
                     }
             }
-            .tabItem { Label("browse_title", systemImage: "square.grid.2x2") }
+            .tabItem { Label("browse_title", systemImage: "list.bullet.rectangle") }
             .tag(AppRoute.browse)
 
             NavigationStack {

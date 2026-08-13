@@ -37,8 +37,6 @@ final class AppModel {
     var submittedSearchText = ""
     var isGuestMode = true
     var isPasswordLoginInProgress = false
-    var appLockEnabled: Bool
-    var isLocked: Bool
     var errorMessage: String?
     private(set) var nextPageURL: URL?
     var hasMorePage: Bool { nextPageURL != nil }
@@ -62,8 +60,7 @@ final class AppModel {
         if forceGuestModeForUITest {
             isGuestMode = true
         }
-        appLockEnabled = defaults.object(forKey: "appLockEnabled") as? Bool ?? false
-        isLocked = defaults.object(forKey: "appLockEnabled") as? Bool ?? false
+        defaults.removeObject(forKey: "appLockEnabled")
         self.sessionVault = sessionVault
         self.tagSuggestionProvider = tagSuggestionProvider
         let client: any EHAPI = api ?? EHClient(sessionVault: sessionVault)
@@ -696,32 +693,6 @@ final class AppModel {
         persistSettings()
     }
 
-    func setAppLockEnabled(_ enabled: Bool) async {
-        if enabled {
-            guard await AppLockService.authenticate() else {
-                errorMessage = "无法启用应用锁：设备未完成认证"
-                return
-            }
-            appLockEnabled = true
-            isLocked = false
-        } else {
-            appLockEnabled = false
-            isLocked = false
-        }
-        persistSettings()
-    }
-
-    func lockForBackground() {
-        if appLockEnabled { isLocked = true }
-    }
-
-    func unlockIfNeeded() async {
-        guard appLockEnabled, isLocked else { return }
-        if await AppLockService.authenticate() {
-            isLocked = false
-        }
-    }
-
     func handleIncomingURL(_ url: URL) {
         if url.scheme == "ehviewer",
            let sharedURLString = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value,
@@ -739,7 +710,6 @@ final class AppModel {
 
     func persistSettings() {
         defaults.set(site.rawValue, forKey: "site")
-        defaults.set(appLockEnabled, forKey: "appLockEnabled")
     }
 
     private func imageURL(for image: GalleryPageImage, resolution: ImageResolution) -> URL {

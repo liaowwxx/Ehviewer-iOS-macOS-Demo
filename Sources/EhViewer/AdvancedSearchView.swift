@@ -51,15 +51,9 @@ struct AdvancedSearchView: View {
                     }
                 }
 
-                Section("搜索范围") {
-                    Toggle("搜索画廊名称", isOn: $draft.searchName)
-                    Toggle("搜索画廊标签", isOn: $draft.searchTags)
-                    Toggle("搜索画廊描述", isOn: $draft.searchDescription)
-                    Toggle("搜索种子文件名", isOn: $draft.searchTorrentNames)
+                Section("画廊条件") {
                     Toggle("仅显示有种子的画廊", isOn: $draft.onlyWithTorrents)
-                    Toggle("搜索低愿力标签", isOn: $draft.searchLowPowerTags)
-                    Toggle("搜索差评标签", isOn: $draft.searchDownvotedTags)
-                    Toggle("只显示被删除的画廊", isOn: $draft.onlyShowExpunged)
+                    Toggle("浏览已删除的画廊", isOn: $draft.onlyShowExpunged)
                 }
 
                 Section("评分与页数") {
