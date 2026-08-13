@@ -1,78 +1,66 @@
 import SwiftUI
 import EHDomain
 
-struct ReaderContinuousView: View {
+#if os(iOS)
+import UIKit
+#endif
+
+struct ReaderVerticalPagedView: View {
+    @Environment(AppModel.self) private var model
     let descriptors: [GalleryPageDescriptor]
     let resolution: ImageResolution
     let resetToken: UUID
     let pageScaling: ReaderPageScaling
     let source: ReaderContentSource
     @Binding var position: ReaderPositionState
-    @State private var zoom = ReaderContinuousZoomState()
 
     var body: some View {
+        #if os(iOS)
+        ReaderPagedControllerRepresentable(
+            model: model,
+            descriptors: descriptors,
+            resolution: resolution,
+            resetToken: resetToken,
+            readingDirection: .leftToRight,
+            navigationOrientation: .vertical,
+            pageScaling: pageScaling,
+            source: source,
+            position: $position
+        )
+        .id("reader-vertical-paging")
+        #else
         ScrollViewReader { proxy in
-            ScrollView([.horizontal, .vertical]) {
-                LazyVStack(spacing: 10) {
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 0) {
                     ForEach(descriptors) { descriptor in
                         ReaderPage(
                             descriptor: descriptor,
                             resolution: resolution,
-                            resetToken: resetToken,
                             source: source,
                             pageScaling: pageScaling,
-                            fitsViewport: false,
-                            allowsZoom: false,
-                            parentScrollAxis: .vertical,
-                            pageTurnRequested: { _ in }
+                            fitsViewport: true
                         )
+                        .containerRelativeFrame([.horizontal, .vertical])
                         .id(descriptor.index)
                     }
                 }
                 .scrollTargetLayout()
-                .containerRelativeFrame(.horizontal) { availableWidth, _ in
-                    availableWidth * zoom.scale
-                }
             }
+            .scrollTargetBehavior(.paging)
             .scrollIndicators(.visible)
-            .simultaneousGesture(magnificationGesture)
-            .highPriorityGesture(doubleTapGesture)
-            .overlay(alignment: .bottomTrailing) {
-                if zoom.scale > ReaderContinuousZoomState.minimumScale + 0.001 {
-                    Text("缩放 \(Int(zoom.scale * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .padding(6)
-                        .background(.thinMaterial, in: Capsule())
-                        .padding(8)
-                        .accessibilityHidden(true)
-                }
-            }
             .task {
                 await Task.yield()
-                proxy.scrollTo(position.page, anchor: .top)
+                proxy.scrollTo(position.page, anchor: .center)
             }
             .onChange(of: position.scrollRequestSequence) {
                 guard let target = position.scrollTarget else { return }
-                proxy.scrollTo(target, anchor: .top)
+                proxy.scrollTo(target, anchor: .center)
             }
-            .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.15) { visiblePages in
+            .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.55) { visiblePages in
                 position.markVisiblePage(from: visiblePages, displayOrder: descriptors.map(\.index))
             }
-            .onChange(of: resetToken) { zoom.reset() }
-            .accessibilityHint("上下滚动连续阅读；双击或双指缩放整组页面")
         }
-    }
-
-    private var magnificationGesture: some Gesture {
-        MagnifyGesture()
-            .onChanged { zoom.magnificationChanged($0.magnification) }
-            .onEnded { zoom.magnificationEnded($0.magnification) }
-    }
-
-    private var doubleTapGesture: some Gesture {
-        TapGesture(count: 2)
-            .onEnded {
-                withAnimation(.smooth(duration: 0.3)) { zoom.toggle() }
-            }
+        .accessibilityHint("上下翻页阅读")
+        #endif
     }
 }

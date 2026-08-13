@@ -37,44 +37,55 @@ private struct PresentedError: Identifiable {
     let message: String
 }
 
+private struct RootNavigationStack<Content: View>: View {
+    @Binding var path: [AppRoute]
+    let content: Content
+
+    init(path: Binding<[AppRoute]>, @ViewBuilder content: () -> Content) {
+        _path = path
+        self.content = content()
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            content
+                .navigationDestination(for: AppRoute.self) { route in
+                    DestinationView(route: route)
+                }
+        }
+    }
+}
+
 private struct CompactRootView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: AppRoute = .browse
+    @State private var browsePath: [AppRoute] = []
+    @State private var downloadsPath: [AppRoute] = []
+    @State private var historyPath: [AppRoute] = []
+    @State private var settingsPath: [AppRoute] = []
 
     var body: some View {
         TabView(selection: $selection) {
-            NavigationStack {
+            RootNavigationStack(path: $browsePath) {
                 BrowseView()
-                    .navigationDestination(for: AppRoute.self) { route in
-                        DestinationView(route: route)
-                    }
             }
             .tabItem { Label("browse_title", systemImage: "list.bullet.rectangle") }
             .tag(AppRoute.browse)
 
-            NavigationStack {
+            RootNavigationStack(path: $downloadsPath) {
                 DownloadsView()
-                    .navigationDestination(for: AppRoute.self) { route in
-                        DestinationView(route: route)
-                    }
             }
             .tabItem { Label("downloads_title", systemImage: "arrow.down.circle") }
             .tag(AppRoute.downloads)
 
-            NavigationStack {
+            RootNavigationStack(path: $historyPath) {
                 LibraryView()
-                    .navigationDestination(for: AppRoute.self) { route in
-                        DestinationView(route: route)
-                    }
             }
             .tabItem { Label("history_title", systemImage: "clock") }
             .tag(AppRoute.history)
 
-            NavigationStack {
+            RootNavigationStack(path: $settingsPath) {
                 SettingsView()
-                    .navigationDestination(for: AppRoute.self) { route in
-                        DestinationView(route: route)
-                    }
             }
             .tabItem { Label("settings_title", systemImage: "gearshape").accessibilityIdentifier("settings-tab") }
             .tag(AppRoute.settings)
@@ -83,19 +94,25 @@ private struct CompactRootView: View {
             model.selectedRoute = route
         }
         .onChange(of: model.selectedRoute) { _, route in
-            guard let route else { return }
-            switch route {
-            case .downloads:
-                selection = .downloads
-            case .history, .favorites:
-                selection = .history
-            case .settings:
-                selection = .settings
-            case .more:
-                selection = .browse
-            default:
-                selection = .browse
-            }
+            syncSelectedRoute(route)
+        }
+        .onAppear { syncSelectedRoute(model.selectedRoute) }
+    }
+
+    private func syncSelectedRoute(_ route: AppRoute?) {
+        guard let route else { return }
+        switch route {
+        case .downloads:
+            selection = .downloads
+        case .history, .favorites:
+            selection = .history
+        case .settings:
+            selection = .settings
+        case .gallery, .reader:
+            browsePath = [route]
+            selection = .browse
+        default:
+            selection = .browse
         }
     }
 }
@@ -146,8 +163,6 @@ struct DestinationView: View {
         switch route {
         case .browse:
             BrowseView(kind: .home)
-        case .more:
-            MoreView()
         case .subscriptions:
             BrowseView(kind: .subscriptions)
         case .popular:

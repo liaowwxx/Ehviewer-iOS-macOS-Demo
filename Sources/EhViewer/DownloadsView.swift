@@ -14,7 +14,7 @@ struct DownloadsView: View {
     @State private var archiveDocument: LocalArchiveDocument?
     @State private var searchText = ""
     @State private var statusFilter: DownloadStatusFilter = .all
-    @State private var sortOrder: DownloadSortOrder = .updated
+    @State private var sortOrder: DownloadSortOrder = .titleAscending
     @State private var showingResetProgressConfirmation = false
     @State private var showingDownloadRestoreResult = false
     @State private var downloadRestoreMessage = ""
@@ -29,7 +29,7 @@ struct DownloadsView: View {
             }
             .sorted { lhs, rhs in
                 switch sortOrder {
-                case .updated:
+                case .titleAscending:
                     return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
                 case .titleDescending:
                     return lhs.title.localizedStandardCompare(rhs.title) == .orderedDescending
@@ -244,7 +244,7 @@ private enum DownloadStatusFilter: String, CaseIterable, Identifiable {
 }
 
 private enum DownloadSortOrder: String, CaseIterable, Identifiable {
-    case updated
+    case titleAscending
     case titleDescending
     case progress
     case status
@@ -253,7 +253,7 @@ private enum DownloadSortOrder: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .updated: "标题 A-Z"
+        case .titleAscending: "标题 A-Z"
         case .titleDescending: "标题 Z-A"
         case .progress: "完成度"
         case .status: "状态"

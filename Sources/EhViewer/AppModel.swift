@@ -6,11 +6,6 @@ import EHNetworking
 import EHPersistence
 import EHDownloads
 
-#if os(iOS)
-import Photos
-import UIKit
-#endif
-
 @MainActor
 @Observable
 final class AppModel {
@@ -35,7 +30,6 @@ final class AppModel {
     var quickSearches: [String] = []
     var searchHistorySuggestions: [String] = []
     var tagSearchSuggestions: [SearchTagSuggestion] = []
-    var imageQuota: ImageQuota?
     var localArchive: LocalArchiveDocument?
     var selectedRoute: AppRoute? = .browse
     var isLoading = false
@@ -287,59 +281,6 @@ final class AppModel {
         await loadMore()
     }
 
-    func searchByImage(data: Data, fileName: String, options: ImageSearchOptions) async {
-        let requestID = UUID()
-        activeListRequestID = requestID
-        isLoading = true
-        nextPageURL = nil
-        var loadedNextPageURL: URL?
-        var didLoadPage = false
-        defer {
-            if activeListRequestID == requestID {
-                isLoading = false
-                if didLoadPage {
-                    nextPageURL = loadedNextPageURL
-                }
-            }
-        }
-        do {
-            let result = try await api.imageSearch(imageData: data, fileName: fileName, site: site, options: options)
-            try Task.checkCancellation()
-            guard activeListRequestID == requestID else { return }
-            galleries = result.items.filter(matchesFilter)
-            activeQuery = GalleryListQuery(site: site, kind: .search)
-            loadedNextPageURL = result.cursor?.nextPageURL
-            didLoadPage = true
-            try await persistence.upsert(result.items)
-        } catch is CancellationError {
-            return
-        } catch {
-            if activeListRequestID == requestID {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    func loadImageQuota() async {
-        do {
-            imageQuota = try await api.imageQuota(site: site)
-        } catch is CancellationError {
-            return
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func resetImageQuota() async {
-        do {
-            imageQuota = try await api.resetImageQuota(site: site)
-        } catch is CancellationError {
-            return
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
     func retryLastListRequest() async {
         await load(query: activeQuery)
     }
@@ -389,44 +330,20 @@ final class AppModel {
         }
     }
 
-    @discardableResult
-    func savePage(_ descriptor: GalleryPageDescriptor, resolution: ImageResolution = .preview) async -> Bool {
-        do {
-            let data: Data
-            if await downloadFiles.contains(descriptor.galleryKey, pageIndex: descriptor.index) {
-                data = try await downloadFiles.data(for: descriptor.galleryKey, pageIndex: descriptor.index)
-            } else {
-                let image = try await pageImage(for: descriptor)
-                data = try await imageData(for: image, resolution: resolution)
-            }
-            #if os(iOS)
-            try await saveToPhotoLibrary(data)
-            #else
-            _ = try await downloadFiles.write(data, for: descriptor.galleryKey, pageIndex: descriptor.index)
-            #endif
-            return true
-        } catch is CancellationError {
-            return false
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
+    func savePage(_ descriptor: GalleryPageDescriptor, resolution: ImageResolution = .preview) async throws {
+        let data: Data
+        if await downloadFiles.contains(descriptor.galleryKey, pageIndex: descriptor.index) {
+            data = try await downloadFiles.data(for: descriptor.galleryKey, pageIndex: descriptor.index)
+        } else {
+            let image = try await pageImage(for: descriptor)
+            data = try await imageData(for: image, resolution: resolution)
         }
+        #if os(iOS)
+        try await PhotoLibrarySaver.save(data)
+        #else
+        _ = try await downloadFiles.write(data, for: descriptor.galleryKey, pageIndex: descriptor.index)
+        #endif
     }
-
-    #if os(iOS)
-    private func saveToPhotoLibrary(_ data: Data) async throws {
-        guard let image = UIImage(data: data) else {
-            throw EHError.parsingFailed("图片数据无效")
-        }
-        let authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard authorization == .authorized || authorization == .limited else {
-            throw EHError.unsupportedFeature("没有照片添加权限，请在系统设置中允许 EhViewer 写入照片")
-        }
-        try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAsset(from: image)
-        }
-    }
-    #endif
 
     func prefetch(_ descriptors: [GalleryPageDescriptor], resolution: ImageResolution = .preview) async {
         let api = self.api

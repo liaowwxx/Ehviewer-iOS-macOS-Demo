@@ -35,7 +35,7 @@ public struct PersistedDownload: Hashable, Sendable {
 
 public struct FilterRuleSnapshot: Hashable, Sendable {
     public let pattern: String
-    public let isEnabled: Bool
+    public var isEnabled: Bool
 
     public init(pattern: String, isEnabled: Bool) {
         self.pattern = pattern

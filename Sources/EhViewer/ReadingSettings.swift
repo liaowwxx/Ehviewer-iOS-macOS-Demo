@@ -51,10 +51,10 @@ enum ReaderScreenRotation: String, CaseIterable, Codable, Hashable, Sendable, Id
 }
 
 struct ReadingSettings: Codable, Hashable, Sendable {
-    var readingMode: ReadingMode = .rightToLeft
+    var readingMode: ReadingMode = .paged
+    var readingDirection: ReadingDirection = .rightToLeft
     var pageScaling: ReaderPageScaling = .fit
     var startPosition: ReaderStartPosition = .lastRead
-    var autoAdvanceSeconds = 0
     var screenRotation: ReaderScreenRotation = .automatic
     var keepScreenOn = false
     var showClock = false
@@ -64,11 +64,76 @@ struct ReadingSettings: Codable, Hashable, Sendable {
     var volumePage = false
     var reverseVolumePage = false
     var fullscreen = false
-    var customBrightness = false
-    var brightness = 0.5
 
     static let defaults = ReadingSettings()
     private static let storageKey = "readingSettings"
+
+    private enum CodingKeys: String, CodingKey {
+        case readingMode
+        case readingDirection
+        case pageScaling
+        case startPosition
+        case screenRotation
+        case keepScreenOn
+        case showClock
+        case showProgress
+        case showBattery
+        case showPageInterval
+        case volumePage
+        case reverseVolumePage
+        case fullscreen
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let storedMode = try container.decodeIfPresent(String.self, forKey: .readingMode)
+        switch storedMode {
+        case "continuous":
+            readingMode = .verticalPaged
+        case "leftToRight":
+            readingMode = .paged
+            readingDirection = .leftToRight
+        case "rightToLeft":
+            readingMode = .paged
+            readingDirection = .rightToLeft
+        default:
+            readingMode = .paged
+        }
+
+        if let direction = try container.decodeIfPresent(ReadingDirection.self, forKey: .readingDirection) {
+            readingDirection = direction
+        }
+        pageScaling = try container.decodeIfPresent(ReaderPageScaling.self, forKey: .pageScaling) ?? .fit
+        startPosition = try container.decodeIfPresent(ReaderStartPosition.self, forKey: .startPosition) ?? .lastRead
+        screenRotation = try container.decodeIfPresent(ReaderScreenRotation.self, forKey: .screenRotation) ?? .automatic
+        keepScreenOn = try container.decodeIfPresent(Bool.self, forKey: .keepScreenOn) ?? false
+        showClock = try container.decodeIfPresent(Bool.self, forKey: .showClock) ?? false
+        showProgress = try container.decodeIfPresent(Bool.self, forKey: .showProgress) ?? true
+        showBattery = try container.decodeIfPresent(Bool.self, forKey: .showBattery) ?? false
+        showPageInterval = try container.decodeIfPresent(Bool.self, forKey: .showPageInterval) ?? true
+        volumePage = try container.decodeIfPresent(Bool.self, forKey: .volumePage) ?? false
+        reverseVolumePage = try container.decodeIfPresent(Bool.self, forKey: .reverseVolumePage) ?? false
+        fullscreen = try container.decodeIfPresent(Bool.self, forKey: .fullscreen) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(readingMode, forKey: .readingMode)
+        try container.encode(readingDirection, forKey: .readingDirection)
+        try container.encode(pageScaling, forKey: .pageScaling)
+        try container.encode(startPosition, forKey: .startPosition)
+        try container.encode(screenRotation, forKey: .screenRotation)
+        try container.encode(keepScreenOn, forKey: .keepScreenOn)
+        try container.encode(showClock, forKey: .showClock)
+        try container.encode(showProgress, forKey: .showProgress)
+        try container.encode(showBattery, forKey: .showBattery)
+        try container.encode(showPageInterval, forKey: .showPageInterval)
+        try container.encode(volumePage, forKey: .volumePage)
+        try container.encode(reverseVolumePage, forKey: .reverseVolumePage)
+        try container.encode(fullscreen, forKey: .fullscreen)
+    }
 
     static func load(from defaults: UserDefaults) -> ReadingSettings {
         var settings: ReadingSettings
@@ -77,13 +142,17 @@ struct ReadingSettings: Codable, Hashable, Sendable {
             settings = decoded
         } else {
             settings = .defaults
-            if let rawMode = defaults.string(forKey: "readerReadingMode"),
-               let legacyMode = ReadingMode(rawValue: rawMode) {
-                settings.readingMode = legacyMode
+            switch defaults.string(forKey: "readerReadingMode") {
+            case "continuous":
+                settings.readingMode = .verticalPaged
+            case "leftToRight":
+                settings.readingDirection = .leftToRight
+            case "rightToLeft":
+                settings.readingDirection = .rightToLeft
+            default:
+                break
             }
         }
-        settings.autoAdvanceSeconds = min(max(settings.autoAdvanceSeconds, 0), 60)
-        settings.brightness = min(max(settings.brightness, 0.05), 1)
         return settings
     }
 

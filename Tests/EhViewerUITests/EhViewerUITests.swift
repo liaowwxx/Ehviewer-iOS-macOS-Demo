@@ -34,10 +34,11 @@ final class EhViewerUITests: XCTestCase {
             app.tabBars.buttons.element(boundBy: min(3, app.tabBars.buttons.count - 1)).tap()
         }
 
-        XCTAssertTrue(app.staticTexts["站点"].waitForExistence(timeout: 5) || app.staticTexts["Site"].exists)
+        let settingsScreen = app.descendants(matching: .any)["settings-screen"]
+        XCTAssertTrue(settingsScreen.waitForExistence(timeout: 5))
         let sessionStatus = app.descendants(matching: .any)["session-status"]
         XCTAssertTrue(sessionStatus.waitForExistence(timeout: 5))
-        XCTAssertEqual(sessionStatus.value as? String, "游客浏览")
+        XCTAssertEqual(sessionStatus.value as? String, "游客模式")
     }
 
     func testAdvancedSearchCanBeConfiguredAndApplied() throws {
@@ -59,5 +60,16 @@ final class EhViewerUITests: XCTestCase {
         XCTAssertTrue(apply.isEnabled)
         apply.tap()
         XCTAssertFalse(form.exists)
+    }
+
+    func testGalleryDeepLinkPushesDetailOnIPhone() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestUseGuestMode", "YES"]
+        app.launch()
+
+        XCTAssertTrue(app.otherElements["ehviewer-root"].waitForExistence(timeout: 5))
+        app.open(URL(string: "ehviewer://?url=https://e-hentai.org/g/12345/token/")!)
+
+        XCTAssertTrue(app.navigationBars["详情"].waitForExistence(timeout: 5))
     }
 }

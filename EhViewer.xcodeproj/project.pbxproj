@@ -39,8 +39,6 @@
 		EHB00000000000000000026 /* ReadingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000026 /* ReadingMode.swift */; };
 		EHB00000000000000000027 /* ReaderPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000027 /* ReaderPage.swift */; };
 		EHB00000000000000000028 /* ReaderPositionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000028 /* ReaderPositionState.swift */; };
-		EHB00000000000000000029 /* ReaderZoomState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000029 /* ReaderZoomState.swift */; };
-		EHB0000000000000000002A /* ReaderContinuousZoomState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002A /* ReaderContinuousZoomState.swift */; };
 		EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002B /* ReaderContinuousView.swift */; };
 		EHB0000000000000000002C /* ReaderPagedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002C /* ReaderPagedView.swift */; };
 		EHB0000000000000000002D /* icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002D /* icon.icon */; };
@@ -52,8 +50,9 @@
 		EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000033 /* BrowseSearchSuggestions.swift */; };
 		EHB00000000000000000034 /* ReadingSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000034 /* ReadingSettings.swift */; };
 		EHB00000000000000000035 /* MigrationDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000035 /* MigrationDocument.swift */; };
-		EHB00000000000000000036 /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000036 /* MoreView.swift */; };
 		EHB00000000000000000037 /* VolumeButtonMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000037 /* VolumeButtonMonitor.swift */; };
+		EHB00000000000000000039 /* PhotoLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000039 /* PhotoLibrarySaver.swift */; };
+		EHB0000000000000000003A /* ReaderSettingsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003A /* ReaderSettingsMenu.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -119,8 +118,6 @@
 		EHF00000000000000000026 /* ReadingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingMode.swift; sourceTree = "<group>"; };
 		EHF00000000000000000027 /* ReaderPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPage.swift; sourceTree = "<group>"; };
 		EHF00000000000000000028 /* ReaderPositionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPositionState.swift; sourceTree = "<group>"; };
-		EHF00000000000000000029 /* ReaderZoomState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderZoomState.swift; sourceTree = "<group>"; };
-		EHF0000000000000000002A /* ReaderContinuousZoomState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderContinuousZoomState.swift; sourceTree = "<group>"; };
 		EHF0000000000000000002B /* ReaderContinuousView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderContinuousView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000002C /* ReaderPagedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPagedView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000002D /* icon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = icon.icon; sourceTree = "<group>"; };
@@ -132,8 +129,9 @@
 		EHF00000000000000000033 /* BrowseSearchSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseSearchSuggestions.swift; sourceTree = "<group>"; };
 		EHF00000000000000000034 /* ReadingSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingSettings.swift; sourceTree = "<group>"; };
 		EHF00000000000000000035 /* MigrationDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationDocument.swift; sourceTree = "<group>"; };
-		EHF00000000000000000036 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000037 /* VolumeButtonMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeButtonMonitor.swift; sourceTree = "<group>"; };
+		EHF00000000000000000039 /* PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrarySaver.swift; sourceTree = "<group>"; };
+		EHF0000000000000000003A /* ReaderSettingsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsMenu.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -202,12 +200,10 @@
 				EHF0000000000000000002E /* PasswordLoginSheet.swift */,
 				EHF00000000000000000026 /* ReadingMode.swift */,
 				EHF0000000000000000002B /* ReaderContinuousView.swift */,
-				EHF0000000000000000002A /* ReaderContinuousZoomState.swift */,
 				EHF00000000000000000027 /* ReaderPage.swift */,
 				EHF0000000000000000002C /* ReaderPagedView.swift */,
 				EHF00000000000000000028 /* ReaderPositionState.swift */,
 				EHF00000000000000000007 /* ReaderView.swift */,
-				EHF00000000000000000029 /* ReaderZoomState.swift */,
 				EHF00000000000000000008 /* RootView.swift */,
 				EHF0000000000000000000A /* SettingsView.swift */,
 				EHF00000000000000000032 /* SiteWebView.swift */,
@@ -216,7 +212,8 @@
 				EHF00000000000000000016 /* LocalArchiveView.swift */,
 				EHF00000000000000000034 /* ReadingSettings.swift */,
 				EHF00000000000000000035 /* MigrationDocument.swift */,
-				EHF00000000000000000036 /* MoreView.swift */,
+				EHF00000000000000000039 /* PhotoLibrarySaver.swift */,
+				EHF0000000000000000003A /* ReaderSettingsMenu.swift */,
 				EHF00000000000000000037 /* VolumeButtonMonitor.swift */,
 			);
 			path = Sources/EhViewer;
@@ -403,12 +400,10 @@
 				EHB0000000000000000002E /* PasswordLoginSheet.swift in Sources */,
 				EHB00000000000000000026 /* ReadingMode.swift in Sources */,
 				EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */,
-				EHB0000000000000000002A /* ReaderContinuousZoomState.swift in Sources */,
 				EHB00000000000000000027 /* ReaderPage.swift in Sources */,
 				EHB0000000000000000002C /* ReaderPagedView.swift in Sources */,
 				EHB00000000000000000028 /* ReaderPositionState.swift in Sources */,
 				EHB00000000000000000007 /* ReaderView.swift in Sources */,
-				EHB00000000000000000029 /* ReaderZoomState.swift in Sources */,
 				EHB00000000000000000008 /* RootView.swift in Sources */,
 				EHB0000000000000000000A /* SettingsView.swift in Sources */,
 				EHB00000000000000000032 /* SiteWebView.swift in Sources */,
@@ -417,7 +412,8 @@
 				EHB00000000000000000021 /* LocalArchiveView.swift in Sources */,
 				EHB00000000000000000034 /* ReadingSettings.swift in Sources */,
 				EHB00000000000000000035 /* MigrationDocument.swift in Sources */,
-				EHB00000000000000000036 /* MoreView.swift in Sources */,
+				EHB00000000000000000039 /* PhotoLibrarySaver.swift in Sources */,
+				EHB0000000000000000003A /* ReaderSettingsMenu.swift in Sources */,
 				EHB00000000000000000037 /* VolumeButtonMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

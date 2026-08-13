@@ -58,11 +58,12 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("过滤规则") {
-                ForEach(model.filterRules, id: \.pattern) { rule in
-                    Toggle(rule.pattern, isOn: Binding(
-                        get: { rule.isEnabled },
-                        set: { enabled in Task { await model.setFilterRule(pattern: rule.pattern, isEnabled: enabled) } }
-                    ))
+                ForEach(model.filterRules.indices, id: \.self) { index in
+                    let pattern = model.filterRules[index].pattern
+                    Toggle(pattern, isOn: $model.filterRules[index].isEnabled)
+                        .onChange(of: model.filterRules[index].isEnabled) { _, enabled in
+                            Task { await model.setFilterRule(pattern: pattern, isEnabled: enabled) }
+                        }
                 }
                 HStack {
                     TextField("添加标题或标签关键词", text: $newFilter)
@@ -73,52 +74,6 @@ struct SettingsView: View {
                         Task { await model.setFilterRule(pattern: pattern, isEnabled: true) }
                     }
                     .disabled(newFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            Section("阅读设置") {
-                Picker("阅读方向", selection: $model.readingSettings.readingMode) {
-                    ForEach(ReadingMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                Picker("页面缩放", selection: $model.readingSettings.pageScaling) {
-                    ForEach(ReaderPageScaling.allCases) { scaling in
-                        Text(scaling.title).tag(scaling)
-                    }
-                }
-                Picker("开始位置", selection: $model.readingSettings.startPosition) {
-                    ForEach(ReaderStartPosition.allCases) { position in
-                        Text(position.title).tag(position)
-                    }
-                }
-                Picker("屏幕旋转", selection: $model.readingSettings.screenRotation) {
-                    ForEach(ReaderScreenRotation.allCases) { rotation in
-                        Text(rotation.title).tag(rotation)
-                    }
-                }
-                Picker("自动翻页", selection: $model.readingSettings.autoAdvanceSeconds) {
-                    Text("关闭").tag(0)
-                    ForEach([3, 5, 10, 15, 30, 60], id: \.self) { seconds in
-                        Text("每 " + String(seconds) + " 秒").tag(seconds)
-                    }
-                }
-                Toggle("阅读时保持屏幕常亮", isOn: $model.readingSettings.keepScreenOn)
-                Toggle("显示时钟", isOn: $model.readingSettings.showClock)
-                Toggle("显示阅读进度", isOn: $model.readingSettings.showProgress)
-                Toggle("显示电量", isOn: $model.readingSettings.showBattery)
-                Toggle("显示页码", isOn: $model.readingSettings.showPageInterval)
-                Toggle("音量键翻页", isOn: $model.readingSettings.volumePage)
-                Toggle("反转音量键方向", isOn: $model.readingSettings.reverseVolumePage)
-                Toggle("进入阅读器时全屏", isOn: $model.readingSettings.fullscreen)
-                Toggle("自定义屏幕亮度", isOn: $model.readingSettings.customBrightness)
-                if model.readingSettings.customBrightness {
-                    Slider(value: $model.readingSettings.brightness, in: 0.05...1) {
-                        Text("屏幕亮度")
-                    } minimumValueLabel: {
-                        Image(systemName: "sun.min")
-                    } maximumValueLabel: {
-                        Image(systemName: "sun.max")
-                    }
                 }
             }
             Section("数据迁移") {
@@ -138,9 +93,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: model.readingSettings) { _, _ in
-            model.persistReadingSettings()
-        }
+        .accessibilityIdentifier("settings-screen")
         .navigationTitle("settings_title")
         .sheet(isPresented: $showingCookieSheet) { CookieLoginSheet() }
         .sheet(isPresented: $showingWebLogin) { WebLoginSheet() }

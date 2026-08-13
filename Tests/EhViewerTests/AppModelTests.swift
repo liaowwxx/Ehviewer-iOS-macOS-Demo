@@ -112,6 +112,59 @@ struct AppModelTests {
         #expect(model.submittedSearchText == "artist:test")
     }
 
+    @Test("Selecting a tag reloads the browse query and replaces the old list")
+    func tagSearchReloadsBrowseQuery() async throws {
+        let api = ControlledListAPI()
+        let suiteName = "EhViewerTagSearchTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: api,
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+
+        let oldSummary = GallerySummary(key: GalleryKey(gid: 1, token: "old"), title: "Old result")
+        let oldLoad = Task { await model.load(query: GalleryListQuery(searchText: "old")) }
+        await api.waitUntilRequested("old")
+        #expect(await api.respond(to: "old", with: GalleryListPage(items: [oldSummary])))
+        await oldLoad.value
+
+        model.searchTag("artist:test")
+        let tagQuery = GalleryListQuery(
+            site: model.site,
+            kind: .home,
+            searchText: model.submittedSearchText
+        )
+        let newSummary = GallerySummary(key: GalleryKey(gid: 2, token: "tag"), title: "Tag result")
+        let tagLoad = Task { await model.loadBrowseQuery(tagQuery) }
+        await api.waitUntilRequested(model.submittedSearchText)
+        #expect(await api.respond(to: model.submittedSearchText, with: GalleryListPage(items: [newSummary])))
+        await tagLoad.value
+
+        #expect(model.galleries == [newSummary])
+        #expect(model.submittedSearchText.isEmpty == false)
+    }
+
+    @Test("An incoming gallery link selects the gallery route")
+    func incomingGalleryLinkSelectsGalleryRoute() throws {
+        let suiteName = "EhViewerDeepLinkTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+
+        let url = try #require(URL(string: "ehviewer://?url=https://e-hentai.org/g/12345/token/"))
+        model.handleIncomingURL(url)
+
+        #expect(model.selectedRoute == .gallery(GalleryKey(gid: 12345, token: "token")))
+    }
+
     @Test("A slower old search cannot overwrite the latest result")
     func latestListRequestWins() async throws {
         let api = ControlledListAPI()

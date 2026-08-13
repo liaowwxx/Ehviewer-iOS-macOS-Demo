@@ -1,8 +1,6 @@
 import SwiftUI
 import Foundation
 import ImageIO
-import PhotosUI
-import UniformTypeIdentifiers
 import EHDomain
 
 struct BrowseView: View {
@@ -65,8 +63,14 @@ struct BrowseView: View {
         .sheet(isPresented: $showingAdvancedSearch) {
             AdvancedSearchView(
                 initialValue: advancedSearch,
-                apply: { advancedSearch = $0 },
-                clear: { advancedSearch = nil }
+                apply: {
+                    advancedSearch = $0
+                    submittedAdvancedSearch = $0
+                },
+                clear: {
+                    advancedSearch = nil
+                    submittedAdvancedSearch = nil
+                }
             )
         }
         .task {
@@ -75,7 +79,7 @@ struct BrowseView: View {
         .task(id: model.searchText) {
             await model.updateSearchSuggestions(for: model.searchText)
         }
-        .task(id: model.site) {
+        .task(id: listQuery) {
             await model.loadBrowseQuery(listQuery)
         }
         .navigationDestination(item: $searchGalleryKey) { key in
@@ -123,15 +127,8 @@ struct BrowseView: View {
         if let key = SearchQueryComposer.galleryKey(in: model.searchText) {
             searchGalleryKey = key
         } else {
-            model.submitSearch()
             submittedAdvancedSearch = advancedSearch
-            let query = GalleryListQuery(
-                site: model.site,
-                kind: kind,
-                searchText: model.submittedSearchText.isEmpty ? nil : model.submittedSearchText,
-                advancedSearch: submittedAdvancedSearch
-            )
-            Task { await model.load(query: query) }
+            model.submitSearch()
         }
     }
 
@@ -140,9 +137,6 @@ struct BrowseView: View {
         model.submittedSearchText = ""
         submittedAdvancedSearch = nil
         advancedSearch = nil
-        Task {
-            await model.load(query: GalleryListQuery(site: model.site, kind: kind))
-        }
     }
 
     private func galleryLink(_ gallery: GallerySummary) -> some View {
@@ -177,98 +171,6 @@ private struct BrowseMoreMenu: View {
             }
         }
         .accessibilityIdentifier("more-menu")
-    }
-}
-
-private struct ImageSearchSheet: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedPhoto: PhotosPickerItem?
-    @State private var importedData: Data?
-    @State private var importedName = "upload.jpg"
-    @State private var similar = true
-    @State private var covers = false
-    @State private var expanded = false
-    @State private var showingImporter = false
-    @State private var isLoadingPhoto = false
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("图片") {
-                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                        Label("从照片选择", systemImage: "photo.on.rectangle")
-                    }
-                    Button("从文件选择", systemImage: "folder") { showingImporter = true }
-                    if let importedData {
-                        Label("已选择 \(importedName)（\(ByteCountFormatter.string(fromByteCount: Int64(importedData.count), countStyle: .file))）", systemImage: "checkmark.circle")
-                            .font(.caption)
-                    }
-                }
-                Section("搜索选项") {
-                    Toggle("相似图片", isOn: $similar)
-                    Toggle("包含封面结果", isOn: $covers)
-                    Toggle("扩展结果", isOn: $expanded)
-                }
-                Section("图片配额") {
-                    if let quota = model.imageQuota {
-                        LabeledContent("已使用", value: "\(quota.used.formatted()) / \(quota.total.formatted())")
-                        LabeledContent("重置费用", value: "\(quota.resetCost.formatted()) GP")
-                    }
-                    HStack {
-                        Button("查看配额") { Task { await model.loadImageQuota() } }
-                        if model.imageQuota != nil {
-                            Button("重置配额", role: .destructive) { Task { await model.resetImageQuota() } }
-                        }
-                    }
-                }
-            }
-            .navigationTitle("图片搜索")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isLoadingPhoto {
-                        ProgressView()
-                    } else {
-                        Button("搜索") {
-                            guard let importedData else { return }
-                            Task {
-                                await model.searchByImage(
-                                    data: importedData,
-                                    fileName: importedName,
-                                    options: ImageSearchOptions(similar: similar, covers: covers, expanded: expanded)
-                                )
-                                dismiss()
-                            }
-                        }
-                        .disabled(importedData == nil)
-                    }
-                }
-            }
-            .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.image]) { result in
-                guard case .success(let url) = result else { return }
-                do {
-                    importedData = try Data(contentsOf: url)
-                    importedName = url.lastPathComponent
-                } catch {
-                    model.errorMessage = error.localizedDescription
-                }
-            }
-            .task(id: selectedPhoto) {
-                guard let selectedPhoto else { return }
-                isLoadingPhoto = true
-                defer { isLoadingPhoto = false }
-                do {
-                    importedData = try await selectedPhoto.loadTransferable(type: Data.self)
-                    importedName = "photo.jpg"
-                } catch is CancellationError {
-                    return
-                } catch {
-                    model.errorMessage = error.localizedDescription
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
     }
 }
 

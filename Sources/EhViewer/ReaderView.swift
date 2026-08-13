@@ -15,14 +15,9 @@ struct ReaderView: View {
     private let downloadedJob: DownloadJob?
     @State private var detail: GalleryDetail?
     @State private var position: ReaderPositionState
-    @State private var resolution: ImageResolution = .preview
-    @State private var showingJumpSheet = false
-    @State private var jumpText = ""
     @State private var isFullscreen = false
     @State private var zoomResetToken = UUID()
-    @State private var showingSaveConfirmation = false
     #if os(iOS)
-    @State private var originalBrightness: CGFloat?
     @State private var volumeMonitor = VolumeButtonMonitor()
     #endif
 
@@ -45,13 +40,12 @@ struct ReaderView: View {
     }
 
     var body: some View {
-        @Bindable var model = model
         Group {
             if let detail {
-                if readingMode == .continuous {
-                    ReaderContinuousView(
+                if readingMode == .verticalPaged {
+                    ReaderVerticalPagedView(
                         descriptors: detail.pages,
-                        resolution: resolution,
+                        resolution: .preview,
                         resetToken: zoomResetToken,
                         pageScaling: model.readingSettings.pageScaling,
                         source: source,
@@ -60,9 +54,9 @@ struct ReaderView: View {
                 } else {
                     ReaderPagedView(
                         descriptors: detail.pages,
-                        resolution: resolution,
+                        resolution: .preview,
                         resetToken: zoomResetToken,
-                        readingMode: readingMode,
+                        readingDirection: model.readingSettings.readingDirection,
                         pageScaling: model.readingSettings.pageScaling,
                         source: source,
                         position: $position
@@ -76,21 +70,8 @@ struct ReaderView: View {
             guard source == .remote, let detail else { return }
             await model.prefetch(
                 prefetchDescriptors(in: detail.pages, around: position.page),
-                resolution: resolution
+                resolution: .preview
             )
-        }
-        .task(id: model.readingSettings.autoAdvanceSeconds) {
-            let seconds = model.readingSettings.autoAdvanceSeconds
-            guard seconds > 0 else { return }
-            while Task.isCancelled == false {
-                do {
-                    try await Task.sleep(for: .seconds(seconds))
-                } catch {
-                    return
-                }
-                guard Task.isCancelled == false, let detail, position.page < detail.pages.count - 1 else { return }
-                requestPage(position.page + 1, pageCount: detail.pages.count)
-            }
         }
         .onKeyPress(.leftArrow) {
             guard let detail else { return .ignored }
@@ -105,33 +86,7 @@ struct ReaderView: View {
         .navigationTitle("阅读 · \(position.page + 1)")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu("阅读选项", systemImage: "ellipsis.circle") {
-                    Picker("阅读方向", selection: $model.readingSettings.readingMode) {
-                        ForEach(ReadingMode.allCases) { mode in Text(mode.title).tag(mode) }
-                    }
-                    Picker("图片清晰度", selection: $resolution) {
-                        Text("预览图").tag(ImageResolution.preview)
-                        Text("原图").tag(ImageResolution.original)
-                    }
-                    .disabled(source == .download)
-                    Button("保存当前页", systemImage: "bookmark") {
-                        Task { await model.updateProgress(for: key, page: position.page) }
-                    }
-                    Button("保存图片", systemImage: "square.and.arrow.down") {
-                        if let descriptor = detail?.pages.first(where: { $0.index == position.page }) {
-                            Task {
-                                showingSaveConfirmation = await model.savePage(descriptor, resolution: resolution)
-                            }
-                        }
-                    }
-                    Button("跳转到页面", systemImage: "arrow.right.to.line") {
-                        jumpText = String(position.page + 1)
-                        showingJumpSheet = true
-                    }
-                    Button(isFullscreen ? "退出全屏" : "全屏", systemImage: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") {
-                        isFullscreen.toggle()
-                    }
-                }
+                ReaderSettingsMenu()
             }
             ToolbarItem(placement: .primaryAction) {
                 if let externalURL = detail?.externalURL {
@@ -160,17 +115,16 @@ struct ReaderView: View {
             isFullscreen = model.readingSettings.fullscreen
             detail = loadedDetail
         }
-        .onChange(of: model.readingSettings.readingMode) {
+        .onChange(of: model.readingSettings) { oldSettings, newSettings in
             model.persistReadingSettings()
-            resetZoom()
-            if let detail {
-                position.requestPage(position.page, pageCount: detail.pages.count)
+            if oldSettings.readingMode != newSettings.readingMode ||
+                oldSettings.readingDirection != newSettings.readingDirection {
+                resetZoom()
+                if let detail {
+                    position.requestPage(position.page, pageCount: detail.pages.count)
+                }
             }
         }
-        .onChange(of: model.readingSettings) { _, _ in
-            model.persistReadingSettings()
-        }
-        .onChange(of: resolution) { resetZoom() }
         .onDisappear { Task { await model.updateProgress(for: key, page: position.page) } }
         .onAppear {
             applyReaderSystemSettings()
@@ -179,12 +133,6 @@ struct ReaderView: View {
             #endif
         }
         .onChange(of: model.readingSettings.keepScreenOn) { _, _ in
-            applyReaderSystemSettings()
-        }
-        .onChange(of: model.readingSettings.customBrightness) { _, _ in
-            applyReaderSystemSettings()
-        }
-        .onChange(of: model.readingSettings.brightness) { _, _ in
             applyReaderSystemSettings()
         }
         #if os(iOS)
@@ -229,34 +177,6 @@ struct ReaderView: View {
                 .padding()
             }
         }
-        .sheet(isPresented: $showingJumpSheet) {
-            NavigationStack {
-                Form {
-                    TextField("页码", text: $jumpText)
-                        #if os(iOS)
-                        .keyboardType(.numberPad)
-                        #endif
-                    Button("跳转") {
-                        if let requested = Int(jumpText), let count = detail?.pages.count {
-                            requestPage(requested - 1, pageCount: count)
-                            showingJumpSheet = false
-                        }
-                    }
-                }
-                .navigationTitle("跳转")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("取消") { showingJumpSheet = false }
-                    }
-                }
-            }
-            .presentationDetents([.medium])
-        }
-        .alert("图片已保存", isPresented: $showingSaveConfirmation) {
-            Button("好", role: .cancel) {}
-        } message: {
-            Text("图片已保存到系统照片。")
-        }
     }
 
     private func resetZoom() {
@@ -275,16 +195,6 @@ struct ReaderView: View {
             .compactMap({ $0 as? UIWindowScene })
             .first(where: { $0.activationState != .unattached }) {
             scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientationMask))
-            let screen = scene.screen
-            if model.readingSettings.customBrightness {
-                if originalBrightness == nil {
-                    originalBrightness = screen.brightness
-                }
-                screen.brightness = model.readingSettings.brightness
-            } else if let originalBrightness {
-                screen.brightness = originalBrightness
-                self.originalBrightness = nil
-            }
         }
         #endif
     }
@@ -302,13 +212,6 @@ struct ReaderView: View {
     #if os(iOS)
     private func restoreReaderSystemSettings() {
         UIApplication.shared.isIdleTimerDisabled = false
-        if let originalBrightness,
-           let screen = UIApplication.shared.connectedScenes
-               .compactMap({ ($0 as? UIWindowScene)?.screen })
-               .first {
-            screen.brightness = originalBrightness
-            self.originalBrightness = nil
-        }
     }
     #endif
 
@@ -318,7 +221,7 @@ struct ReaderView: View {
     }
 
     private func horizontalPageDelta(forLeftDirection: Bool) -> Int {
-        if readingMode == .rightToLeft {
+        if model.readingSettings.readingDirection == .rightToLeft {
             return forLeftDirection ? 1 : -1
         }
         return forLeftDirection ? -1 : 1
