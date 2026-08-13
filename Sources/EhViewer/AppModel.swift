@@ -6,6 +6,11 @@ import EHNetworking
 import EHPersistence
 import EHDownloads
 
+#if os(iOS)
+import Photos
+import UIKit
+#endif
+
 @MainActor
 @Observable
 final class AppModel {
@@ -21,6 +26,7 @@ final class AppModel {
     let tagSuggestionProvider: TagSuggestionProvider
 
     var site: SiteMode
+    var readingSettings: ReadingSettings
     var galleries: [GallerySummary] = []
     var historyGalleries: [GallerySummary] = []
     var favoriteGalleries: [GallerySummary] = []
@@ -38,6 +44,8 @@ final class AppModel {
     var isGuestMode = true
     var isPasswordLoginInProgress = false
     var errorMessage: String?
+    var isRestoringDownloads = false
+    var downloadRestoreStatus = ""
     private(set) var nextPageURL: URL?
     var hasMorePage: Bool { nextPageURL != nil }
     private var activeQuery = GalleryListQuery()
@@ -53,6 +61,7 @@ final class AppModel {
     ) {
         self.defaults = defaults
         site = .eHentai
+        readingSettings = ReadingSettings.load(from: defaults)
         defaults.set(SiteMode.eHentai.rawValue, forKey: "site")
         let arguments = ProcessInfo.processInfo.arguments
         let forceGuestModeForUITest = arguments.contains("-UITestUseGuestMode")
@@ -375,18 +384,44 @@ final class AppModel {
         }
     }
 
-    func savePage(_ descriptor: GalleryPageDescriptor, resolution: ImageResolution = .preview) async {
+    @discardableResult
+    func savePage(_ descriptor: GalleryPageDescriptor, resolution: ImageResolution = .preview) async -> Bool {
         do {
-            if await downloadFiles.contains(descriptor.galleryKey, pageIndex: descriptor.index) { return }
-            let image = try await pageImage(for: descriptor)
-            let data = try await imageData(for: image, resolution: resolution)
+            let data: Data
+            if await downloadFiles.contains(descriptor.galleryKey, pageIndex: descriptor.index) {
+                data = try await downloadFiles.data(for: descriptor.galleryKey, pageIndex: descriptor.index)
+            } else {
+                let image = try await pageImage(for: descriptor)
+                data = try await imageData(for: image, resolution: resolution)
+            }
+            #if os(iOS)
+            try await saveToPhotoLibrary(data)
+            #else
             _ = try await downloadFiles.write(data, for: descriptor.galleryKey, pageIndex: descriptor.index)
+            #endif
+            return true
         } catch is CancellationError {
-            return
+            return false
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
+
+    #if os(iOS)
+    private func saveToPhotoLibrary(_ data: Data) async throws {
+        guard let image = UIImage(data: data) else {
+            throw EHError.parsingFailed("图片数据无效")
+        }
+        let authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard authorization == .authorized || authorization == .limited else {
+            throw EHError.unsupportedFeature("没有照片添加权限，请在系统设置中允许 EhViewer 写入照片")
+        }
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.creationRequestForAsset(from: image)
+        }
+    }
+    #endif
 
     func prefetch(_ descriptors: [GalleryPageDescriptor], resolution: ImageResolution = .preview) async {
         let api = self.api
@@ -574,32 +609,248 @@ final class AppModel {
         await downloads.setLabel(normalized, for: key)
     }
 
+    func resetAllDownloadReadingProgress() async {
+        do {
+            let keys = await downloads.snapshot().map(\.key)
+            try await persistence.resetReadingProgress(for: keys)
+            historyGalleries = try await persistence.recent()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func enqueue(_ detail: GalleryDetail) async {
         do {
-            let client = self.api
-            let currentSite = site
-            let resolvedPages = try await withThrowingTaskGroup(of: GalleryPageDescriptor.self, returning: [GalleryPageDescriptor].self) { group in
-                for descriptor in detail.pages {
-                    group.addTask {
-                        let image = try await client.pageImage(for: descriptor, site: currentSite)
-                        return GalleryPageDescriptor(
-                            galleryKey: descriptor.galleryKey,
-                            index: descriptor.index,
-                            pageURL: image.imageURL,
-                            previewURL: descriptor.previewURL
-                        )
-                    }
-                }
-                var pages: [GalleryPageDescriptor] = []
-                for try await page in group { pages.append(page) }
-                return pages.sorted { $0.index < $1.index }
-            }
+            let resolvedPages = try await resolvedDownloadPages(detail.pages)
             await downloads.enqueue(key: detail.summary.key, title: detail.summary.title, pages: resolvedPages)
         } catch is CancellationError {
             return
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func restoreDownloads(from archiveURL: URL) async -> String {
+        guard isRestoringDownloads == false else { return "已有恢复任务正在进行。" }
+        isRestoringDownloads = true
+        downloadRestoreStatus = "正在检查备份压缩包…"
+        let restoreSite = site
+        defer {
+            isRestoringDownloads = false
+            downloadRestoreStatus = ""
+        }
+
+        do {
+            let inspection = try await LegacyDownloadArchive.inspect(archiveURL)
+            guard inspection.candidates.isEmpty == false else {
+                return inspection.invalidItemCount > 0
+                    ? "没有找到可恢复的下载项；发现 \(inspection.invalidItemCount) 个无效目录。"
+                    : "没有在压缩包的 download 目录中找到可恢复的下载项。"
+            }
+
+            let existingGIDs = Set(await downloads.snapshot().map { $0.key.gid })
+            var seenGIDs = existingGIDs
+            var candidateByKey: [GalleryKey: LegacyDownloadCandidate] = [:]
+            var detailByKey: [GalleryKey: GalleryDetail] = [:]
+            var preparedKeys: [GalleryKey] = []
+            var skippedCount = 0
+            var failedGalleryCount = 0
+
+            for (offset, candidate) in inspection.candidates.enumerated() {
+                try Task.checkCancellation()
+                downloadRestoreStatus = "正在获取画廊信息 \(offset + 1)/\(inspection.candidates.count)…"
+                guard seenGIDs.insert(candidate.key.gid).inserted else {
+                    skippedCount += 1
+                    continue
+                }
+                do {
+                    let detail = try await api.detail(for: candidate.key, site: restoreSite)
+                    try? await persistence.upsert([detail.summary])
+                    candidateByKey[candidate.key] = candidate
+                    detailByKey[candidate.key] = detail
+                    preparedKeys.append(candidate.key)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    failedGalleryCount += 1
+                }
+            }
+
+            guard preparedKeys.isEmpty == false else {
+                return "未能恢复下载项。已跳过 \(skippedCount) 项，\(failedGalleryCount) 项无法获取画廊信息。"
+            }
+
+            let selections = preparedKeys.flatMap { key -> [LegacyDownloadPageSelection] in
+                guard let candidate = candidateByKey[key] else { return [] }
+                return candidate.images.compactMap { image in
+                    guard (0..<candidate.declaredPageCount).contains(image.pageIndex) else { return nil }
+                    return LegacyDownloadPageSelection(
+                        archivePath: image.archivePath,
+                        key: key,
+                        pageIndex: image.pageIndex
+                    )
+                }
+            }
+
+            downloadRestoreStatus = "正在解压下载图片…"
+            let extraction = try await LegacyDownloadArchive.extractPages(
+                from: archiveURL,
+                selections: selections
+            )
+            defer { try? FileManager.default.removeItem(at: extraction.temporaryDirectory) }
+
+            var importedIndexes: [GalleryKey: Set<Int>] = [:]
+            var failedPageCount = extraction.failedPageCount
+            for (offset, page) in extraction.pages.enumerated() {
+                try Task.checkCancellation()
+                downloadRestoreStatus = "正在导入图片 \(offset + 1)/\(extraction.pages.count)…"
+                do {
+                    _ = try await downloadFiles.importFile(
+                        at: page.fileURL,
+                        for: page.key,
+                        pageIndex: page.pageIndex
+                    )
+                    importedIndexes[page.key, default: []].insert(page.pageIndex)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    failedPageCount += 1
+                }
+            }
+
+            var restoredCount = 0
+            for (offset, key) in preparedKeys.enumerated() {
+                try Task.checkCancellation()
+                guard let detail = detailByKey[key], let candidate = candidateByKey[key] else { continue }
+                if await downloads.snapshot().contains(where: { $0.key.gid == key.gid }) {
+                    skippedCount += 1
+                    continue
+                }
+
+                let imported = importedIndexes[key] ?? []
+                let legacyPages = legacyPageDescriptors(candidate: candidate, detail: detail, site: restoreSite)
+                let expected = Set(0..<candidate.declaredPageCount)
+                let isComplete = expected.isEmpty == false && imported == expected
+                var pages = legacyPages.pages
+                var state: DownloadState = isComplete ? .completed : .paused
+                var itemError: String?
+
+                if isComplete == false {
+                    downloadRestoreStatus = "正在准备缺失页面 \(offset + 1)/\(preparedKeys.count)…"
+                    let missingIndexes = expected.subtracting(imported)
+                    if missingIndexes.isSubset(of: legacyPages.resumableIndexes) == false {
+                        state = .failed
+                        itemError = "已恢复 \(imported.count)/\(expected.count) 页，但部分缺页没有可用的页面 token"
+                    } else {
+                        do {
+                            let missingPages = pages.filter { missingIndexes.contains($0.index) }
+                            let resolvedMissingPages = try await resolvedDownloadPages(missingPages, site: restoreSite)
+                            let resolvedByIndex = Dictionary(uniqueKeysWithValues: resolvedMissingPages.map { ($0.index, $0) })
+                            pages = pages.map { resolvedByIndex[$0.index] ?? $0 }
+                            itemError = "已恢复 \(imported.count)/\(expected.count) 页，可继续下载缺失页面"
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            state = .failed
+                            itemError = "已恢复 \(imported.count)/\(expected.count) 页，但续传地址准备失败：\(error.localizedDescription)"
+                        }
+                    }
+                }
+
+                var job = DownloadJob(key: key, title: detail.summary.title, pages: pages)
+                job.completedPageIndexes = imported
+                job.state = state
+                job.errorMessage = itemError
+                await downloads.restore([job])
+                restoredCount += 1
+            }
+
+            var parts = ["已恢复 \(restoredCount) 项"]
+            if skippedCount > 0 { parts.append("跳过 \(skippedCount) 项") }
+            if failedGalleryCount > 0 { parts.append("画廊信息失败 \(failedGalleryCount) 项") }
+            if inspection.invalidItemCount > 0 { parts.append("无效目录 \(inspection.invalidItemCount) 个") }
+            if failedPageCount > 0 { parts.append("图片失败 \(failedPageCount) 页") }
+            return parts.joined(separator: "，") + "。"
+        } catch is CancellationError {
+            return "已取消恢复下载项。"
+        } catch {
+            return "恢复下载项失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func resolvedDownloadPages(
+        _ descriptors: [GalleryPageDescriptor],
+        maximumConcurrent: Int = 4,
+        site requestedSite: SiteMode? = nil
+    ) async throws -> [GalleryPageDescriptor] {
+        let client = api
+        let currentSite = requestedSite ?? site
+        return try await withThrowingTaskGroup(
+            of: GalleryPageDescriptor.self,
+            returning: [GalleryPageDescriptor].self
+        ) { group in
+            var iterator = descriptors.makeIterator()
+            for _ in 0..<min(maximumConcurrent, descriptors.count) {
+                guard let descriptor = iterator.next() else { break }
+                group.addTask { try await Self.resolveDownloadPage(descriptor, client: client, site: currentSite) }
+            }
+
+            var pages: [GalleryPageDescriptor] = []
+            for try await page in group {
+                pages.append(page)
+                if let descriptor = iterator.next() {
+                    group.addTask { try await Self.resolveDownloadPage(descriptor, client: client, site: currentSite) }
+                }
+            }
+            return pages.sorted { $0.index < $1.index }
+        }
+    }
+
+    private func legacyPageDescriptors(
+        candidate: LegacyDownloadCandidate,
+        detail: GalleryDetail,
+        site: SiteMode
+    ) -> (pages: [GalleryPageDescriptor], resumableIndexes: Set<Int>) {
+        let detailByIndex = Dictionary(uniqueKeysWithValues: detail.pages.map { ($0.index, $0) })
+        var resumableIndexes = Set<Int>()
+        let pages = (0..<candidate.declaredPageCount).map { index in
+            if let descriptor = detailByIndex[index] {
+                resumableIndexes.insert(index)
+                return descriptor
+            }
+            if let pageToken = candidate.pageTokens[index],
+               let pageURL = URL(string: "https://\(site.host)/s/\(pageToken)/\(candidate.key.gid)-\(index + 1)") {
+                resumableIndexes.insert(index)
+                return GalleryPageDescriptor(
+                    galleryKey: candidate.key,
+                    index: index,
+                    pageURL: pageURL
+                )
+            }
+            let placeholderURL = URL(
+                string: "https://\(site.host)/g/\(candidate.key.gid)/\(candidate.key.token)/#restored-\(index + 1)"
+            )!
+            return GalleryPageDescriptor(
+                galleryKey: candidate.key,
+                index: index,
+                pageURL: placeholderURL
+            )
+        }
+        return (pages, resumableIndexes)
+    }
+
+    nonisolated private static func resolveDownloadPage(
+        _ descriptor: GalleryPageDescriptor,
+        client: any EHAPI,
+        site: SiteMode
+    ) async throws -> GalleryPageDescriptor {
+        let image = try await client.pageImage(for: descriptor, site: site)
+        return GalleryPageDescriptor(
+            galleryKey: descriptor.galleryKey,
+            index: descriptor.index,
+            pageURL: image.imageURL,
+            previewURL: descriptor.previewURL
+        )
     }
 
     private func restoreDownloads() async {
@@ -710,6 +961,48 @@ final class AppModel {
 
     func persistSettings() {
         defaults.set(site.rawValue, forKey: "site")
+    }
+
+    func persistReadingSettings() {
+        readingSettings.save(to: defaults)
+    }
+
+    func exportMigrationData() async -> Data? {
+        do {
+            var snapshot = try await persistence.exportSnapshot()
+            snapshot.siteRaw = site.rawValue
+            snapshot.readingSettingsData = try JSONEncoder().encode(readingSettings)
+            return try JSONEncoder().encode(snapshot)
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func importMigrationData(_ data: Data) async -> Bool {
+        do {
+            let snapshot = try JSONDecoder().decode(MigrationSnapshot.self, from: data)
+            try await persistence.importSnapshot(snapshot)
+            if let rawSite = snapshot.siteRaw, let importedSite = SiteMode(rawValue: rawSite), isGuestMode == false || importedSite == .eHentai {
+                site = importedSite
+                persistSettings()
+            }
+            if let settingsData = snapshot.readingSettingsData,
+               let importedSettings = try? JSONDecoder().decode(ReadingSettings.self, from: settingsData) {
+                readingSettings = importedSettings
+                persistReadingSettings()
+            }
+            await loadFilterRules()
+            await loadTagTranslations()
+            await loadQuickSearches()
+            await restoreDownloads()
+            historyGalleries = (try? await persistence.recent()) ?? historyGalleries
+            favoriteGalleries = (try? await persistence.favorites()) ?? favoriteGalleries
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
     }
 
     private func imageURL(for image: GalleryPageImage, resolution: ImageResolution) -> URL {

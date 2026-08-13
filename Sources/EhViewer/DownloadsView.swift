@@ -10,14 +10,51 @@ struct DownloadsView: View {
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
     @State private var showingArchiveImporter = false
+    @State private var showingDownloadRestoreImporter = false
     @State private var archiveDocument: LocalArchiveDocument?
+    @State private var searchText = ""
+    @State private var statusFilter: DownloadStatusFilter = .all
+    @State private var sortOrder: DownloadSortOrder = .updated
+    @State private var showingResetProgressConfirmation = false
+    @State private var showingDownloadRestoreResult = false
+    @State private var downloadRestoreMessage = ""
+
+    private var visibleJobs: [DownloadJob] {
+        jobs
+            .filter { statusFilter.matches($0.state) }
+            .filter {
+                searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || $0.title.localizedCaseInsensitiveContains(searchText)
+                    || ($0.label?.localizedCaseInsensitiveContains(searchText) == true)
+            }
+            .sorted { lhs, rhs in
+                switch sortOrder {
+                case .updated:
+                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+                case .titleDescending:
+                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedDescending
+                case .progress:
+                    if lhs.progress == rhs.progress {
+                        return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+                    }
+                    return lhs.progress > rhs.progress
+                case .status:
+                    if lhs.state.rawValue == rhs.state.rawValue {
+                        return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+                    }
+                    return lhs.state.rawValue < rhs.state.rawValue
+                }
+            }
+    }
 
     var body: some View {
         Group {
             if jobs.isEmpty {
                 ContentUnavailableView("暂无下载", systemImage: "arrow.down.circle", description: Text("从画廊详情页加入下载队列"))
+            } else if visibleJobs.isEmpty {
+                ContentUnavailableView("没有匹配的下载", systemImage: "line.3.horizontal.decrease.circle", description: Text("调整搜索或筛选条件"))
             } else {
-                List(jobs) { job in
+                List(visibleJobs) { job in
                     DownloadCard(job: job) {
                         Task {
                             if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
@@ -48,13 +85,50 @@ struct DownloadsView: View {
             }
         }
         .navigationTitle("downloads_title")
+        .searchable(text: $searchText, prompt: "搜索下载标题或标签")
         .toolbar {
+            ToolbarItem(placement: .secondaryAction) {
+                Menu("下载管理", systemImage: "slider.horizontal.3") {
+                    Button("开始全部", systemImage: "play.fill") {
+                        Task { await model.downloads.startAll(); jobs = await model.downloads.snapshot() }
+                    }
+                    Button("暂停全部", systemImage: "pause.fill") {
+                        Task { await model.downloads.stopAll(); jobs = await model.downloads.snapshot() }
+                    }
+                    Divider()
+                    Picker("筛选状态", selection: $statusFilter) {
+                        ForEach(DownloadStatusFilter.allCases) { filter in
+                            Text(filter.title).tag(filter)
+                        }
+                    }
+                    Picker("排序", selection: $sortOrder) {
+                        ForEach(DownloadSortOrder.allCases) { order in
+                            Text(order.title).tag(order)
+                        }
+                    }
+                    Divider()
+                    Button("恢复下载项", systemImage: "arrow.counterclockwise.circle") {
+                        showingDownloadRestoreImporter = true
+                    }
+                    .disabled(model.isRestoringDownloads)
+                    Divider()
+                    Button("重置阅读进度", systemImage: "arrow.counterclockwise", role: .destructive) {
+                        showingResetProgressConfirmation = true
+                    }
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button("打开本地归档", systemImage: "archivebox") {
                     showingArchiveImporter = true
                 }
                 .accessibilityIdentifier("open-local-archive")
             }
+        }
+        .confirmationDialog("重置所有下载内容的阅读进度？", isPresented: $showingResetProgressConfirmation, titleVisibility: .visible) {
+            Button("重置进度", role: .destructive) {
+                Task { await model.resetAllDownloadReadingProgress() }
+            }
+            Button("取消", role: .cancel) {}
         }
         .fileImporter(
             isPresented: $showingArchiveImporter,
@@ -69,6 +143,12 @@ struct DownloadsView: View {
                 archiveDocument = await model.openLocalArchive(from: url)
             }
         }
+        .fileImporter(
+            isPresented: $showingDownloadRestoreImporter,
+            allowedContentTypes: LocalArchiveView.supportedContentTypes,
+            allowsMultipleSelection: false,
+            onCompletion: handleDownloadRestoreSelection
+        )
         .sheet(item: $archiveDocument) { document in
             NavigationStack {
                 LocalArchiveView(document: document)
@@ -101,6 +181,82 @@ struct DownloadsView: View {
                 }
             }
             .presentationDetents([.medium])
+        }
+        .alert("恢复下载项", isPresented: $showingDownloadRestoreResult) {
+        } message: {
+            Text(downloadRestoreMessage)
+        }
+        .overlay {
+            if model.isRestoringDownloads {
+                ProgressView(model.downloadRestoreStatus)
+                    .padding()
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    .accessibilityLabel(model.downloadRestoreStatus)
+            }
+        }
+    }
+
+    private func handleDownloadRestoreSelection(_ result: Result<[URL], any Error>) {
+        guard case let .success(urls) = result, let url = urls.first else {
+            if case let .failure(error) = result {
+                downloadRestoreMessage = error.localizedDescription
+                showingDownloadRestoreResult = true
+            }
+            return
+        }
+        Task {
+            downloadRestoreMessage = await model.restoreDownloads(from: url)
+            showingDownloadRestoreResult = true
+            jobs = await model.downloads.snapshot()
+        }
+    }
+}
+
+private enum DownloadStatusFilter: String, CaseIterable, Identifiable {
+    case all
+    case active
+    case paused
+    case completed
+    case failed
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .all: "全部"
+        case .active: "进行中"
+        case .paused: "已暂停"
+        case .completed: "已完成"
+        case .failed: "异常"
+        }
+    }
+
+    func matches(_ state: DownloadState) -> Bool {
+        switch self {
+        case .all: true
+        case .active: state == .queued || state == .running
+        case .paused: state == .paused
+        case .completed: state == .completed
+        case .failed:
+            state == .failed || state == .authenticationRequired || state == .rateLimited || state == .bandwidthLimited
+        }
+    }
+}
+
+private enum DownloadSortOrder: String, CaseIterable, Identifiable {
+    case updated
+    case titleDescending
+    case progress
+    case status
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .updated: "标题 A-Z"
+        case .titleDescending: "标题 Z-A"
+        case .progress: "完成度"
+        case .status: "状态"
         }
     }
 }
@@ -153,6 +309,9 @@ private struct DownloadCard: View {
             .accessibilityHint("使用阅读器打开，优先读取已下载页面")
 
             Menu("下载操作", systemImage: "ellipsis.circle") {
+                NavigationLink(value: AppRoute.gallery(job.key)) {
+                    Label("查看详情", systemImage: "info.circle")
+                }
                 if canToggle {
                     Button(job.state == .running || job.state == .queued ? "暂停" : "继续", systemImage: job.state == .running ? "pause" : "play", action: toggle)
                 }

@@ -8,6 +8,7 @@ struct ReaderPage: View {
     let resolution: ImageResolution
     let resetToken: UUID
     let source: ReaderContentSource
+    let pageScaling: ReaderPageScaling
     let fitsViewport: Bool
     let allowsZoom: Bool
     let parentScrollAxis: Axis
@@ -24,15 +25,18 @@ struct ReaderPage: View {
             if let image {
                 image
                     .resizable()
-                    .aspectRatio(aspectRatio, contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: fitsViewport ? .infinity : nil)
+                    .aspectRatio(aspectRatio, contentMode: pageScaling == .original ? .fill : .fit)
+                    .frame(
+                        maxWidth: pageScaling == .original || pageScaling == .height ? nil : .infinity,
+                        maxHeight: fitsViewport || pageScaling == .height ? .infinity : nil
+                    )
                     .scaleEffect(zoom.scale)
                     .offset(zoom.offset)
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.quaternary)
                     .aspectRatio(aspectRatio ?? 0.72, contentMode: .fit)
-                    .frame(maxHeight: fitsViewport ? .infinity : nil)
+                    .frame(maxHeight: fitsViewport || pageScaling == .height ? .infinity : nil)
                     .overlay {
                         VStack(spacing: 8) {
                             if failed {
@@ -77,7 +81,7 @@ struct ReaderPage: View {
                     .accessibilityHidden(true)
             }
         }
-        .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)") { await loadImage() }
+        .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)-\(pageScaling.rawValue)") { await loadImage() }
         .onChange(of: aspectRatio) {
             updateZoom {
                 $0.contentSizeChanged(

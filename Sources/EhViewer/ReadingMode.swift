@@ -1,6 +1,6 @@
 import Foundation
 
-enum ReadingMode: String, CaseIterable, Identifiable {
+enum ReadingMode: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
     case leftToRight
     case rightToLeft
     case continuous

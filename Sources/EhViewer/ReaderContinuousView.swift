@@ -5,6 +5,7 @@ struct ReaderContinuousView: View {
     let descriptors: [GalleryPageDescriptor]
     let resolution: ImageResolution
     let resetToken: UUID
+    let pageScaling: ReaderPageScaling
     let source: ReaderContentSource
     @Binding var position: ReaderPositionState
     @State private var zoom = ReaderContinuousZoomState()
@@ -19,6 +20,7 @@ struct ReaderContinuousView: View {
                             resolution: resolution,
                             resetToken: resetToken,
                             source: source,
+                            pageScaling: pageScaling,
                             fitsViewport: false,
                             allowsZoom: false,
                             parentScrollAxis: .vertical,

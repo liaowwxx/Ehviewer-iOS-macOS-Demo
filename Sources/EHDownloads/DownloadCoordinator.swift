@@ -118,6 +118,45 @@ public actor DownloadCoordinator {
         startNextQueuedJobIfNeeded()
     }
 
+    public func startAll() async {
+        let keys = jobs.values
+            .filter {
+                switch $0.state {
+                case .paused, .failed, .authenticationRequired, .rateLimited, .bandwidthLimited:
+                    true
+                default:
+                    false
+                }
+            }
+            .map(\.key)
+
+        for key in keys {
+            guard var job = jobs[key] else { continue }
+            job.state = .queued
+            job.errorMessage = nil
+            jobs[key] = job
+            await save(job)
+            emit(.changed(job))
+        }
+        startNextQueuedJobIfNeeded()
+    }
+
+    public func stopAll() async {
+        let keys = Array(jobs.keys)
+        for key in keys {
+            tasks[key]?.cancel()
+            tasks[key] = nil
+            runTokens[key] = nil
+            guard var job = jobs[key] else { continue }
+            guard job.state == .running || job.state == .queued else { continue }
+            job.state = .paused
+            jobs[key] = job
+            await save(job)
+            emit(.changed(job))
+        }
+        activeKey = nil
+    }
+
     public func setLabel(_ label: String?, for key: GalleryKey) async {
         guard var job = jobs[key] else { return }
         let normalized = label?.trimmingCharacters(in: .whitespacesAndNewlines)

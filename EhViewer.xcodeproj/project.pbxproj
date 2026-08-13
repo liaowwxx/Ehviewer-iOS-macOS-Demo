@@ -49,6 +49,10 @@
 		EHB00000000000000000031 /* WebLoginCookieSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000031 /* WebLoginCookieSupport.swift */; };
 		EHB00000000000000000032 /* SiteWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000032 /* SiteWebView.swift */; };
 		EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000033 /* BrowseSearchSuggestions.swift */; };
+		EHB00000000000000000034 /* ReadingSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000034 /* ReadingSettings.swift */; };
+		EHB00000000000000000035 /* MigrationDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000035 /* MigrationDocument.swift */; };
+		EHB00000000000000000036 /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000036 /* MoreView.swift */; };
+		EHB00000000000000000037 /* VolumeButtonMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000037 /* VolumeButtonMonitor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -124,6 +128,10 @@
 		EHF00000000000000000031 /* WebLoginCookieSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebLoginCookieSupport.swift; sourceTree = "<group>"; };
 		EHF00000000000000000032 /* SiteWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteWebView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000033 /* BrowseSearchSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseSearchSuggestions.swift; sourceTree = "<group>"; };
+		EHF00000000000000000034 /* ReadingSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingSettings.swift; sourceTree = "<group>"; };
+		EHF00000000000000000035 /* MigrationDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationDocument.swift; sourceTree = "<group>"; };
+		EHF00000000000000000036 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
+		EHF00000000000000000037 /* VolumeButtonMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeButtonMonitor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -203,6 +211,10 @@
 				EHF00000000000000000031 /* WebLoginCookieSupport.swift */,
 				EHF00000000000000000030 /* WebLoginSheet.swift */,
 				EHF00000000000000000016 /* LocalArchiveView.swift */,
+				EHF00000000000000000034 /* ReadingSettings.swift */,
+				EHF00000000000000000035 /* MigrationDocument.swift */,
+				EHF00000000000000000036 /* MoreView.swift */,
+				EHF00000000000000000037 /* VolumeButtonMonitor.swift */,
 			);
 			path = Sources/EhViewer;
 			sourceTree = "<group>";
@@ -399,6 +411,10 @@
 				EHB00000000000000000031 /* WebLoginCookieSupport.swift in Sources */,
 				EHB00000000000000000030 /* WebLoginSheet.swift in Sources */,
 				EHB00000000000000000021 /* LocalArchiveView.swift in Sources */,
+				EHB00000000000000000034 /* ReadingSettings.swift in Sources */,
+				EHB00000000000000000035 /* MigrationDocument.swift in Sources */,
+				EHB00000000000000000036 /* MoreView.swift in Sources */,
+				EHB00000000000000000037 /* VolumeButtonMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -471,6 +487,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = EhViewer;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Viewer;\n    CFBundleURLSchemes =     (\n        ehviewer\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "允许 EhViewer 将阅读器图片保存到照片";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
@@ -498,6 +515,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = EhViewer;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Viewer;\n    CFBundleURLSchemes =     (\n        ehviewer\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "允许 EhViewer 将阅读器图片保存到照片";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;

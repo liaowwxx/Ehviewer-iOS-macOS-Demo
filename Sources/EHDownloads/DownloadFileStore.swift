@@ -75,6 +75,51 @@ public actor DownloadFileStore {
         }
     }
 
+    @discardableResult
+    public func importFile(at sourceURL: URL, for key: GalleryKey, pageIndex: Int) throws -> URL {
+        guard FileManager.default.fileExists(atPath: sourceURL.path),
+              let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
+              CGImageSourceGetCount(source) > 0 else {
+            throw EHError.parsingFailed("恢复文件不是有效图片")
+        }
+        if let available = try? root.resourceValues(
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+        ).volumeAvailableCapacityForImportantUsage,
+           available < minimumFreeBytes {
+            throw EHError.diskSpaceLow
+        }
+
+        var directory = directory(for: key)
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            var directoryValues = URLResourceValues()
+            directoryValues.isExcludedFromBackup = true
+            try? directory.setResourceValues(directoryValues)
+
+            let finalURL = finalURL(for: key, pageIndex: pageIndex)
+            let partialURL = finalURL.appendingPathExtension("part")
+            if fileManager.fileExists(atPath: partialURL.path) {
+                try fileManager.removeItem(at: partialURL)
+            }
+            do {
+                try fileManager.moveItem(at: sourceURL, to: partialURL)
+            } catch {
+                try fileManager.copyItem(at: sourceURL, to: partialURL)
+                try? fileManager.removeItem(at: sourceURL)
+            }
+            if fileManager.fileExists(atPath: finalURL.path) {
+                try fileManager.removeItem(at: finalURL)
+            }
+            try fileManager.moveItem(at: partialURL, to: finalURL)
+            return finalURL
+        } catch let error as EHError {
+            throw error
+        } catch {
+            throw EHError.storageFailed(error.localizedDescription)
+        }
+    }
+
     public func remove(_ key: GalleryKey) throws {
         let directory = directory(for: key)
         guard FileManager.default.fileExists(atPath: directory.path) else { return }

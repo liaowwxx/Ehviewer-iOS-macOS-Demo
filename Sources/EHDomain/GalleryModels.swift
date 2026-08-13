@@ -478,6 +478,7 @@ public struct GalleryListPage: Hashable, Codable, Sendable {
 
 public enum AppRoute: Hashable, Codable, Sendable {
     case browse
+    case more
     case subscriptions
     case popular
     case toplist

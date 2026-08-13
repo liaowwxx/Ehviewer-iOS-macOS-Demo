@@ -81,4 +81,52 @@ struct PersistenceTests {
         #expect(try await store.tagTranslations(locale: "zh-Hans")["language:english"] == "语言：英语")
         #expect(try await store.tagTranslations(locale: "ja")["language:english"] == "言語：英語")
     }
+
+    @Test("Migration snapshots round-trip library, downloads and preferences")
+    func migrationRoundTrip() async throws {
+        let sourceContainer = try ModelContainerFactory.make(inMemory: true)
+        let source = PersistenceStore(modelContainer: sourceContainer)
+        let key = GalleryKey(gid: 9, token: "migration")
+        let summary = GallerySummary(
+            key: key,
+            title: "迁移样本",
+            thumbnailURL: URL(string: "https://example.invalid/cover.jpg"),
+            pageCount: 2,
+            tags: ["language:chinese"]
+        )
+        let pages = (0..<2).map { index in
+            GalleryPageDescriptor(
+                galleryKey: key,
+                index: index,
+                pageURL: URL(string: "https://example.invalid/page/\(index)")!
+            )
+        }
+
+        try await source.upsert([summary])
+        try await source.updateReadingProgress(for: key, page: 1)
+        try await source.setFavorite(for: key, isFavorite: true)
+        try await source.upsertDownload(
+            key: key,
+            title: summary.title,
+            pages: pages,
+            completedPageIndexes: [0],
+            stateRaw: "paused",
+            errorMessage: "暂停"
+        )
+        try await source.recordQuickSearch("migration")
+        try await source.setFilterRule(pattern: "spoiler", isEnabled: false)
+        try await source.saveTagTranslation(tag: "language:chinese", locale: "zh-Hans", localizedText: "语言：中文")
+
+        let snapshot = try await source.exportSnapshot()
+        let destinationContainer = try ModelContainerFactory.make(inMemory: true)
+        let destination = PersistenceStore(modelContainer: destinationContainer)
+        try await destination.importSnapshot(snapshot)
+
+        #expect(try await destination.readingPage(for: key) == 1)
+        #expect(try await destination.isFavorite(for: key) == true)
+        #expect(try await destination.downloadJobs().first?.completedPageIndexes == [0])
+        #expect(try await destination.quickSearches() == ["migration"])
+        #expect(try await destination.filterRules().first?.isEnabled == false)
+        #expect(try await destination.tagTranslations(locale: "zh-Hans")["language:chinese"] == "语言：中文")
+    }
 }
