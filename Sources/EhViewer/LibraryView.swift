@@ -21,8 +21,8 @@ struct LibraryView: View {
                 ForEach(items) { gallery in
                     NavigationLink(value: AppRoute.gallery(gallery.key)) {
                         VStack(alignment: .leading) {
-                            Text(gallery.title).font(.headline)
-                            Text(gallery.secondaryTitle ?? "未记录进度").font(.caption).foregroundStyle(.secondary)
+                            Text(gallery.preferredTitle).font(.headline)
+                            Text(gallery.alternateTitle ?? "未记录进度").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }

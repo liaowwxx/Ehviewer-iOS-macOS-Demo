@@ -262,11 +262,13 @@ private enum DownloadSortOrder: String, CaseIterable, Identifiable {
 }
 
 private struct DownloadCard: View {
+    @Environment(AppModel.self) private var model
     let job: DownloadJob
     let toggle: () -> Void
     let cancel: () -> Void
     let remove: () -> Void
     let label: () -> Void
+    @State private var preferredTitle: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -274,9 +276,9 @@ private struct DownloadCard: View {
                 ReaderView(downloaded: job, initialPage: 0)
             } label: {
                 HStack(alignment: .top, spacing: 12) {
-                    DownloadCover(job: job)
+                    DownloadCover(job: job, title: displayTitle)
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(job.title)
+                        Text(displayTitle)
                             .font(.headline)
                             .lineLimit(2)
                         if let label = job.label, label.isEmpty == false {
@@ -305,7 +307,7 @@ private struct DownloadCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("打开《\(job.title)》")
+            .accessibilityLabel("打开《\(displayTitle)》")
             .accessibilityHint("使用阅读器打开，优先读取已下载页面")
 
             Menu("下载操作", systemImage: "ellipsis.circle") {
@@ -323,10 +325,17 @@ private struct DownloadCard: View {
             }
             .labelStyle(.iconOnly)
             .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
-            .accessibilityLabel("《\(job.title)》下载操作")
+            .accessibilityLabel("《\(displayTitle)》下载操作")
         }
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .task(id: job.key) {
+            preferredTitle = (try? await model.persistence.gallerySummary(for: job.key))?.preferredTitle
+        }
+    }
+
+    private var displayTitle: String {
+        preferredTitle ?? job.title
     }
 
     private var statusTitle: String {
@@ -351,6 +360,7 @@ private struct DownloadCard: View {
 private struct DownloadCover: View {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
+    let title: String
     @State private var image: Image?
 
     var body: some View {
@@ -368,7 +378,7 @@ private struct DownloadCover: View {
         .frame(width: 72, height: 96)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .accessibilityLabel("《\(job.title)》封面")
+        .accessibilityLabel("《\(title)》封面")
         .task(id: coverTaskID) {
             image = nil
             if let coverPageIndex {

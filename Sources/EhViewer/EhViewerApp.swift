@@ -43,6 +43,7 @@ struct EhViewerApp: App {
             RootView()
                 .environment(model)
                 .modelContainer(modelContainer)
+                .tint(AppTheme.accent)
                 .onOpenURL { url in model.handleIncomingURL(url) }
         }
         #if os(macOS)
@@ -52,9 +53,11 @@ struct EhViewerApp: App {
                 ReaderView(key: key, initialPage: page)
                     .environment(model)
                     .modelContainer(modelContainer)
+                    .tint(AppTheme.accent)
             } else {
                 ContentUnavailableView("没有打开的阅读器", systemImage: "book")
                     .environment(model)
+                    .tint(AppTheme.accent)
             }
         }
         .commands {

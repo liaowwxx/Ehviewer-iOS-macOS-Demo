@@ -185,9 +185,18 @@ public struct SiteRequestBuilder: Sendable {
     }
 
     public func galleryRequest(key: GalleryKey) throws -> URLRequest {
-        guard let url = URL(string: "https://\(site.host)/g/\(key.gid)/\(key.token)/") else {
+        try galleryRequest(key: key, previewPage: 0)
+    }
+
+    public func galleryRequest(key: GalleryKey, previewPage: Int) throws -> URLRequest {
+        guard previewPage >= 0 else { throw EHError.invalidURL }
+        guard var components = URLComponents(string: "https://\(site.host)/g/\(key.gid)/\(key.token)/") else {
             throw EHError.invalidURL
         }
+        if previewPage > 0 {
+            components.queryItems = [URLQueryItem(name: "p", value: String(previewPage))]
+        }
+        guard let url = components.url else { throw EHError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")

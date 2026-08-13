@@ -78,17 +78,7 @@ private struct CompactRootView: View {
             }
             .tabItem { Label("settings_title", systemImage: "gearshape").accessibilityIdentifier("settings-tab") }
             .tag(AppRoute.settings)
-
-            NavigationStack {
-                MoreView()
-                    .navigationDestination(for: AppRoute.self) { route in
-                        DestinationView(route: route)
-                    }
-            }
-            .tabItem { Label("更多", systemImage: "ellipsis.circle") }
-            .tag(AppRoute.more)
         }
-        .tint(.accentColor)
         .onChange(of: selection) { _, route in
             model.selectedRoute = route
         }
@@ -102,7 +92,7 @@ private struct CompactRootView: View {
             case .settings:
                 selection = .settings
             case .more:
-                selection = .more
+                selection = .browse
             default:
                 selection = .browse
             }

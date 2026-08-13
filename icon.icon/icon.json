@@ -1,30 +1,64 @@
 {
-  "fill" : "automatic",
+  "fill" : "system-light",
   "groups" : [
     {
       "layers" : [
         {
-          "image-name" : "ic_launcher_foreground.png",
-          "name" : "ic_launcher_foreground",
-          "position" : {
-            "scale" : 3.4,
-            "translation-in-points" : [
-              -4.610689803001378,
-              -5.573297639824773
-            ]
-          }
-        },
-        {
+          "blend-mode-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "normal"
+            }
+          ],
+          "glass" : true,
           "hidden" : false,
-          "image-name" : "ic_launcher_background.png",
-          "name" : "ic_launcher_background",
+          "image-name" : "eh_icon_dark.png",
+          "name" : "eh_icon_dark",
+          "opacity-specializations" : [
+            {
+              "value" : 0
+            },
+            {
+              "appearance" : "dark",
+              "value" : 0.7
+            }
+          ],
           "position" : {
-            "scale" : 3.3,
+            "scale" : 1,
             "translation-in-points" : [
               0,
               0
             ]
           }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : "none",
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "exec-cb371ed0-2210-48b2-a3f9-851929d9b27d.png",
+          "name" : "exec-cb371ed0-2210-48b2-a3f9-851929d9b27d",
+          "opacity-specializations" : [
+            {
+              "value" : 1
+            },
+            {
+              "appearance" : "dark",
+              "value" : 1
+            }
+          ]
         }
       ],
       "shadow" : {

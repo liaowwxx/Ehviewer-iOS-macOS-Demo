@@ -213,7 +213,80 @@ public struct EHClient: EHAPI, Sendable {
         let request = try builder.galleryRequest(key: key)
         let (data, response) = try await authorized(request)
         try validate(response)
-        return try parser.parseDetail(data: data, key: key, site: site)
+        var detail = try parser.parseDetail(data: data, key: key, site: site)
+        let firstPreviewPage = try parser.parsePreviewPage(data: data, key: key, site: site)
+        let previewPageCount = max(
+            firstPreviewPage.pageCount ?? 1,
+            Self.estimatedPreviewPageCount(
+                totalPageCount: detail.summary.pageCount,
+                firstPreviewPageCount: firstPreviewPage.pages.count
+            )
+        )
+        guard previewPageCount > 1 else { return detail }
+
+        let additionalPages = try await loadAdditionalPreviewPages(
+            key: key,
+            site: site,
+            pageCount: previewPageCount,
+            builder: builder
+        )
+        var pagesByIndex: [Int: GalleryPageDescriptor] = [:]
+        for page in detail.pages + additionalPages {
+            pagesByIndex[page.index] = page
+        }
+        detail.pages = pagesByIndex.values.sorted { $0.index < $1.index }
+        return detail
+    }
+
+    private func loadAdditionalPreviewPages(
+        key: GalleryKey,
+        site: SiteMode,
+        pageCount: Int,
+        builder: SiteRequestBuilder,
+        maximumConcurrent: Int = 4
+    ) async throws -> [GalleryPageDescriptor] {
+        guard pageCount > 1 else { return [] }
+        return try await withThrowingTaskGroup(
+            of: [GalleryPageDescriptor].self,
+            returning: [GalleryPageDescriptor].self
+        ) { group in
+            var nextPage = 1
+            let initialTaskCount = min(maximumConcurrent, pageCount - 1)
+            for _ in 0..<initialTaskCount {
+                let previewPage = nextPage
+                nextPage += 1
+                group.addTask { [self] in
+                    let request = try builder.galleryRequest(key: key, previewPage: previewPage)
+                    let (data, response) = try await authorized(request)
+                    try validate(response)
+                    return try parser.parsePreviewPage(data: data, key: key, site: site).pages
+                }
+            }
+
+            var pages: [GalleryPageDescriptor] = []
+            while let previewPages = try await group.next() {
+                pages.append(contentsOf: previewPages)
+                guard nextPage < pageCount else { continue }
+                let previewPage = nextPage
+                nextPage += 1
+                group.addTask { [self] in
+                    let request = try builder.galleryRequest(key: key, previewPage: previewPage)
+                    let (data, response) = try await authorized(request)
+                    try validate(response)
+                    return try parser.parsePreviewPage(data: data, key: key, site: site).pages
+                }
+            }
+            return pages
+        }
+    }
+
+    private static func estimatedPreviewPageCount(totalPageCount: Int?, firstPreviewPageCount: Int) -> Int {
+        guard let totalPageCount,
+              totalPageCount > 0,
+              firstPreviewPageCount > 0,
+              totalPageCount > firstPreviewPageCount else { return 1 }
+        let previewPageCapacity = max(firstPreviewPageCount, 20)
+        return (totalPageCount + previewPageCapacity - 1) / previewPageCapacity
     }
 
     public func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage {

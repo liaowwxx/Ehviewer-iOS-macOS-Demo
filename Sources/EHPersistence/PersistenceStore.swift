@@ -144,6 +144,14 @@ public actor PersistenceStore {
         return records.filter(\.isFavorite).prefix(limit).map(\.summary)
     }
 
+    public func gallerySummary(for key: GalleryKey) throws -> GallerySummary? {
+        var descriptor = FetchDescriptor<GalleryRecord>(predicate: #Predicate {
+            $0.gid == key.gid && $0.token == key.token
+        })
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first?.summary
+    }
+
     public func upsertDownload(
         key: GalleryKey,
         title: String,

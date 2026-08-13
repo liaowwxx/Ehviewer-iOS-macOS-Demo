@@ -28,7 +28,7 @@ struct SettingsView: View {
                 .onChange(of: model.site) { _, _ in model.persistSettings() }
                 HStack {
                     Label(
-                        model.isGuestMode ? "游客浏览" : "已登录",
+                        model.isGuestMode ? "游客模式" : "已登录",
                         systemImage: model.isGuestMode ? "person" : "person.crop.circle.badge.checkmark"
                     )
                     Spacer()
@@ -38,13 +38,13 @@ struct SettingsView: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("session-status")
                 .accessibilityLabel("会话状态")
-                .accessibilityValue(model.isGuestMode ? "游客浏览" : "已登录")
+                .accessibilityValue(model.isGuestMode ? "游客模式" : "已登录")
             }
             Section("登录") {
-                Button("用户名和密码登录", systemImage: "person.badge.key") { showingPasswordLogin = true }
-                Button("通过网页登录", systemImage: "safari") { showingWebLogin = true }
-                Button("通过 Cookie 登录", systemImage: "key") { showingCookieSheet = true }
-                Button("清除会话 Cookie", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                Button("用户名&密码登录", systemImage: "person.badge.key") { showingPasswordLogin = true }
+                Button("网页登录", systemImage: "safari") { showingWebLogin = true }
+                Button("Cookie登录", systemImage: "key") { showingCookieSheet = true }
+                Button("清除Cookie", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                     Task { await model.clearSession() }
                 }
                 Text("密码仅用于本次登录请求；会话 Cookie 由 Keychain 管理。")
@@ -52,8 +52,8 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("About") {
-                LabeledContent("version:", value: "0.1")
-                Text("基于https://github.com/xiaojieonly/Ehviewer_CN_SXJ构建")
+                LabeledContent("version:", value: "1.0-beta")
+                Text("基于https://github.com/xiaojieonly/Ehviewer_CN_SXJ")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

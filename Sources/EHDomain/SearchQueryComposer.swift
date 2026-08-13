@@ -27,11 +27,17 @@ public enum SearchQueryComposer {
     public static func suggestionFragment(in query: String) -> String {
         let query = normalized(query)
         guard query.isEmpty == false else { return "" }
-        let component = query.range(of: "  ", options: .backwards)
-            .map { String(query[$0.upperBound...]) } ?? query
-        if component.hasSuffix("$\"") { return "" }
-        let value = component.split(separator: ":", maxSplits: 1).last.map(String.init) ?? component
-        return value.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"$")))
+        var trailingComponents: [Substring] = []
+        for component in query.split(whereSeparator: \.isWhitespace).reversed() {
+            if component.contains(":") || component.contains("$") {
+                break
+            }
+            trailingComponents.append(component)
+        }
+        return trailingComponents
+            .reversed()
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     public static func searchSyntax(for tag: String) -> String {

@@ -132,6 +132,9 @@ final class AppModel {
             await self?.loadTagTranslations()
             await self?.restoreDownloads()
         }
+        Task { [tagSuggestionProvider] in
+            await tagSuggestionProvider.preload()
+        }
     }
 
     func load(query: GalleryListQuery? = nil) async {
@@ -198,6 +201,8 @@ final class AppModel {
 
     func updateSearchSuggestions(for query: String) async {
         let normalizedQuery = SearchQueryComposer.normalized(query)
+        searchHistorySuggestions = []
+        tagSearchSuggestions = []
         do {
             if normalizedQuery.isEmpty == false {
                 try await Task.sleep(for: .milliseconds(120))
@@ -622,7 +627,7 @@ final class AppModel {
     func enqueue(_ detail: GalleryDetail) async {
         do {
             let resolvedPages = try await resolvedDownloadPages(detail.pages)
-            await downloads.enqueue(key: detail.summary.key, title: detail.summary.title, pages: resolvedPages)
+            await downloads.enqueue(key: detail.summary.key, title: detail.summary.preferredTitle, pages: resolvedPages)
         } catch is CancellationError {
             return
         } catch {
@@ -757,7 +762,7 @@ final class AppModel {
                     }
                 }
 
-                var job = DownloadJob(key: key, title: detail.summary.title, pages: pages)
+                var job = DownloadJob(key: key, title: detail.summary.preferredTitle, pages: pages)
                 job.completedPageIndexes = imported
                 job.state = state
                 job.errorMessage = itemError
@@ -856,9 +861,24 @@ final class AppModel {
     private func restoreDownloads() async {
         guard let persisted = try? await persistence.downloadJobs() else { return }
         var jobs: [DownloadJob] = []
+        let restoreSite = site
         for item in persisted {
-            var job = DownloadJob(key: item.key, title: item.title, pages: item.pages)
-            let expectedPageIndexes = Set(item.pages.map(\.index))
+            let summary = try? await persistence.gallerySummary(for: item.key)
+            let title = summary?.preferredTitle ?? item.title
+            var pages = item.pages
+            if let expectedPageCount = summary?.pageCount,
+               expectedPageCount > pages.count,
+               item.stateRaw != DownloadState.cancelled.rawValue,
+               let detail = try? await api.detail(for: item.key, site: restoreSite) {
+                let existingIndexes = Set(pages.map(\.index))
+                let missingDescriptors = detail.pages.filter { existingIndexes.contains($0.index) == false }
+                if missingDescriptors.isEmpty == false,
+                   let resolvedPages = try? await resolvedDownloadPages(missingDescriptors, site: restoreSite) {
+                    pages = (pages + resolvedPages).sorted { $0.index < $1.index }
+                }
+            }
+            var job = DownloadJob(key: item.key, title: title, pages: pages)
+            let expectedPageIndexes = Set(pages.map(\.index))
             let readablePageIndexes = await downloadFiles.readablePageIndexes(
                 for: item.key,
                 pageIndexes: Array(expectedPageIndexes)

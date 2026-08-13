@@ -35,7 +35,7 @@ struct BrowseView: View {
             if model.isLoading && model.galleries.isEmpty { ProgressView("加载中…") }
             else if model.galleries.isEmpty { ContentUnavailableView("没有结果", systemImage: "magnifyingglass") }
         }
-        .navigationTitle(title)
+        .navigationTitle(navigationTitle)
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
@@ -45,11 +45,20 @@ struct BrowseView: View {
         }
         .onSubmit(of: .search, submitSearch)
         .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                if hasSearchInput {
+                    Button("清除搜索", systemImage: "xmark.circle") {
+                        clearSearch()
+                    }
+                    .accessibilityIdentifier("clear-search-action")
+                }
+            }
             ToolbarItemGroup(placement: .primaryAction) {
                 if kind == .home || kind == .search || kind == .subscriptions {
                     Button("高级搜索", systemImage: "slider.horizontal.3") { showingAdvancedSearch = true }
                         .accessibilityIdentifier("advanced-search-action")
                 }
+                BrowseMoreMenu()
             }
         }
         .refreshable { await model.load(query: listQuery) }
@@ -74,7 +83,7 @@ struct BrowseView: View {
         }
     }
 
-    private var title: LocalizedStringKey {
+    private var titleKey: LocalizedStringKey {
         switch kind {
         case .home: "browse_title"
         case .subscriptions: "subscriptions_title"
@@ -83,6 +92,22 @@ struct BrowseView: View {
         case .favorites: "favorites_title"
         case .search: "browse_title"
         }
+    }
+
+    private var navigationTitle: Text {
+        guard isSearchResults else { return Text(titleKey) }
+        if model.submittedSearchText.isEmpty {
+            return Text("筛选结果")
+        }
+        return Text("搜索结果：\(model.submittedSearchText)")
+    }
+
+    private var isSearchResults: Bool {
+        model.submittedSearchText.isEmpty == false || submittedAdvancedSearch != nil
+    }
+
+    private var hasSearchInput: Bool {
+        model.searchText.isEmpty == false || isSearchResults
     }
 
     private var listQuery: GalleryListQuery {
@@ -110,11 +135,48 @@ struct BrowseView: View {
         }
     }
 
+    private func clearSearch() {
+        model.searchText = ""
+        model.submittedSearchText = ""
+        submittedAdvancedSearch = nil
+        advancedSearch = nil
+        Task {
+            await model.load(query: GalleryListQuery(site: model.site, kind: kind))
+        }
+    }
+
     private func galleryLink(_ gallery: GallerySummary) -> some View {
         NavigationLink(value: AppRoute.gallery(gallery.key)) {
             GalleryCard(gallery: gallery)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct BrowseMoreMenu: View {
+    var body: some View {
+        Menu("更多", systemImage: "ellipsis.circle") {
+            Section("浏览") {
+                NavigationLink(value: AppRoute.subscriptions) {
+                    Label("subscriptions_title", systemImage: "tag")
+                }
+                NavigationLink(value: AppRoute.popular) {
+                    Label("popular_title", systemImage: "chart.line.uptrend.xyaxis")
+                }
+                NavigationLink(value: AppRoute.toplist) {
+                    Label("toplist_title", systemImage: "list.number")
+                }
+            }
+            Section("个人") {
+                NavigationLink(value: AppRoute.history) {
+                    Label("history_title", systemImage: "clock")
+                }
+                NavigationLink(value: AppRoute.favorites) {
+                    Label("favorites_title", systemImage: "heart")
+                }
+            }
+        }
+        .accessibilityIdentifier("more-menu")
     }
 }
 
@@ -222,22 +284,21 @@ private struct GalleryCard: View {
         .padding(6)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(gallery.title)，\(gallery.pageCount ?? 0) 页")
+        .accessibilityLabel("\(gallery.preferredTitle)，\(gallery.pageCount ?? 0) 页")
     }
 
     private var textContent: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(gallery.title)
+            Text(gallery.preferredTitle)
                 .font(.headline)
                 .lineLimit(2)
-            if let secondaryTitle = gallery.secondaryTitle {
-                Text(secondaryTitle)
+            if let alternateTitle = gallery.alternateTitle {
+                Text(alternateTitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             HStack {
-                if let category = gallery.category { Text(category) }
                 if let pageCount = gallery.pageCount { Text("· \(pageCount) 页") }
                 Spacer()
                 if let rating = gallery.rating { Label(String(format: "%.1f", rating), systemImage: "star.fill") }

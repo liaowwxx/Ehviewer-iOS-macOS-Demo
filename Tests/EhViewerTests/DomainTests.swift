@@ -7,6 +7,9 @@ struct DomainTests {
     @Test("Search composer follows the original tag completion syntax")
     func searchQueryComposer() throws {
         #expect(SearchQueryComposer.suggestionFragment(in: "language:english  blue archive") == "blue archive")
+        #expect(SearchQueryComposer.suggestionFragment(in: "language:english blue archive") == "blue archive")
+        #expect(SearchQueryComposer.suggestionFragment(in: "f:\"big breasts$\" blue") == "blue")
+        #expect(SearchQueryComposer.suggestionFragment(in: "artist:") == "")
         #expect(SearchQueryComposer.searchSyntax(for: "artist:john doe") == "a:\"john doe$\"")
         #expect(
             SearchQueryComposer.completing(tag: "female:big breasts", in: "language:english  big")

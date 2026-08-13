@@ -12,6 +12,7 @@
 		0DA41859302C7798007B166F /* EHPersistence in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000003 /* EHPersistence */; };
 		0DA4185A302C7798007B166F /* EHDownloads in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000004 /* EHDownloads */; };
 		EHB00000000000000000001 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000001 /* AppModel.swift */; };
+		EHB00000000000000000038 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000038 /* AppTheme.swift */; };
 		EHB00000000000000000002 /* BrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000002 /* BrowseView.swift */; };
 		EHB00000000000000000003 /* DownloadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000003 /* DownloadsView.swift */; };
 		EHB00000000000000000004 /* EhViewerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000004 /* EhViewerApp.swift */; };
@@ -88,6 +89,7 @@
 
 /* Begin PBXFileReference section */
 		EHF00000000000000000001 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		EHF00000000000000000038 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		EHF00000000000000000002 /* BrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000003 /* DownloadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000004 /* EhViewerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EhViewerApp.swift; sourceTree = "<group>"; };
@@ -188,6 +190,7 @@
 			children = (
 				EHF00000000000000000025 /* AdvancedSearchView.swift */,
 				EHF00000000000000000001 /* AppModel.swift */,
+				EHF00000000000000000038 /* AppTheme.swift */,
 				EHF00000000000000000002 /* BrowseView.swift */,
 				EHF00000000000000000033 /* BrowseSearchSuggestions.swift */,
 				EHF00000000000000000024 /* BrowsePaginationFooter.swift */,
@@ -388,6 +391,7 @@
 			files = (
 				EHB00000000000000000025 /* AdvancedSearchView.swift in Sources */,
 				EHB00000000000000000001 /* AppModel.swift in Sources */,
+				EHB00000000000000000038 /* AppTheme.swift in Sources */,
 				EHB00000000000000000002 /* BrowseView.swift in Sources */,
 				EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */,
 				EHB00000000000000000024 /* BrowsePaginationFooter.swift in Sources */,

@@ -3,6 +3,16 @@ import EHDomain
 import SwiftSoup
 
 public struct GalleryHTMLParser: Sendable {
+    public struct PreviewPage: Sendable {
+        public let pages: [GalleryPageDescriptor]
+        public let pageCount: Int?
+
+        public init(pages: [GalleryPageDescriptor], pageCount: Int?) {
+            self.pages = pages
+            self.pageCount = pageCount
+        }
+    }
+
     public init() {}
 
     public func parseList(data: Data, query: GalleryListQuery) throws -> GalleryListPage {
@@ -108,19 +118,11 @@ public struct GalleryHTMLParser: Sendable {
                 ratingCount: ratingCount,
                 tags: tags
             )
-            let pageLinks = try document.select("#gdt a[href*=/s/], a.gdtm[href]")
-            let pages = try pageLinks.compactMap { element -> GalleryPageDescriptor? in
-                let href = try element.attr("href")
-                guard let url = URL(string: href, relativeTo: URL(string: "https://\(site.host)/") )?.absoluteURL else { return nil }
-                let index = Self.pageIndex(in: url) ?? 0
-                let previewURL = try element.select("img").first().flatMap { try $0.attr("src") }.flatMap(URL.init(string:))
-                    ?? Self.urlInStyle(try element.select("div").first()?.attr("style") ?? "")
-                return GalleryPageDescriptor(galleryKey: key, index: index, pageURL: url, previewURL: previewURL)
-            }
+            let previewPage = try parsePreviewPage(from: document, key: key, site: site)
             let externalURL = URL(string: "https://\(site.host)/g/\(key.gid)/\(key.token)/")
             return GalleryDetail(
                 summary: summary,
-                pages: pages.sorted { $0.index < $1.index },
+                pages: previewPage.pages,
                 tags: tags,
                 comments: comments,
                 descriptionText: category.map { "站点：\(site.displayName) · \($0)" },
@@ -141,11 +143,41 @@ public struct GalleryHTMLParser: Sendable {
         }
     }
 
+    public func parsePreviewPage(data: Data, key: GalleryKey, site: SiteMode) throws -> PreviewPage {
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw EHError.parsingFailed("页面不是 UTF-8")
+        }
+        do {
+            return try parsePreviewPage(from: SwiftSoup.parse(html), key: key, site: site)
+        } catch let error as EHError {
+            throw error
+        } catch {
+            throw EHError.parsingFailed(error.localizedDescription)
+        }
+    }
+
+    private func parsePreviewPage(from document: Document, key: GalleryKey, site: SiteMode) throws -> PreviewPage {
+        let pageLinks = try document.select("#gdt a[href*=/s/], a.gdtm[href]")
+        let pages = try pageLinks.compactMap { element -> GalleryPageDescriptor? in
+            let href = try element.attr("href")
+            guard let url = URL(string: href, relativeTo: URL(string: "https://\(site.host)/") )?.absoluteURL else { return nil }
+            let index = Self.pageIndex(in: url) ?? 0
+            let previewURL = try element.select("img").first().flatMap { try $0.attr("src") }.flatMap(URL.init(string:))
+                ?? Self.urlInStyle(try element.select("div").first()?.attr("style") ?? "")
+            return GalleryPageDescriptor(galleryKey: key, index: index, pageURL: url, previewURL: previewURL)
+        }
+        return PreviewPage(
+            pages: pages.sorted { $0.index < $1.index },
+            pageCount: try parsePreviewPageCount(from: document)
+        )
+    }
+
     private func parseSummary(from element: Element) throws -> GallerySummary? {
         let link = try element.select("a[href*=/g/]").first() ?? element
         let href = try link.attr("href")
         guard let key = GalleryKey(url: href) else { return nil }
-        let title = try element.select(".glink, .glname, a[href*=/g/]").first()?.text() ?? link.text()
+        let rawTitle = try Self.listTitle(from: element, fallback: link.text())
+        let titlePair = Self.listTitlePair(from: rawTitle)
         let thumbnailImage = try element.select(".glthumb img, img").first()
         let thumbnailURL: URL?
         if let thumbnailImage {
@@ -163,7 +195,8 @@ public struct GalleryHTMLParser: Sendable {
         let favoriteCategory = try parseFavoriteCategory(in: element, key: key)
         return GallerySummary(
             key: key,
-            title: title,
+            title: titlePair.title,
+            secondaryTitle: titlePair.japaneseTitle,
             thumbnailURL: thumbnailURL,
             category: category,
             pageCount: pageCount,
@@ -172,6 +205,50 @@ public struct GalleryHTMLParser: Sendable {
             favoriteCategory: favoriteCategory,
             tags: tags
         )
+    }
+
+    private static func listTitle(from element: Element, fallback: String) throws -> String {
+        if let glink = try element.select(".glink").first() {
+            return try glink.text()
+        }
+        if var glname = try element.select(".glname").first() {
+            while let firstChild = glname.children().first() {
+                glname = firstChild
+            }
+            let title = try glname.text().trimmingCharacters(in: .whitespacesAndNewlines)
+            if title.isEmpty == false {
+                return title
+            }
+        }
+        return fallback
+    }
+
+    private static func listTitlePair(from rawTitle: String) -> (title: String, japaneseTitle: String?) {
+        let parts = rawTitle
+            .split(separator: "|", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard parts.count > 1,
+              let japaneseIndex = parts.firstIndex(where: containsJapaneseScript) else {
+            return (rawTitle, nil)
+        }
+
+        let japaneseTitle = parts[japaneseIndex]
+        let title = parts.enumerated()
+            .filter { $0.offset != japaneseIndex }
+            .map(\.element)
+            .joined(separator: " | ")
+        return (title.isEmpty ? rawTitle : title, japaneseTitle)
+    }
+
+    private static func containsJapaneseScript(_ value: String) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0x3040...0x309F, 0x30A0...0x30FF, 0xFF66...0xFF9D:
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     private func parsePageCount(in element: Element) throws -> Int? {
@@ -221,6 +298,14 @@ public struct GalleryHTMLParser: Sendable {
         let text = try document.select("#gdd, #gdd1, .gtb").text()
         guard let range = text.range(of: #"\d+\s*pages?"#, options: .regularExpression) else { return nil }
         return text[range].split(whereSeparator: { $0.isNumber == false }).first.flatMap { Int($0) }
+    }
+
+    private func parsePreviewPageCount(from document: Document) throws -> Int? {
+        let cells = try document.select(".ptt td").map { try $0.text().trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard cells.count >= 2 else { return nil }
+        let candidate = cells[cells.count - 2].replacingOccurrences(of: ",", with: "")
+        guard let count = Int(candidate), count > 0 else { return nil }
+        return count
     }
 
     private func parseComments(from document: Document) throws -> [GalleryComment] {

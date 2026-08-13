@@ -115,6 +115,23 @@ public struct GallerySummary: Identifiable, Hashable, Codable, Sendable {
     }
 
     public var id: String { key.id }
+
+    /// The original client prefers the Japanese title when one is available.
+    public var preferredTitle: String {
+        if let secondaryTitle = secondaryTitle?.trimmingCharacters(in: .whitespacesAndNewlines), secondaryTitle.isEmpty == false {
+            return secondaryTitle
+        }
+        return title
+    }
+
+    /// The non-preferred title, useful as a quiet subtitle in the UI.
+    public var alternateTitle: String? {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard secondaryTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              trimmedTitle.isEmpty == false,
+              trimmedTitle != preferredTitle else { return nil }
+        return trimmedTitle
+    }
 }
 
 public struct GalleryPageDescriptor: Identifiable, Hashable, Codable, Sendable {

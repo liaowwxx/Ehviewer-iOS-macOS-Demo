@@ -3,13 +3,14 @@ import EHDomain
 
 public actor TagSuggestionProvider {
     public static let originalProjectSourceURL = URL(
-        string: "https://raw.githubusercontent.com/xiaojieonly/EhTagTranslation/main/tag-translations/tag-translations-zh-rCN.json"
+        string: "https://raw.githubusercontent.com/Mapaler/EhViewer/tag-translations/tag-translations/tag-translations-zh-rCN"
     )!
 
     private let sourceURL: URL
     private let cacheURL: URL
     private let session: URLSession
     private var entries: [SearchTagSuggestion]?
+    private var loadingTask: Task<[SearchTagSuggestion], Error>?
 
     public init(
         sourceURL: URL = TagSuggestionProvider.originalProjectSourceURL,
@@ -46,6 +47,12 @@ public actor TagSuggestionProvider {
         return matches
     }
 
+    /// Loads the same tag database used by the original client so the first
+    /// search keystroke does not have to wait for the download to begin.
+    public func preload() async {
+        _ = try? await loadEntries()
+    }
+
     public static func decodeDatabase(_ data: Data) throws -> [SearchTagSuggestion] {
         guard data.count >= 4 else { throw EHError.parsingFailed("标签数据库文件不完整") }
         let declaredLength = data.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
@@ -70,10 +77,33 @@ public actor TagSuggestionProvider {
     private func loadEntries() async throws -> [SearchTagSuggestion] {
         if let entries { return entries }
 
-        let cachedData = try? Data(contentsOf: cacheURL)
-        if let cachedData, isCacheFresh,
-           let decoded = try? Self.decodeDatabase(cachedData) {
+        if let loadingTask {
+            return try await loadingTask.value
+        }
+
+        let task = Task { [sourceURL, cacheURL, session] in
+            try await Self.loadEntries(sourceURL: sourceURL, cacheURL: cacheURL, session: session)
+        }
+        loadingTask = task
+        do {
+            let decoded = try await task.value
             entries = decoded
+            loadingTask = nil
+            return decoded
+        } catch {
+            loadingTask = nil
+            throw error
+        }
+    }
+
+    private static func loadEntries(
+        sourceURL: URL,
+        cacheURL: URL,
+        session: URLSession
+    ) async throws -> [SearchTagSuggestion] {
+        let cachedData = try? Data(contentsOf: cacheURL)
+        if let cachedData, isCacheFresh(at: cacheURL),
+           let decoded = try? Self.decodeDatabase(cachedData) {
             return decoded
         }
 
@@ -82,27 +112,25 @@ public actor TagSuggestionProvider {
             guard let response = response as? HTTPURLResponse,
                   (200..<300).contains(response.statusCode) else { throw EHError.invalidResponse }
             let decoded = try Self.decodeDatabase(data)
-            try persist(data)
-            entries = decoded
+            try persist(data, to: cacheURL)
             return decoded
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             if let cachedData, let decoded = try? Self.decodeDatabase(cachedData) {
-                entries = decoded
                 return decoded
             }
             throw error
         }
     }
 
-    private var isCacheFresh: Bool {
+    private static func isCacheFresh(at cacheURL: URL) -> Bool {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: cacheURL.path),
               let modifiedAt = attributes[.modificationDate] as? Date else { return false }
-        return Date().timeIntervalSince(modifiedAt) < 7 * 24 * 60 * 60
+        return Date.now.timeIntervalSince(modifiedAt) < 7 * 24 * 60 * 60
     }
 
-    private func persist(_ data: Data) throws {
+    private static func persist(_ data: Data, to cacheURL: URL) throws {
         try FileManager.default.createDirectory(
             at: cacheURL.deletingLastPathComponent(),
             withIntermediateDirectories: true

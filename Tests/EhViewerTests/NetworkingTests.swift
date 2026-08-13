@@ -18,6 +18,29 @@ struct NetworkingTests {
         #expect(decoded.last == SearchTagSuggestion(english: "female:sample", localizedText: nil))
     }
 
+    @Test("Tag suggestions use a cached original-project database before networking")
+    func cachedTagSuggestions() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-tags-\(UUID().uuidString)")
+        let cacheURL = root.appendingPathComponent("tag-translations-zh-rCN")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let translation = Data("蓝色档案".utf8).base64EncodedString()
+        let payload = Data("g:blue archive\r\(translation)\nf:sample\rbnVsbA==\n".utf8)
+        var data = withUnsafeBytes(of: UInt32(payload.count).bigEndian) { Data($0) }
+        data.append(payload)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try data.write(to: cacheURL, options: .atomic)
+
+        let provider = TagSuggestionProvider(
+            sourceURL: URL(string: "https://example.invalid/tags")!,
+            cacheURL: cacheURL
+        )
+        let suggestions = try await provider.suggestions(for: "blue archive")
+
+        #expect(suggestions == [SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案")])
+    }
+
     @Test("HTML list parser extracts gallery keys and cursor")
     func listParser() throws {
         let fixtureURL = try #require(Bundle.module.url(forResource: "list", withExtension: "html"))
@@ -26,6 +49,36 @@ struct NetworkingTests {
         #expect(page.items.count == 2)
         #expect(page.items.first?.key == GalleryKey(gid: 100, token: "alpha"))
         #expect(page.cursor?.nextPageURL?.absoluteString == "https://e-hentai.org/?page=1")
+    }
+
+    @Test("Gallery list parser prefers the Japanese title in a paired result title")
+    func listParserPrefersJapaneseTitle() throws {
+        let html = """
+        <html><body><table class="itg"><tr class="gtr0">
+        <td><a href="https://e-hentai.org/g/102/gamma/"><div class="glink">English title | 日本語タイトル</div></a></td>
+        </tr></table></body></html>
+        """
+        let page = try GalleryHTMLParser().parseList(data: Data(html.utf8), query: GalleryListQuery())
+
+        #expect(page.items.first?.title == "English title")
+        #expect(page.items.first?.secondaryTitle == "日本語タイトル")
+        #expect(page.items.first?.preferredTitle == "日本語タイトル")
+        #expect(page.items.first?.alternateTitle == "English title")
+    }
+
+    @Test("Gallery list parser does not include result tags in a fallback title")
+    func listParserSeparatesFallbackTags() throws {
+        let html = """
+        <html><body><table class="itg"><tr class="gtr0">
+        <td class="gl3m glname"><a href="https://e-hentai.org/g/103/delta/">
+        <div>Clean title</div><div><div class="gt" title="language:english">english</div></div>
+        </a></td>
+        </tr></table></body></html>
+        """
+        let page = try GalleryHTMLParser().parseList(data: Data(html.utf8), query: GalleryListQuery())
+
+        #expect(page.items.first?.title == "Clean title")
+        #expect(page.items.first?.tags == ["language:english"])
     }
 
     @Test("Search cursor accepts bottom navigation and JavaScript fallback")
@@ -79,6 +132,24 @@ struct NetworkingTests {
         #expect(detail.tags == ["artist:sample", "language:english"])
         #expect(detail.pages.map(\.index) == [0, 1])
         #expect(detail.pages.first?.previewURL?.absoluteString == "https://ehgt.org/7e/7a/430636/1366222-1.jpg")
+    }
+
+    @Test("Gallery detail follows preview pagination beyond the first 20 pages")
+    func detailLoadsAllPreviewPages() async throws {
+        let key = GalleryKey(gid: 1_366_222, token: "sample-token")
+        let transport = PreviewPaginationTransport(key: key)
+        let client = EHClient(transport: transport)
+
+        let detail = try await client.detail(for: key, site: .eHentai)
+
+        #expect(detail.summary.pageCount == 26)
+        #expect(detail.pages.map(\.index) == Array(0..<26))
+        let previewIndexes = Set(await transport.requestURLs().compactMap { url in
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "p" })?.value
+                .flatMap(Int.init)
+        })
+        #expect(previewIndexes == Set([1]))
     }
 
     @Test("Gallery page parser handles HTML response metadata")
@@ -436,6 +507,54 @@ struct NetworkingTests {
         #expect(quota.used == 4_672)
         #expect(quota.total == 5_000)
         #expect(quota.resetCost == 9_344)
+    }
+}
+
+private actor PreviewPaginationTransport: HTTPTransport {
+    private let key: GalleryKey
+    private var requests: [URLRequest] = []
+
+    init(key: GalleryKey) {
+        self.key = key
+    }
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests.append(request)
+        let previewPage = URLComponents(url: request.url ?? URL(string: "https://e-hentai.org/")!, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "p" })?.value
+            .flatMap(Int.init) ?? 0
+        let data = Self.previewHTML(
+            key: key,
+            startIndex: previewPage == 0 ? 0 : 20,
+            count: previewPage == 0 ? 20 : 6,
+            includeMetadata: previewPage == 0
+        )
+        let response = HTTPURLResponse(
+            url: request.url ?? URL(string: "https://e-hentai.org/")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (Data(data.utf8), response)
+    }
+
+    func requestURLs() -> [URL] {
+        requests.compactMap(\.url)
+    }
+
+    private static func previewHTML(key: GalleryKey, startIndex: Int, count: Int, includeMetadata: Bool) -> String {
+        let links = (0..<count).map { offset in
+            let pageNumber = startIndex + offset + 1
+            return "<a href=\"https://e-hentai.org/s/page-token/\(key.gid)-\(pageNumber)\"><img src=\"https://ehgt.org/sample-\(pageNumber).jpg\"></a>"
+        }.joined()
+        let metadata = includeMetadata
+            ? "<h1 id=\"gn\">Sample</h1><div id=\"gdd\"><dd>26 pages</dd></div>"
+            : ""
+        let pagination = includeMetadata
+            ? "<table class=\"ptt\"><tr><td>1</td><td>2</td><td>&gt;</td></tr></table>"
+            : ""
+        return "<html><body>\(metadata)\(pagination)<div id=\"gdt\">\(links)</div></body></html>"
     }
 }
 
