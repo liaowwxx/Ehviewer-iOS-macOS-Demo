@@ -35,6 +35,7 @@ final class AppModel {
     var isLoading = false
     var searchText = ""
     var submittedSearchText = ""
+    var pendingSearchQuery: String?
     var isGuestMode = true
     var isPasswordLoginInProgress = false
     var errorMessage: String?
@@ -200,8 +201,7 @@ final class AppModel {
         let normalizedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedTag.isEmpty == false else { return }
         let searchSyntax = SearchQueryComposer.searchSyntax(for: normalizedTag)
-        searchText = searchSyntax
-        submittedSearchText = searchSyntax
+        pendingSearchQuery = searchSyntax
         selectedRoute = .browse
     }
 
@@ -391,7 +391,9 @@ final class AppModel {
 
     func toggleFavorite(for key: GalleryKey, remoteDetail: GalleryDetail?) async {
         do {
-            if let summary = galleries.first(where: { $0.key == key }) {
+            if let remoteDetail {
+                try await persistence.upsert([remoteDetail.summary])
+            } else if let summary = galleries.first(where: { $0.key == key }) {
                 try await persistence.upsert([summary])
             }
             let current = try await persistence.isFavorite(for: key) ?? false

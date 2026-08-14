@@ -132,19 +132,100 @@ struct AppModelTests {
         await oldLoad.value
 
         model.searchTag("artist:test")
+        let tagQueryText = model.pendingSearchQuery
         let tagQuery = GalleryListQuery(
             site: model.site,
             kind: .home,
-            searchText: model.submittedSearchText
+            searchText: tagQueryText
         )
         let newSummary = GallerySummary(key: GalleryKey(gid: 2, token: "tag"), title: "Tag result")
-        let tagLoad = Task { await model.loadBrowseQuery(tagQuery) }
-        await api.waitUntilRequested(model.submittedSearchText)
-        #expect(await api.respond(to: model.submittedSearchText, with: GalleryListPage(items: [newSummary])))
+        let tagLoad = Task { await model.load(query: tagQuery) }
+        await api.waitUntilRequested(tagQueryText ?? "")
+        #expect(await api.respond(to: tagQueryText ?? "", with: GalleryListPage(items: [newSummary])))
         await tagLoad.value
 
         #expect(model.galleries == [newSummary])
-        #expect(model.submittedSearchText.isEmpty == false)
+        #expect(model.pendingSearchQuery == SearchQueryComposer.searchSyntax(for: "artist:test"))
+    }
+
+    @Test("Browse page models keep secondary lists independent from the home list")
+    func browsePageModelsAreIndependent() async throws {
+        let suiteName = "EhViewerIndependentBrowseTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: KindListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        let home = BrowsePageModel(model: model, kind: .home)
+        let popular = BrowsePageModel(model: model, kind: .popular)
+
+        await home.load(query: home.listQuery)
+        await popular.load(query: popular.listQuery)
+
+        #expect(home.galleries.map(\.title) == ["Home result"])
+        #expect(popular.galleries.map(\.title) == ["Popular result"])
+    }
+
+    @Test("Browse search restores cached tag suggestions")
+    func browseSearchShowsTagSuggestions() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-browse-tags-\(UUID().uuidString)")
+        let cacheURL = root.appendingPathComponent("tag-translations-zh-rCN")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let translation = Data("蓝色档案".utf8).base64EncodedString()
+        let payload = Data("g:blue archive\r\(translation)\nf:sample\rbnVsbA==\n".utf8)
+        var data = withUnsafeBytes(of: UInt32(payload.count).bigEndian) { Data($0) }
+        data.append(payload)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try data.write(to: cacheURL, options: .atomic)
+
+        let provider = TagSuggestionProvider(
+            sourceURL: URL(string: "https://example.invalid/tags")!,
+            cacheURL: cacheURL
+        )
+        let suiteName = "EhViewerBrowseTagSuggestionTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            tagSuggestionProvider: provider
+        )
+        let pageModel = BrowsePageModel(model: model, kind: .home)
+        pageModel.searchText = "blue archive"
+
+        await pageModel.updateTagSuggestions()
+
+        #expect(pageModel.tagSearchSuggestions == [
+            SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案")
+        ])
+    }
+
+    @Test("Selecting a tag only updates the pending search text")
+    func selectingTagDoesNotSubmitSearch() async throws {
+        let suiteName = "EhViewerPendingTagSearchTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        let pageModel = BrowsePageModel(model: model, kind: .search)
+        pageModel.searchText = "l:\"chinese$\" furry"
+        pageModel.submittedSearchText = "l:\"chinese$\" furry"
+
+        pageModel.completeTagSuggestion("female:furry")
+
+        #expect(pageModel.searchText == "l:\"chinese$\" f:\"furry$\"")
+        #expect(pageModel.submittedSearchText == "l:\"chinese$\" furry")
     }
 
     @Test("An incoming gallery link selects the gallery route")
@@ -347,6 +428,25 @@ private actor ControlledListAPI: EHAPI {
         guard let continuation = responseContinuations.removeValue(forKey: searchText) else { return false }
         continuation.resume(returning: page)
         return true
+    }
+}
+
+private actor KindListAPI: EHAPI {
+    func list(query: GalleryListQuery) async throws -> GalleryListPage {
+        let title = switch query.kind {
+        case .popular: "Popular result"
+        default: "Home result"
+        }
+        return GalleryListPage(
+            items: [GallerySummary(
+                key: GalleryKey(gid: query.kind == .popular ? 2 : 1, token: query.kind.rawValue),
+                title: title
+            )]
+        )
+    }
+
+    func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
+        throw EHError.notFound
     }
 }
 

@@ -91,8 +91,8 @@ struct DownloadsView: View {
         .navigationTitle("downloads_title")
         .searchable(text: $searchText, prompt: "搜索下载标题或标签")
         .toolbar {
-            ToolbarItem(placement: .secondaryAction) {
-                Menu("下载管理", systemImage: "slider.horizontal.3") {
+            ToolbarItem(placement: .primaryAction) {
+                Menu("下载管理", systemImage: "ellipsis.circle") {
                     Button("开始全部", systemImage: "play.fill") {
                         Task { await model.downloads.startAll(); jobs = await model.downloads.snapshot() }
                     }
@@ -111,6 +111,10 @@ struct DownloadsView: View {
                         }
                     }
                     Divider()
+                    Button("打开本地归档", systemImage: "archivebox") {
+                        showingArchiveImporter = true
+                    }
+                    .accessibilityIdentifier("open-local-archive")
                     Button("恢复下载项", systemImage: "arrow.counterclockwise.circle") {
                         showingDownloadRestoreImporter = true
                     }
@@ -120,12 +124,7 @@ struct DownloadsView: View {
                         showingResetProgressConfirmation = true
                     }
                 }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button("打开本地归档", systemImage: "archivebox") {
-                    showingArchiveImporter = true
-                }
-                .accessibilityIdentifier("open-local-archive")
+                .accessibilityIdentifier("download-management-menu")
             }
         }
         .confirmationDialog("重置所有下载内容的阅读进度？", isPresented: $showingResetProgressConfirmation, titleVisibility: .visible) {

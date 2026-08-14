@@ -52,9 +52,15 @@ public enum SearchQueryComposer {
     public static func completing(tag: String, in query: String) -> String {
         let syntax = searchSyntax(for: tag)
         let query = normalized(query)
-        guard let separator = query.range(of: "  ", options: .backwards) else { return syntax }
-        let prefix = query[..<separator.lowerBound].trimmingCharacters(in: .whitespaces)
-        return prefix.isEmpty ? syntax : "\(prefix)  \(syntax)"
+        guard query.isEmpty == false else { return syntax }
+
+        let fragment = suggestionFragment(in: query)
+        guard fragment.isEmpty == false,
+              let fragmentRange = query.range(of: fragment, options: .backwards) else {
+            return "\(query) \(syntax)"
+        }
+        let prefix = query[..<fragmentRange.lowerBound].trimmingCharacters(in: .whitespaces)
+        return prefix.isEmpty ? syntax : "\(prefix) \(syntax)"
     }
 
     public static func galleryKey(in query: String) -> GalleryKey? {

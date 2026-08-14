@@ -4,25 +4,40 @@ import ImageIO
 import EHDomain
 
 struct BrowseView: View {
-    @Environment(AppModel.self) private var model
+    let model: AppModel
     var kind: GalleryListQuery.ListKind = .home
-    @State private var showingAdvancedSearch = false
-    @State private var advancedSearch: GalleryAdvancedSearch?
-    @State private var submittedAdvancedSearch: GalleryAdvancedSearch?
-    @State private var searchGalleryKey: GalleryKey?
+    let onOpenSearchResults: ((String) -> Void)?
+    @State private var pageModel: BrowsePageModel
+    @State private var suppressNextSearchSubmission = false
+
+    init(
+        model: AppModel,
+        kind: GalleryListQuery.ListKind = .home,
+        initialSearchText: String? = nil,
+        onOpenSearchResults: ((String) -> Void)? = nil
+    ) {
+        self.model = model
+        self.kind = kind
+        self.onOpenSearchResults = onOpenSearchResults
+        _pageModel = State(initialValue: BrowsePageModel(
+            model: model,
+            kind: kind,
+            initialSearchText: initialSearchText
+        ))
+    }
 
     var body: some View {
-        @Bindable var model = model
+        @Bindable var pageModel = pageModel
 
         ScrollView {
             LazyVStack(spacing: 4) {
-                ForEach(model.galleries) { gallery in
+                ForEach(pageModel.galleries) { gallery in
                     galleryLink(gallery)
-                        .task(id: model.nextPageURL) {
-                            await model.loadMoreIfNeeded(after: gallery.key)
+                        .task(id: pageModel.nextPageURL) {
+                            await pageModel.loadMoreIfNeeded(after: gallery.key)
                         }
                 }
-                if model.hasMorePage {
+                if pageModel.nextPageURL != nil {
                     BrowsePaginationFooter()
                 }
             }
@@ -30,21 +45,28 @@ struct BrowseView: View {
             .padding(.vertical, 4)
         }
         .overlay {
-            if model.isLoading && model.galleries.isEmpty { ProgressView("加载中…") }
-            else if model.galleries.isEmpty { ContentUnavailableView("没有结果", systemImage: "magnifyingglass") }
+            if pageModel.isLoading && pageModel.galleries.isEmpty { ProgressView("加载中…") }
+            else if pageModel.galleries.isEmpty { ContentUnavailableView("没有结果", systemImage: "magnifyingglass") }
         }
         .navigationTitle(navigationTitle)
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
-        .searchable(text: $model.searchText, placement: .toolbar, prompt: "搜索画廊或标签")
+        .searchable(text: $pageModel.searchText, placement: .toolbar, prompt: "搜索画廊或标签")
         .searchSuggestions {
-            BrowseSearchSuggestions(searchGalleryKey: $searchGalleryKey)
+            BrowseSearchSuggestions(pageModel: pageModel) { tag in
+                suppressNextSearchSubmission = true
+                pageModel.completeTagSuggestion(tag)
+                Task { @MainActor in
+                    await Task.yield()
+                    suppressNextSearchSubmission = false
+                }
+            }
         }
         .onSubmit(of: .search, submitSearch)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                if hasSearchInput {
+                if kind != .search, hasSearchInput {
                     Button("清除搜索", systemImage: "xmark.circle") {
                         clearSearch()
                     }
@@ -52,38 +74,20 @@ struct BrowseView: View {
                 }
             }
             ToolbarItemGroup(placement: .primaryAction) {
-                if kind == .home || kind == .search || kind == .subscriptions {
-                    Button("高级搜索", systemImage: "slider.horizontal.3") { showingAdvancedSearch = true }
-                        .accessibilityIdentifier("advanced-search-action")
+                if kind == .home {
+                    BrowseMoreMenu()
                 }
-                BrowseMoreMenu()
             }
         }
-        .refreshable { await model.load(query: listQuery) }
-        .sheet(isPresented: $showingAdvancedSearch) {
-            AdvancedSearchView(
-                initialValue: advancedSearch,
-                apply: {
-                    advancedSearch = $0
-                    submittedAdvancedSearch = $0
-                },
-                clear: {
-                    advancedSearch = nil
-                    submittedAdvancedSearch = nil
-                }
-            )
+        .refreshable { await pageModel.load(query: pageModel.listQuery) }
+        .task(id: pageModel.listQuery) {
+            await pageModel.load(query: pageModel.listQuery)
         }
-        .task {
-            await model.loadQuickSearches()
+        .task(id: pageModel.searchText) {
+            await pageModel.updateTagSuggestions()
         }
-        .task(id: model.searchText) {
-            await model.updateSearchSuggestions(for: model.searchText)
-        }
-        .task(id: listQuery) {
-            await model.loadBrowseQuery(listQuery)
-        }
-        .navigationDestination(item: $searchGalleryKey) { key in
-            GalleryDetailView(key: key)
+        .onChange(of: pageModel.errorMessage) { _, message in
+            if let message { model.errorMessage = message }
         }
     }
 
@@ -99,44 +103,33 @@ struct BrowseView: View {
     }
 
     private var navigationTitle: Text {
-        guard isSearchResults else { return Text(titleKey) }
-        if model.submittedSearchText.isEmpty {
-            return Text("筛选结果")
-        }
-        return Text("搜索结果：\(model.submittedSearchText)")
-    }
-
-    private var isSearchResults: Bool {
-        model.submittedSearchText.isEmpty == false || submittedAdvancedSearch != nil
+        kind == .search ? Text("搜索结果") : Text(titleKey)
     }
 
     private var hasSearchInput: Bool {
-        model.searchText.isEmpty == false || isSearchResults
-    }
-
-    private var listQuery: GalleryListQuery {
-        GalleryListQuery(
-            site: model.site,
-            kind: kind,
-            searchText: model.submittedSearchText.isEmpty ? nil : model.submittedSearchText,
-            advancedSearch: submittedAdvancedSearch
-        )
+        pageModel.searchText.isEmpty == false
     }
 
     private func submitSearch() {
-        if let key = SearchQueryComposer.galleryKey(in: model.searchText) {
-            searchGalleryKey = key
+        guard suppressNextSearchSubmission == false else {
+            suppressNextSearchSubmission = false
+            return
+        }
+        let query = SearchQueryComposer.normalized(pageModel.searchText)
+        guard query.isEmpty == false else {
+            pageModel.clearSearch()
+            return
+        }
+        if kind == .home, let onOpenSearchResults {
+            onOpenSearchResults(query)
+            pageModel.clearSearch()
         } else {
-            submittedAdvancedSearch = advancedSearch
-            model.submitSearch()
+            pageModel.submitSearch()
         }
     }
 
     private func clearSearch() {
-        model.searchText = ""
-        model.submittedSearchText = ""
-        submittedAdvancedSearch = nil
-        advancedSearch = nil
+        pageModel.clearSearch()
     }
 
     private func galleryLink(_ gallery: GallerySummary) -> some View {
@@ -159,14 +152,6 @@ private struct BrowseMoreMenu: View {
                 }
                 NavigationLink(value: AppRoute.toplist) {
                     Label("toplist_title", systemImage: "list.number")
-                }
-            }
-            Section("个人") {
-                NavigationLink(value: AppRoute.history) {
-                    Label("history_title", systemImage: "clock")
-                }
-                NavigationLink(value: AppRoute.favorites) {
-                    Label("favorites_title", systemImage: "heart")
                 }
             }
         }

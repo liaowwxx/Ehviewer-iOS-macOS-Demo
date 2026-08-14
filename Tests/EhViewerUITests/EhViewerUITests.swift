@@ -41,25 +41,18 @@ final class EhViewerUITests: XCTestCase {
         XCTAssertEqual(sessionStatus.value as? String, "游客模式")
     }
 
-    func testAdvancedSearchCanBeConfiguredAndApplied() throws {
+    func testSearchOpensIndependentResultsPage() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestUseGuestMode", "YES"]
         app.launch()
 
-        let advancedSearch = app.buttons["advanced-search-action"]
-        XCTAssertTrue(advancedSearch.waitForExistence(timeout: 5))
-        advancedSearch.tap()
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        searchField.tap()
+        searchField.typeText("blue archive")
+        searchField.typeText("\n")
 
-        let form = app.descendants(matching: .any)["advanced-search-form"]
-        XCTAssertTrue(form.waitForExistence(timeout: 5))
-        let category = app.buttons["advanced-search-category-doujinshi"]
-        XCTAssertTrue(category.waitForExistence(timeout: 5))
-        category.tap()
-
-        let apply = app.buttons["apply-advanced-search"]
-        XCTAssertTrue(apply.isEnabled)
-        apply.tap()
-        XCTAssertFalse(form.exists)
+        XCTAssertTrue(app.navigationBars["搜索结果"].waitForExistence(timeout: 5))
     }
 
     func testGalleryDeepLinkPushesDetailOnIPhone() throws {

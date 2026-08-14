@@ -13,7 +13,11 @@ struct DomainTests {
         #expect(SearchQueryComposer.searchSyntax(for: "artist:john doe") == "a:\"john doe$\"")
         #expect(
             SearchQueryComposer.completing(tag: "female:big breasts", in: "language:english  big")
-                == "language:english  f:\"big breasts$\""
+                == "language:english f:\"big breasts$\""
+        )
+        #expect(
+            SearchQueryComposer.completing(tag: "female:furry", in: "l:\"chinese$\" furry")
+                == "l:\"chinese$\" f:\"furry$\""
         )
         #expect(
             SearchQueryComposer.galleryKey(in: "https://e-hentai.org/g/12345/token/")

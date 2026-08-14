@@ -53,6 +53,8 @@
 		EHB00000000000000000037 /* VolumeButtonMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000037 /* VolumeButtonMonitor.swift */; };
 		EHB00000000000000000039 /* PhotoLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000039 /* PhotoLibrarySaver.swift */; };
 		EHB0000000000000000003A /* ReaderSettingsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003A /* ReaderSettingsMenu.swift */; };
+		EHB0000000000000000003B /* BrowsePageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003B /* BrowsePageModel.swift */; };
+		EHB0000000000000000003C /* HomeBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003C /* HomeBrowseView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -132,6 +134,8 @@
 		EHF00000000000000000037 /* VolumeButtonMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeButtonMonitor.swift; sourceTree = "<group>"; };
 		EHF00000000000000000039 /* PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrarySaver.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003A /* ReaderSettingsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsMenu.swift; sourceTree = "<group>"; };
+		EHF0000000000000000003B /* BrowsePageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsePageModel.swift; sourceTree = "<group>"; };
+		EHF0000000000000000003C /* HomeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBrowseView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -191,6 +195,8 @@
 				EHF00000000000000000038 /* AppTheme.swift */,
 				EHF00000000000000000002 /* BrowseView.swift */,
 				EHF00000000000000000033 /* BrowseSearchSuggestions.swift */,
+				EHF0000000000000000003B /* BrowsePageModel.swift */,
+				EHF0000000000000000003C /* HomeBrowseView.swift */,
 				EHF00000000000000000024 /* BrowsePaginationFooter.swift */,
 				EHF0000000000000000002F /* CookieLoginSheet.swift */,
 				EHF00000000000000000003 /* DownloadsView.swift */,
@@ -414,6 +420,8 @@
 				EHB00000000000000000035 /* MigrationDocument.swift in Sources */,
 				EHB00000000000000000039 /* PhotoLibrarySaver.swift in Sources */,
 				EHB0000000000000000003A /* ReaderSettingsMenu.swift in Sources */,
+				EHB0000000000000000003B /* BrowsePageModel.swift in Sources */,
+				EHB0000000000000000003C /* HomeBrowseView.swift in Sources */,
 				EHB00000000000000000037 /* VolumeButtonMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

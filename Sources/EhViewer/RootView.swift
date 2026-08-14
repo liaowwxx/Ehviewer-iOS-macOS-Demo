@@ -41,9 +41,9 @@ private struct RootNavigationStack<Content: View>: View {
     @Binding var path: [AppRoute]
     let content: Content
 
-    init(path: Binding<[AppRoute]>, @ViewBuilder content: () -> Content) {
+    init(path: Binding<[AppRoute]>, @ViewBuilder content: (Binding<[AppRoute]>) -> Content) {
         _path = path
-        self.content = content()
+        self.content = content(path)
     }
 
     var body: some View {
@@ -66,25 +66,25 @@ private struct CompactRootView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            RootNavigationStack(path: $browsePath) {
-                BrowseView()
+            RootNavigationStack(path: $browsePath) { path in
+                HomeBrowseView(model: model, navigationPath: path)
             }
             .tabItem { Label("browse_title", systemImage: "list.bullet.rectangle") }
             .tag(AppRoute.browse)
 
-            RootNavigationStack(path: $downloadsPath) {
+            RootNavigationStack(path: $downloadsPath) { _ in
                 DownloadsView()
             }
             .tabItem { Label("downloads_title", systemImage: "arrow.down.circle") }
             .tag(AppRoute.downloads)
 
-            RootNavigationStack(path: $historyPath) {
+            RootNavigationStack(path: $historyPath) { _ in
                 LibraryView()
             }
             .tabItem { Label("history_title", systemImage: "clock") }
             .tag(AppRoute.history)
 
-            RootNavigationStack(path: $settingsPath) {
+            RootNavigationStack(path: $settingsPath) { _ in
                 SettingsView()
             }
             .tabItem { Label("settings_title", systemImage: "gearshape").accessibilityIdentifier("settings-tab") }
@@ -120,6 +120,7 @@ private struct CompactRootView: View {
 private struct SplitRootView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: AppRoute? = .browse
+    @State private var detailPath: [AppRoute] = []
 
     var body: some View {
         NavigationSplitView {
@@ -142,14 +143,14 @@ private struct SplitRootView: View {
             }
             .navigationTitle("EhViewer")
         } detail: {
-            NavigationStack {
-                DestinationView(route: selection ?? .browse)
-                    .navigationDestination(for: AppRoute.self) { route in
-                        DestinationView(route: route)
-                    }
+            RootNavigationStack(path: $detailPath) { path in
+                DestinationView(route: selection ?? .browse, navigationPath: path)
             }
         }
-        .onChange(of: selection) { _, route in model.selectedRoute = route }
+        .onChange(of: selection) { _, route in
+            model.selectedRoute = route
+            detailPath.removeAll()
+        }
         .onChange(of: model.selectedRoute) { _, route in
             if let route { selection = route }
         }
@@ -157,18 +158,27 @@ private struct SplitRootView: View {
 }
 
 struct DestinationView: View {
+    @Environment(AppModel.self) private var model
     let route: AppRoute
+    let navigationPath: Binding<[AppRoute]>?
+
+    init(route: AppRoute, navigationPath: Binding<[AppRoute]>? = nil) {
+        self.route = route
+        self.navigationPath = navigationPath
+    }
 
     var body: some View {
         switch route {
         case .browse:
-            BrowseView(kind: .home)
+            HomeBrowseView(model: model, navigationPath: navigationPath ?? .constant([]))
+        case .search(let query):
+            BrowseView(model: model, kind: .search, initialSearchText: query)
         case .subscriptions:
-            BrowseView(kind: .subscriptions)
+            BrowseView(model: model, kind: .subscriptions)
         case .popular:
-            BrowseView(kind: .popular)
+            BrowseView(model: model, kind: .popular)
         case .toplist:
-            BrowseView(kind: .toplist)
+            BrowseView(model: model, kind: .toplist)
         case .downloads:
             DownloadsView()
         case .history:
