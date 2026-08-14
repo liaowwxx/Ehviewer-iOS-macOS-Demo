@@ -148,6 +148,12 @@ public struct GalleryPageDescriptor: Identifiable, Hashable, Codable, Sendable {
     }
 
     public var id: String { "\(galleryKey.id)-\(index)" }
+
+    /// The site page URL uses `/s/{page-token}/...`; it must be resolved to an
+    /// image URL before a download can be started.
+    public var requiresPageResolution: Bool {
+        pageURL.path.hasPrefix("/s/")
+    }
 }
 
 public struct GalleryPageImage: Identifiable, Hashable, Codable, Sendable {

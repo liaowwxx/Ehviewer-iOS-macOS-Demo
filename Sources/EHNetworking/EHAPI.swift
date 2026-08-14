@@ -7,6 +7,7 @@ public protocol EHAPI: Sendable {
     func list(query: GalleryListQuery) async throws -> GalleryListPage
     func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage
     func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail
+    func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary]
     func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage
     func imageData(for image: GalleryPageImage, resolution: ImageResolution) async throws -> Data
     func favorites(query: GalleryListQuery) async throws -> GalleryListPage
@@ -32,6 +33,15 @@ public extension EHAPI {
 
     func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage {
         throw EHError.parsingFailed("当前 API 未实现页面解析")
+    }
+
+    func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary] {
+        var summaries: [GallerySummary] = []
+        for key in keys {
+            try Task.checkCancellation()
+            summaries.append(try await detail(for: key, site: site).summary)
+        }
+        return summaries
     }
 
     func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage {
@@ -236,6 +246,40 @@ public struct EHClient: EHAPI, Sendable {
         }
         detail.pages = pagesByIndex.values.sorted { $0.index < $1.index }
         return detail
+    }
+
+    public func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary] {
+        guard keys.isEmpty == false else { return [] }
+
+        let requestSize = 25
+        var summaries: [GallerySummary] = []
+        for start in stride(from: 0, to: keys.count, by: requestSize) {
+            try Task.checkCancellation()
+            let end = min(start + requestSize, keys.count)
+            let batch = Array(keys[start..<end])
+            let url = try makeURL(site: site, path: "/api.php", query: [])
+            let gidList: [[Any]] = batch.map { key in
+                [NSNumber(value: key.gid), key.token]
+            }
+            let payload: [String: Any] = [
+                "method": "gdata",
+                "gidlist": gidList,
+                "namespace": 1
+            ]
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("https://\(site.host)/", forHTTPHeaderField: "Referer")
+            request.setValue("https://\(site.host)", forHTTPHeaderField: "Origin")
+            request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
+
+            let (data, response) = try await authorized(request)
+            try validate(response)
+            summaries.append(contentsOf: try GalleryAPIParser().parse(data: data, site: site))
+        }
+        return summaries
     }
 
     private func loadAdditionalPreviewPages(

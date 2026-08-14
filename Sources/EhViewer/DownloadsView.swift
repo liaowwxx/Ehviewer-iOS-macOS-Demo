@@ -50,7 +50,11 @@ struct DownloadsView: View {
     var body: some View {
         Group {
             if jobs.isEmpty {
-                ContentUnavailableView("暂无下载", systemImage: "arrow.down.circle", description: Text("从画廊详情页加入下载队列"))
+                if model.isLoadingDownloads {
+                    ProgressView("正在加载下载内容…")
+                } else {
+                    ContentUnavailableView("暂无下载", systemImage: "arrow.down.circle", description: Text("从画廊详情页加入下载队列"))
+                }
             } else if visibleJobs.isEmpty {
                 ContentUnavailableView("没有匹配的下载", systemImage: "line.3.horizontal.decrease.circle", description: Text("调整搜索或筛选条件"))
             } else {
@@ -155,7 +159,7 @@ struct DownloadsView: View {
                     .environment(model)
             }
         }
-        .task { jobs = await model.downloads.snapshot() }
+        .task(id: model.isLoadingDownloads) { jobs = await model.downloads.snapshot() }
         .task {
             for await _ in await model.downloads.events() {
                 jobs = await model.downloads.snapshot()

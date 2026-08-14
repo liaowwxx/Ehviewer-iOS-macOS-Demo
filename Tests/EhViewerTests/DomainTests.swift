@@ -28,6 +28,24 @@ struct DomainTests {
         #expect(request.url?.absoluteString == "https://e-hentai.org/g/123/abc/")
     }
 
+    @Test("Stored site page URLs defer page resolution until download")
+    func deferredPageResolution() {
+        let key = GalleryKey(gid: 123, token: "abc")
+        let sitePage = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://e-hentai.org/s/page-token/123-1")!
+        )
+        let imagePage = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://ehgt.org/sample.jpg")!
+        )
+
+        #expect(sitePage.requiresPageResolution)
+        #expect(imagePage.requiresPageResolution == false)
+    }
+
     @Test("Search query keeps search and page parameters")
     func searchURL() throws {
         let request = try SiteRequestBuilder(site: .exHentai).galleryListRequest(

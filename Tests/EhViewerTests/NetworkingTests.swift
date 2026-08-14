@@ -207,6 +207,44 @@ struct NetworkingTests {
         #expect(request.url?.host == "exhentai.org")
     }
 
+    @Test("Gallery summaries use batched gdata requests without loading detail pages")
+    func gallerySummaries() async throws {
+        let payload = #"""
+        {
+            "gmetadata": [{
+                "gid": 100,
+                "token": "alpha",
+                "title": "English title",
+                "title_jpn": "日本語タイトル",
+                "thumb": "/t/sample.jpg",
+                "category": "Manga",
+                "filecount": "12",
+                "posted": "2020-01-02 03:04",
+                "rating": "4.5",
+                "tags": ["artist:sample"]
+            }]
+        }
+        """#
+        let recording = RecordingTransport(data: Data(payload.utf8))
+        let client = EHClient(transport: recording)
+        let keys = (0..<26).map { GalleryKey(gid: Int64(100 + $0), token: "token-\($0)") }
+
+        let summaries = try await client.gallerySummaries(for: keys, site: .eHentai)
+
+        #expect(summaries.count == 2)
+        #expect(summaries.first?.preferredTitle == "日本語タイトル")
+        #expect(summaries.first?.pageCount == 12)
+        #expect(summaries.first?.thumbnailURL?.absoluteString == "https://e-hentai.org/t/sample.jpg")
+
+        let requests = await recording.requestsSnapshot()
+        #expect(requests.count == 2)
+        #expect(requests.allSatisfy { $0.httpMethod == "POST" && $0.url?.path == "/api.php" })
+        let firstBody = try #require(requests.first?.httpBody)
+        let firstJSON = try #require(JSONSerialization.jsonObject(with: firstBody) as? [String: Any])
+        #expect(firstJSON["method"] as? String == "gdata")
+        #expect((firstJSON["gidlist"] as? [[Any]])?.count == 25)
+    }
+
     @Test("HTTP client maps authentication status into a domain error")
     func clientStatusMapping() async throws {
         let response = try #require(HTTPURLResponse(
@@ -595,6 +633,10 @@ private actor RecordingTransport: HTTPTransport {
 
     func lastRequest() -> URLRequest? {
         requests.last
+    }
+
+    func requestsSnapshot() -> [URLRequest] {
+        requests
     }
 }
 

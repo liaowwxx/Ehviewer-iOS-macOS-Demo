@@ -40,6 +40,7 @@ final class AppModel {
     var errorMessage: String?
     var isRestoringDownloads = false
     var downloadRestoreStatus = ""
+    private(set) var isLoadingDownloads = true
     private(set) var nextPageURL: URL?
     var hasMorePage: Bool { nextPageURL != nil }
     private var activeQuery = GalleryListQuery()
@@ -90,9 +91,17 @@ final class AppModel {
             }
         )
         self.backgroundSession = backgroundSession
+        let downloadClient = client
+        let downloadSite = SiteMode.eHentai
         downloads = DownloadCoordinator(
             pageLoader: { descriptor in
-                var request = URLRequest(url: descriptor.pageURL)
+                let imageURL: URL
+                if descriptor.requiresPageResolution {
+                    imageURL = try await downloadClient.pageImage(for: descriptor, site: downloadSite).imageURL
+                } else {
+                    imageURL = descriptor.pageURL
+                }
+                var request = URLRequest(url: imageURL)
                 request.httpMethod = "GET"
                 request.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
                 request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
@@ -119,11 +128,14 @@ final class AppModel {
             removal: { key in try? await store.deleteDownload(for: key) }
         )
         Task { @MainActor [weak self] in
-            if self?.forceGuestMode == false {
-                await self?.refreshSessionStatus()
+            guard let self else { return }
+            if self.forceGuestMode == false {
+                await self.refreshSessionStatus()
             }
-            await self?.loadFilterRules()
-            await self?.loadTagTranslations()
+            await self.loadFilterRules()
+            await self.loadTagTranslations()
+        }
+        Task { @MainActor [weak self] in
             await self?.restoreDownloads()
         }
         Task { [tagSuggestionProvider] in
@@ -326,6 +338,10 @@ final class AppModel {
                 index: descriptor.index,
                 imageURL: descriptor.pageURL
             )
+            if descriptor.requiresPageResolution {
+                let image = try await pageImage(for: descriptor)
+                return try await imageData(for: image, resolution: resolution)
+            }
             return try await imageData(for: directImage, resolution: resolution)
         }
     }
@@ -572,43 +588,32 @@ final class AppModel {
 
             let existingGIDs = Set(await downloads.snapshot().map { $0.key.gid })
             var seenGIDs = existingGIDs
-            var candidateByKey: [GalleryKey: LegacyDownloadCandidate] = [:]
-            var detailByKey: [GalleryKey: GalleryDetail] = [:]
-            var preparedKeys: [GalleryKey] = []
             var skippedCount = 0
-            var failedGalleryCount = 0
-
-            for (offset, candidate) in inspection.candidates.enumerated() {
-                try Task.checkCancellation()
-                downloadRestoreStatus = "正在获取画廊信息 \(offset + 1)/\(inspection.candidates.count)…"
-                guard seenGIDs.insert(candidate.key.gid).inserted else {
-                    skippedCount += 1
-                    continue
-                }
-                do {
-                    let detail = try await api.detail(for: candidate.key, site: restoreSite)
-                    try? await persistence.upsert([detail.summary])
-                    candidateByKey[candidate.key] = candidate
-                    detailByKey[candidate.key] = detail
-                    preparedKeys.append(candidate.key)
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    failedGalleryCount += 1
-                }
+            let candidates = inspection.candidates.filter { candidate in
+                if seenGIDs.insert(candidate.key.gid).inserted { return true }
+                skippedCount += 1
+                return false
+            }
+            guard candidates.isEmpty == false else {
+                return "没有可恢复的新下载项，已跳过 \(skippedCount) 项。"
             }
 
-            guard preparedKeys.isEmpty == false else {
-                return "未能恢复下载项。已跳过 \(skippedCount) 项，\(failedGalleryCount) 项无法获取画廊信息。"
+            downloadRestoreStatus = "正在获取画廊信息…"
+            let summaries = (try? await api.gallerySummaries(
+                for: candidates.map(\.key),
+                site: restoreSite
+            )) ?? []
+            if summaries.isEmpty == false {
+                try? await persistence.upsert(summaries)
             }
+            let summaryByKey = Dictionary(uniqueKeysWithValues: summaries.map { ($0.key, $0) })
 
-            let selections = preparedKeys.flatMap { key -> [LegacyDownloadPageSelection] in
-                guard let candidate = candidateByKey[key] else { return [] }
+            let selections = candidates.flatMap { candidate -> [LegacyDownloadPageSelection] in
                 return candidate.images.compactMap { image in
                     guard (0..<candidate.declaredPageCount).contains(image.pageIndex) else { return nil }
                     return LegacyDownloadPageSelection(
                         archivePath: image.archivePath,
-                        key: key,
+                        key: candidate.key,
                         pageIndex: image.pageIndex
                     )
                 }
@@ -641,45 +646,33 @@ final class AppModel {
             }
 
             var restoredCount = 0
-            for (offset, key) in preparedKeys.enumerated() {
+            for (offset, candidate) in candidates.enumerated() {
                 try Task.checkCancellation()
-                guard let detail = detailByKey[key], let candidate = candidateByKey[key] else { continue }
-                if await downloads.snapshot().contains(where: { $0.key.gid == key.gid }) {
-                    skippedCount += 1
-                    continue
-                }
 
-                let imported = importedIndexes[key] ?? []
-                let legacyPages = legacyPageDescriptors(candidate: candidate, detail: detail, site: restoreSite)
+                let imported = importedIndexes[candidate.key] ?? []
+                let legacyPages = legacyPageDescriptors(candidate: candidate, site: restoreSite)
                 let expected = Set(0..<candidate.declaredPageCount)
                 let isComplete = expected.isEmpty == false && imported == expected
-                var pages = legacyPages.pages
+                let pages = legacyPages.pages
                 var state: DownloadState = isComplete ? .completed : .paused
                 var itemError: String?
 
                 if isComplete == false {
-                    downloadRestoreStatus = "正在准备缺失页面 \(offset + 1)/\(preparedKeys.count)…"
+                    downloadRestoreStatus = "正在准备缺失页面 \(offset + 1)/\(candidates.count)…"
                     let missingIndexes = expected.subtracting(imported)
                     if missingIndexes.isSubset(of: legacyPages.resumableIndexes) == false {
                         state = .failed
                         itemError = "已恢复 \(imported.count)/\(expected.count) 页，但部分缺页没有可用的页面 token"
                     } else {
-                        do {
-                            let missingPages = pages.filter { missingIndexes.contains($0.index) }
-                            let resolvedMissingPages = try await resolvedDownloadPages(missingPages, site: restoreSite)
-                            let resolvedByIndex = Dictionary(uniqueKeysWithValues: resolvedMissingPages.map { ($0.index, $0) })
-                            pages = pages.map { resolvedByIndex[$0.index] ?? $0 }
-                            itemError = "已恢复 \(imported.count)/\(expected.count) 页，可继续下载缺失页面"
-                        } catch is CancellationError {
-                            throw CancellationError()
-                        } catch {
-                            state = .failed
-                            itemError = "已恢复 \(imported.count)/\(expected.count) 页，但续传地址准备失败：\(error.localizedDescription)"
-                        }
+                        itemError = "已恢复 \(imported.count)/\(expected.count) 页，可继续下载缺失页面"
                     }
                 }
 
-                var job = DownloadJob(key: key, title: detail.summary.preferredTitle, pages: pages)
+                var job = DownloadJob(
+                    key: candidate.key,
+                    title: summaryByKey[candidate.key]?.preferredTitle ?? fallbackDownloadTitle(for: candidate),
+                    pages: pages
+                )
                 job.completedPageIndexes = imported
                 job.state = state
                 job.errorMessage = itemError
@@ -689,7 +682,6 @@ final class AppModel {
 
             var parts = ["已恢复 \(restoredCount) 项"]
             if skippedCount > 0 { parts.append("跳过 \(skippedCount) 项") }
-            if failedGalleryCount > 0 { parts.append("画廊信息失败 \(failedGalleryCount) 项") }
             if inspection.invalidItemCount > 0 { parts.append("无效目录 \(inspection.invalidItemCount) 个") }
             if failedPageCount > 0 { parts.append("图片失败 \(failedPageCount) 页") }
             return parts.joined(separator: "，") + "。"
@@ -730,16 +722,10 @@ final class AppModel {
 
     private func legacyPageDescriptors(
         candidate: LegacyDownloadCandidate,
-        detail: GalleryDetail,
         site: SiteMode
     ) -> (pages: [GalleryPageDescriptor], resumableIndexes: Set<Int>) {
-        let detailByIndex = Dictionary(uniqueKeysWithValues: detail.pages.map { ($0.index, $0) })
         var resumableIndexes = Set<Int>()
         let pages = (0..<candidate.declaredPageCount).map { index in
-            if let descriptor = detailByIndex[index] {
-                resumableIndexes.insert(index)
-                return descriptor
-            }
             if let pageToken = candidate.pageTokens[index],
                let pageURL = URL(string: "https://\(site.host)/s/\(pageToken)/\(candidate.key.gid)-\(index + 1)") {
                 resumableIndexes.insert(index)
@@ -761,6 +747,13 @@ final class AppModel {
         return (pages, resumableIndexes)
     }
 
+    private func fallbackDownloadTitle(for candidate: LegacyDownloadCandidate) -> String {
+        let directoryName = candidate.directoryPath.split(separator: "/").last.map(String.init) ?? ""
+        let prefix = "\(candidate.key.gid)-"
+        let title = directoryName.hasPrefix(prefix) ? String(directoryName.dropFirst(prefix.count)) : directoryName
+        return title.isEmpty ? "Gallery \(candidate.key.gid)" : title
+    }
+
     nonisolated private static func resolveDownloadPage(
         _ descriptor: GalleryPageDescriptor,
         client: any EHAPI,
@@ -776,8 +769,9 @@ final class AppModel {
     }
 
     private func restoreDownloads() async {
+        isLoadingDownloads = true
+        defer { isLoadingDownloads = false }
         guard let persisted = try? await persistence.downloadJobs() else { return }
-        var jobs: [DownloadJob] = []
         let restoreSite = site
         for item in persisted {
             let summary = try? await persistence.gallerySummary(for: item.key)
@@ -816,9 +810,8 @@ final class AppModel {
                 job.state = .paused
                 job.errorMessage = "后台下载任务恢复中"
             }
-            jobs.append(job)
+            await downloads.restore([job])
         }
-        await downloads.restore(jobs)
     }
 
     func saveCookie(_ cookieHeader: String) async -> Bool {
