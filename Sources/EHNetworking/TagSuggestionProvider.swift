@@ -2,6 +2,11 @@ import Foundation
 import EHDomain
 
 public actor TagSuggestionProvider {
+    private struct SuggestionCacheKey: Hashable {
+        let keyword: String
+        let limit: Int
+    }
+
     public static let originalProjectSourceURL = URL(
         string: "https://raw.githubusercontent.com/Mapaler/EhViewer/tag-translations/tag-translations/tag-translations-zh-rCN"
     )!
@@ -11,6 +16,7 @@ public actor TagSuggestionProvider {
     private let session: URLSession
     private var entries: [SearchTagSuggestion]?
     private var loadingTask: Task<[SearchTagSuggestion], Error>?
+    private var suggestionCache: [SuggestionCacheKey: [SearchTagSuggestion]] = [:]
 
     public init(
         sourceURL: URL = TagSuggestionProvider.originalProjectSourceURL,
@@ -33,16 +39,27 @@ public actor TagSuggestionProvider {
     public func suggestions(for keyword: String, limit: Int = 40) async throws -> [SearchTagSuggestion] {
         let keyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard keyword.isEmpty == false, limit > 0 else { return [] }
+        try Task.checkCancellation()
+        let cacheKey = SuggestionCacheKey(keyword: keyword.localizedLowercase, limit: limit)
+        if let cached = suggestionCache[cacheKey] {
+            return cached
+        }
         let entries = try await loadEntries()
+        try Task.checkCancellation()
         var matches: [SearchTagSuggestion] = []
         matches.reserveCapacity(min(limit, 40))
         for (index, entry) in entries.enumerated() {
-            if index.isMultiple(of: 512) { try Task.checkCancellation() }
+            if index.isMultiple(of: 256) { try Task.checkCancellation() }
             if entry.english.localizedCaseInsensitiveContains(keyword)
                 || entry.localizedText?.localizedCaseInsensitiveContains(keyword) == true {
                 matches.append(entry)
                 if matches.count == limit { break }
             }
+        }
+        suggestionCache[cacheKey] = matches
+        if suggestionCache.count > 48,
+           let oldestKey = suggestionCache.keys.first {
+            suggestionCache.removeValue(forKey: oldestKey)
         }
         return matches
     }

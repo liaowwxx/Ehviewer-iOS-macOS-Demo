@@ -6,6 +6,7 @@ public struct PersistedDownload: Hashable, Sendable {
     public let key: GalleryKey
     public let title: String
     public let pages: [GalleryPageDescriptor]
+    public let totalPageCount: Int
     public let label: String?
     public let completedPageIndexes: Set<Int>
     public let stateRaw: String
@@ -16,6 +17,7 @@ public struct PersistedDownload: Hashable, Sendable {
         key: GalleryKey,
         title: String,
         pages: [GalleryPageDescriptor],
+        totalPageCount: Int? = nil,
         label: String? = nil,
         completedPageIndexes: Set<Int>,
         stateRaw: String,
@@ -25,6 +27,7 @@ public struct PersistedDownload: Hashable, Sendable {
         self.key = key
         self.title = title
         self.pages = pages
+        self.totalPageCount = totalPageCount ?? pages.count
         self.label = label
         self.completedPageIndexes = completedPageIndexes
         self.stateRaw = stateRaw
@@ -44,8 +47,10 @@ public struct FilterRuleSnapshot: Hashable, Sendable {
 }
 
 public enum ModelContainerFactory {
-    public static func make(inMemory: Bool = false) throws -> ModelContainer {
-        let schema = Schema([
+    public enum SchemaV1: VersionedSchema {
+        public static let versionIdentifier = Schema.Version(1, 0, 0)
+
+        public static let models: [any PersistentModel.Type] = [
             GalleryRecord.self,
             DownloadJobRecord.self,
             DownloadPageRecord.self,
@@ -53,9 +58,21 @@ public enum ModelContainerFactory {
             QuickSearchRecord.self,
             FilterRuleRecord.self,
             TagTranslationRecord.self
-        ])
+        ]
+    }
+
+    public enum MigrationPlan: SchemaMigrationPlan {
+        public static let schemas: [any VersionedSchema.Type] = [SchemaV1.self]
+        public static let stages: [MigrationStage] = []
+    }
+
+    public static func make(inMemory: Bool = false) throws -> ModelContainer {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: inMemory)
-        return try ModelContainer(for: schema, configurations: configuration)
+        return try ModelContainer(
+            for: Schema(SchemaV1.models),
+            migrationPlan: MigrationPlan.self,
+            configurations: configuration
+        )
     }
 }
 
@@ -201,25 +218,36 @@ public actor PersistenceStore {
     }
 
     public func downloadJobs() throws -> [PersistedDownload] {
-        let records = try modelContext.fetch(FetchDescriptor<DownloadJobRecord>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))
+        var descriptor = FetchDescriptor<DownloadJobRecord>(
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        descriptor.relationshipKeyPathsForPrefetching = [\.pages]
+        let records = try modelContext.fetch(descriptor)
         return records.map { record in
-            let pages = record.pages.compactMap { page -> GalleryPageDescriptor? in
-                guard let directURLString = page.directURLString, let pageURL = URL(string: directURLString) else { return nil }
-                return GalleryPageDescriptor(
-                    galleryKey: record.key,
+            let key = record.key
+            var pages: [GalleryPageDescriptor] = []
+            var completed: Set<Int> = []
+            var inFlight: Set<Int> = []
+            pages.reserveCapacity(record.pages.count)
+
+            for page in record.pages {
+                if page.stateRaw == "completed" { completed.insert(page.pageIndex) }
+                if page.backgroundTaskIdentifier != nil { inFlight.insert(page.pageIndex) }
+                guard let directURLString = page.directURLString,
+                      let pageURL = URL(string: directURLString) else { continue }
+                pages.append(GalleryPageDescriptor(
+                    galleryKey: key,
                     index: page.pageIndex,
                     pageURL: pageURL,
                     previewURL: page.previewURLString.flatMap(URL.init(string:))
-                )
-            }.sorted { $0.index < $1.index }
-            let completed = Set(record.pages.filter { $0.stateRaw == "completed" }.map(\.pageIndex))
-            let inFlight = Set(record.pages.compactMap { page in
-                page.backgroundTaskIdentifier == nil ? nil : page.pageIndex
-            })
+                ))
+            }
+            pages.sort { $0.index < $1.index }
             return PersistedDownload(
-                key: record.key,
+                key: key,
                 title: record.title,
                 pages: pages,
+                totalPageCount: record.totalPages,
                 label: record.label,
                 completedPageIndexes: completed,
                 stateRaw: record.stateRaw,
@@ -342,6 +370,16 @@ public actor PersistenceStore {
             modelContext.insert(FilterRuleRecord(pattern: pattern, isEnabled: isEnabled))
         }
         try modelContext.save()
+    }
+
+    public func deleteFilterRule(pattern: String) throws {
+        let normalized = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.isEmpty == false else { return }
+        let records = try modelContext.fetch(FetchDescriptor<FilterRuleRecord>(predicate: #Predicate {
+            $0.pattern == normalized
+        }))
+        for record in records { modelContext.delete(record) }
+        if records.isEmpty == false { try modelContext.save() }
     }
 
     public func saveTagTranslation(tag: String, locale: String, localizedText: String) throws {

@@ -8,7 +8,6 @@ struct LocalArchiveView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let document: LocalArchiveDocument
-    @State private var selectedEntry: LocalArchiveEntry?
 
     var body: some View {
         Group {
@@ -20,8 +19,8 @@ struct LocalArchiveView: View {
                 )
             } else {
                 List(document.imageEntries) { entry in
-                    Button {
-                        selectedEntry = entry
+                    NavigationLink {
+                        LocalArchiveReaderView(document: document, initialEntryID: entry.id)
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "photo")
@@ -36,8 +35,7 @@ struct LocalArchiveView: View {
                             }
                         }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("打开 (entry.path)")
+                    .accessibilityLabel("打开 \(entry.path)")
                 }
             }
         }
@@ -50,17 +48,34 @@ struct LocalArchiveView: View {
                 }
             }
         }
-        .sheet(item: $selectedEntry) { entry in
-            NavigationStack {
+    }
+}
+
+private struct LocalArchiveReaderView: View {
+    let document: LocalArchiveDocument
+    let initialEntryID: String
+    @State private var selectedEntryID: String
+
+    init(document: LocalArchiveDocument, initialEntryID: String) {
+        self.document = document
+        self.initialEntryID = initialEntryID
+        _selectedEntryID = State(initialValue: initialEntryID)
+    }
+
+    var body: some View {
+        TabView(selection: $selectedEntryID) {
+            ForEach(document.imageEntries) { entry in
                 LocalArchiveImageView(document: document, entry: entry)
-                    .navigationTitle(entry.path)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("关闭") { selectedEntry = nil }
-                        }
-                    }
+                    .tag(entry.id)
+                    .accessibilityLabel("第 \((document.imageEntries.firstIndex(of: entry) ?? 0) + 1)/\(document.imageEntries.count) 页")
             }
         }
+#if os(iOS)
+        .tabViewStyle(.page(indexDisplayMode: .automatic))
+#else
+        .tabViewStyle(.automatic)
+#endif
+        .navigationTitle(document.url.lastPathComponent)
     }
 }
 
@@ -71,6 +86,7 @@ struct LocalArchiveImageView: View {
     @State private var image: Image?
     @State private var errorMessage: String?
     @State private var scale: CGFloat = 1
+    @State private var loadToken = UUID()
 
     var body: some View {
         Group {
@@ -88,12 +104,16 @@ struct LocalArchiveImageView: View {
                         .padding()
                 }
             } else if let errorMessage {
-                ContentUnavailableView("图片无法打开", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                VStack(spacing: 12) {
+                    ContentUnavailableView("图片无法打开", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                    Button("重试", systemImage: "arrow.clockwise") { loadToken = UUID() }
+                        .buttonStyle(.borderedProminent)
+                }
             } else {
                 ProgressView("正在读取归档…")
             }
         }
-        .task(id: entry.id) {
+        .task(id: "\(entry.id)-\(loadToken)") {
             do {
                 let data = try await model.data(for: entry, in: document)
                 guard let source = CGImageSourceCreateWithData(data as CFData, nil),

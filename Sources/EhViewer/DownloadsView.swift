@@ -16,6 +16,8 @@ struct DownloadsView: View {
     @State private var statusFilter: DownloadStatusFilter = .all
     @State private var sortOrder: DownloadSortOrder = .titleAscending
     @State private var showingResetProgressConfirmation = false
+    @State private var jobPendingRemoval: DownloadJob?
+    @State private var removalErrorMessage: String?
     @State private var showingDownloadRestoreResult = false
     @State private var downloadRestoreMessage = ""
 
@@ -63,18 +65,11 @@ struct DownloadsView: View {
                         Task {
                             if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
                             else { await model.downloads.resume(job.key) }
-                            jobs = await model.downloads.snapshot()
                         }
                     } cancel: {
-                        Task {
-                            await model.downloads.cancel(job.key)
-                            jobs = await model.downloads.snapshot()
-                        }
+                        Task { await model.downloads.cancel(job.key) }
                     } remove: {
-                        Task {
-                            await model.downloads.remove(job.key)
-                            jobs = await model.downloads.snapshot()
-                        }
+                        jobPendingRemoval = job
                     } label: {
                         labelInput = job.label ?? ""
                         editingJob = job
@@ -94,11 +89,13 @@ struct DownloadsView: View {
             ToolbarItem(placement: .primaryAction) {
                 Menu("下载管理", systemImage: "ellipsis.circle") {
                     Button("开始全部", systemImage: "play.fill") {
-                        Task { await model.downloads.startAll(); jobs = await model.downloads.snapshot() }
+                        Task { await model.downloads.startAll() }
                     }
+                    .disabled(canStartAll == false)
                     Button("暂停全部", systemImage: "pause.fill") {
-                        Task { await model.downloads.stopAll(); jobs = await model.downloads.snapshot() }
+                        Task { await model.downloads.stopAll() }
                     }
+                    .disabled(canStopAll == false)
                     Divider()
                     Picker("筛选状态", selection: $statusFilter) {
                         ForEach(DownloadStatusFilter.allCases) { filter in
@@ -133,6 +130,35 @@ struct DownloadsView: View {
             }
             Button("取消", role: .cancel) {}
         }
+        .confirmationDialog(
+            "删除《\(jobPendingRemoval?.title ?? "")》？",
+            isPresented: Binding(
+                get: { jobPendingRemoval != nil },
+                set: { if $0 == false { jobPendingRemoval = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("删除下载及本地图片", role: .destructive) {
+                guard let job = jobPendingRemoval else { return }
+                jobPendingRemoval = nil
+                Task {
+                    if case let .failed(message) = await model.downloads.remove(job.key) {
+                        removalErrorMessage = message
+                    }
+                }
+            }
+            Button("取消", role: .cancel) { jobPendingRemoval = nil }
+        } message: {
+            Text("将移除 \(jobPendingRemoval?.completedPageIndexes.count ?? 0) 个已下载页面，并从下载列表中移除。")
+        }
+        .alert("删除下载失败", isPresented: Binding(
+            get: { removalErrorMessage != nil },
+            set: { if $0 == false { removalErrorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { removalErrorMessage = nil }
+        } message: {
+            Text(removalErrorMessage ?? "请稍后重试。")
+        }
         .fileImporter(
             isPresented: $showingArchiveImporter,
             allowedContentTypes: LocalArchiveView.supportedContentTypes,
@@ -160,8 +186,8 @@ struct DownloadsView: View {
         }
         .task(id: model.isLoadingDownloads) { jobs = await model.downloads.snapshot() }
         .task {
-            for await _ in await model.downloads.events() {
-                jobs = await model.downloads.snapshot()
+            for await event in await model.downloads.events() {
+                apply(event)
             }
         }
         .sheet(item: $editingJob) { job in
@@ -176,7 +202,6 @@ struct DownloadsView: View {
                         Button("保存") {
                             Task {
                                 await model.setDownloadLabel(labelInput, for: job.key)
-                                jobs = await model.downloads.snapshot()
                                 editingJob = nil
                             }
                         }
@@ -210,8 +235,30 @@ struct DownloadsView: View {
         Task {
             downloadRestoreMessage = await model.restoreDownloads(from: url)
             showingDownloadRestoreResult = true
-            jobs = await model.downloads.snapshot()
         }
+    }
+
+    private func apply(_ event: DownloadEvent) {
+        switch event {
+        case .reset(let restoredJobs):
+            jobs = restoredJobs
+        case .changed(let changedJob):
+            if let index = jobs.firstIndex(where: { $0.key == changedJob.key }) {
+                jobs[index] = changedJob
+            } else {
+                jobs.append(changedJob)
+            }
+        case .removed(let key):
+            jobs.removeAll { $0.key == key }
+        }
+    }
+
+    private var canStartAll: Bool {
+        jobs.contains { [.paused, .failed, .authenticationRequired, .rateLimited, .bandwidthLimited].contains($0.state) }
+    }
+
+    private var canStopAll: Bool {
+        jobs.contains { $0.state == .running || $0.state == .queued }
     }
 }
 
@@ -265,13 +312,11 @@ private enum DownloadSortOrder: String, CaseIterable, Identifiable {
 }
 
 private struct DownloadCard: View {
-    @Environment(AppModel.self) private var model
     let job: DownloadJob
     let toggle: () -> Void
     let cancel: () -> Void
     let remove: () -> Void
     let label: () -> Void
-    @State private var preferredTitle: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -332,13 +377,10 @@ private struct DownloadCard: View {
         }
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 16))
-        .task(id: job.key) {
-            preferredTitle = (try? await model.persistence.gallerySummary(for: job.key))?.preferredTitle
-        }
     }
 
     private var displayTitle: String {
-        preferredTitle ?? job.title
+        job.title
     }
 
     private var statusTitle: String {

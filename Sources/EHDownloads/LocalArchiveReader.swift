@@ -83,12 +83,12 @@ public enum LocalArchiveReader {
     ) throws -> Data {
         guard entry.isDirectory == false else { return Data() }
         guard entry.size <= maxBytes else {
-            throw EHError.storageFailed("归档条目超过 (maxBytes / 1_024 / 1_024) MiB")
+            throw EHError.storageFailed("归档条目超过 \(maxBytes / 1_024 / 1_024) MiB")
         }
 
         return try withSecurityScope(for: document.url) {
             guard let reader = eh_archive_open(document.url.path) else {
-                throw EHError.parsingFailed("无法打开 (document.format.title) 归档")
+                throw EHError.parsingFailed("无法打开 \(document.format.title) 归档")
             }
             defer { eh_archive_close(reader) }
 
@@ -127,7 +127,7 @@ public enum LocalArchiveReader {
 
     private static func listEntries(in url: URL) throws -> [LocalArchiveEntry] {
         guard let reader = eh_archive_open(url.path) else {
-            throw EHError.parsingFailed("无法打开 (LocalArchiveFormat(url: url).title) 归档")
+            throw EHError.parsingFailed("无法打开 \(LocalArchiveFormat(url: url).title) 归档")
         }
         defer { eh_archive_close(reader) }
 

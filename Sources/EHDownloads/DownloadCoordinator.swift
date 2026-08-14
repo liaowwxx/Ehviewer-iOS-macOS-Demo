@@ -41,14 +41,20 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
 }
 
 public enum DownloadEvent: Sendable, Hashable {
+    case reset([DownloadJob])
     case changed(DownloadJob)
     case removed(GalleryKey)
+}
+
+public enum DownloadRemovalResult: Sendable, Equatable {
+    case removed
+    case failed(String)
 }
 
 public actor DownloadCoordinator {
     public typealias PageLoader = @Sendable (GalleryPageDescriptor) async throws -> Data
     public typealias JobPersistence = @Sendable (DownloadJob) async -> Void
-    public typealias JobRemoval = @Sendable (GalleryKey) async -> Void
+    public typealias JobRemoval = @Sendable (GalleryKey) async throws -> Void
 
     private var jobs: [GalleryKey: DownloadJob] = [:]
     private var tasks: [GalleryKey: Task<Void, Never>] = [:]
@@ -179,16 +185,32 @@ public actor DownloadCoordinator {
         startNextQueuedJobIfNeeded()
     }
 
-    public func remove(_ key: GalleryKey) async {
+    public func remove(_ key: GalleryKey) async -> DownloadRemovalResult {
         tasks[key]?.cancel()
         tasks[key] = nil
         runTokens[key] = nil
         if activeKey == key { activeKey = nil }
-        jobs.removeValue(forKey: key)
-        if let removal { await removal(key) }
-        if let fileStore { try? await fileStore.remove(key) }
-        emit(.removed(key))
-        startNextQueuedJobIfNeeded()
+
+        do {
+            if let fileStore { try await fileStore.remove(key) }
+            if let removal { try await removal(key) }
+            jobs.removeValue(forKey: key)
+            emit(.removed(key))
+            startNextQueuedJobIfNeeded()
+            return .removed
+        } catch {
+            guard var job = jobs[key] else {
+                startNextQueuedJobIfNeeded()
+                return .failed(error.localizedDescription)
+            }
+            job.state = .failed
+            job.errorMessage = "删除失败：\(error.localizedDescription)"
+            jobs[key] = job
+            await save(job)
+            emit(.changed(job))
+            startNextQueuedJobIfNeeded()
+            return .failed(error.localizedDescription)
+        }
     }
 
     public func snapshot() -> [DownloadJob] {
@@ -200,8 +222,37 @@ public actor DownloadCoordinator {
             if job.state == .running { job.state = .queued }
             jobs[job.key] = job
             await save(job)
-            emit(.changed(job))
         }
+        emit(.reset(snapshot()))
+        startNextQueuedJobIfNeeded()
+    }
+
+    public func loadPersisted(_ restoredJobs: [DownloadJob]) {
+        for task in tasks.values { task.cancel() }
+        tasks.removeAll(keepingCapacity: true)
+        runTokens.removeAll(keepingCapacity: true)
+        activeKey = nil
+
+        jobs = Dictionary(uniqueKeysWithValues: restoredJobs.map { job in
+            var restored = job
+            if restored.state == .running { restored.state = .queued }
+            return (restored.key, restored)
+        })
+        emit(.reset(snapshot()))
+    }
+
+    @discardableResult
+    public func reconcilePersisted(_ reconciledJob: DownloadJob, replacing baseline: DownloadJob) async -> Bool {
+        guard jobs[baseline.key] == baseline else { return false }
+        guard reconciledJob != baseline else { return true }
+        jobs[reconciledJob.key] = reconciledJob
+        await save(reconciledJob)
+        guard jobs[reconciledJob.key] == reconciledJob else { return false }
+        emit(.changed(reconciledJob))
+        return true
+    }
+
+    public func startRestoredJobs() {
         startNextQueuedJobIfNeeded()
     }
 

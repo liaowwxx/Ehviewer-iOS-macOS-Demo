@@ -9,6 +9,7 @@ enum ReaderContentSource: Hashable, Sendable {
 
 struct ReaderView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     let key: GalleryKey
     let initialPage: Int
     private let source: ReaderContentSource
@@ -17,6 +18,9 @@ struct ReaderView: View {
     @State private var position: ReaderPositionState
     @State private var isFullscreen = false
     @State private var zoomResetToken = UUID()
+    @State private var detailError: String?
+    @State private var detailLoadToken = UUID()
+    @State private var progressSaveTask: Task<Void, Never>?
     #if os(iOS)
     @State private var volumeMonitor = VolumeButtonMonitor()
     #endif
@@ -62,6 +66,15 @@ struct ReaderView: View {
                         position: $position
                     )
                 }
+            } else if let detailError {
+                VStack(spacing: 12) {
+                    ContentUnavailableView("阅读器加载失败", systemImage: "exclamationmark.triangle", description: Text(detailError))
+                    Button("重试", systemImage: "arrow.clockwise") {
+                        detailLoadToken = UUID()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
             } else {
                 ProgressView("准备阅读器…")
             }
@@ -96,24 +109,8 @@ struct ReaderView: View {
                 }
             }
         }
-        .task(id: "\(key.id)-\(source)") {
-            let loadedDetail: GalleryDetail?
-            if let downloadedJob {
-                loadedDetail = Self.downloadedDetail(for: downloadedJob, site: model.site)
-            } else {
-                loadedDetail = await model.detail(for: key)
-            }
-            guard let loadedDetail, Task.isCancelled == false else { return }
-            let savedPage = await model.readingPage(for: key)
-            guard Task.isCancelled == false else { return }
-            let startPage: Int = switch model.readingSettings.startPosition {
-            case .lastRead: savedPage ?? initialPage
-            case .first: 0
-            case .last: loadedDetail.pages.count - 1
-            }
-            position.prepare(page: startPage, pageCount: loadedDetail.pages.count)
-            isFullscreen = model.readingSettings.fullscreen
-            detail = loadedDetail
+        .task(id: "\(key.id)-\(source)-\(detailLoadToken)") {
+            await loadDetail()
         }
         .onChange(of: model.readingSettings) { oldSettings, newSettings in
             model.persistReadingSettings()
@@ -125,7 +122,15 @@ struct ReaderView: View {
                 }
             }
         }
-        .onDisappear { Task { await model.updateProgress(for: key, page: position.page) } }
+        .onChange(of: position.page) { _, _ in
+            scheduleProgressSave()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { saveProgressImmediately() }
+        }
+        .onDisappear {
+            saveProgressImmediately()
+        }
         .onAppear {
             applyReaderSystemSettings()
             #if os(iOS)
@@ -183,6 +188,51 @@ struct ReaderView: View {
         zoomResetToken = UUID()
     }
 
+    private func loadDetail() async {
+        detail = nil
+        detailError = nil
+        do {
+            let loadedDetail: GalleryDetail
+            if let downloadedJob {
+                loadedDetail = Self.downloadedDetail(for: downloadedJob, site: model.site)
+            } else {
+                loadedDetail = try await model.detail(for: key)
+            }
+            guard Task.isCancelled == false else { return }
+            let savedPage = await model.readingPage(for: key)
+            guard Task.isCancelled == false else { return }
+            let startPage: Int = switch model.readingSettings.startPosition {
+            case .lastRead: savedPage ?? initialPage
+            case .first: 0
+            case .last: loadedDetail.pages.count - 1
+            }
+            position.prepare(page: startPage, pageCount: loadedDetail.pages.count)
+            isFullscreen = model.readingSettings.fullscreen
+            detail = loadedDetail
+        } catch is CancellationError {
+            return
+        } catch {
+            detailError = error.localizedDescription
+        }
+    }
+
+    private func scheduleProgressSave() {
+        progressSaveTask?.cancel()
+        let page = position.page
+        progressSaveTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard Task.isCancelled == false else { return }
+            await model.updateProgress(for: key, page: page)
+        }
+    }
+
+    private func saveProgressImmediately() {
+        progressSaveTask?.cancel()
+        progressSaveTask = nil
+        let page = position.page
+        Task { await model.updateProgress(for: key, page: page) }
+    }
+
     private func applyReaderSystemSettings() {
         #if os(iOS)
         UIApplication.shared.isIdleTimerDisabled = model.readingSettings.keepScreenOn
@@ -209,11 +259,16 @@ struct ReaderView: View {
     }
     #endif
 
-    #if os(iOS)
+#if os(iOS)
     private func restoreReaderSystemSettings() {
         UIApplication.shared.isIdleTimerDisabled = false
+        if let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState != .unattached }) {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .all))
+        }
     }
-    #endif
+#endif
 
     private func requestPage(_ page: Int, pageCount: Int) {
         resetZoom()
@@ -252,33 +307,43 @@ private struct ReaderStatusOverlay: View {
     let pageCount: Int
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            HStack(spacing: 8) {
-                if settings.showClock {
-                    Text(context.date, style: .time)
+        Group {
+            if settings.showClock {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    statusContent(date: context.date)
                 }
-                if settings.showProgress {
-                    Text("\(progressPercent)%")
-                }
-                if settings.showPageInterval {
-                    Text("\(page + 1)/\(pageCount)")
-                }
-                #if os(iOS)
-                if settings.showBattery {
-                    Text(batteryText)
-                }
-                #endif
+            } else {
+                statusContent(date: nil)
             }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.thinMaterial, in: Capsule())
         }
         #if os(iOS)
         .onAppear { UIDevice.current.isBatteryMonitoringEnabled = true }
         .onDisappear { UIDevice.current.isBatteryMonitoringEnabled = false }
         #endif
+    }
+
+    private func statusContent(date: Date?) -> some View {
+        HStack(spacing: 8) {
+            if let date {
+                Text(date, style: .time)
+            }
+            if settings.showProgress {
+                Text("\(progressPercent)%")
+            }
+            if settings.showPageInterval {
+                Text("\(page + 1)/\(pageCount)")
+            }
+            #if os(iOS)
+            if settings.showBattery {
+                Text(batteryText)
+            }
+            #endif
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.thinMaterial, in: Capsule())
     }
 
     private var progressPercent: Int {

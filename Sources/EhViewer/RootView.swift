@@ -5,13 +5,28 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var presentedError: PresentedError?
+    @State private var compactSelection: AppRoute = .browse
+    @State private var compactBrowsePath: [AppRoute] = []
+    @State private var compactDownloadsPath: [AppRoute] = []
+    @State private var compactHistoryPath: [AppRoute] = []
+    @State private var compactSettingsPath: [AppRoute] = []
+    @State private var compactLibraryMode: LibraryView.Mode = .history
+    @State private var splitSelection: AppRoute? = .browse
+    @State private var splitDetailPath: [AppRoute] = []
 
     var body: some View {
         Group {
             if horizontalSizeClass == .compact {
-                CompactRootView()
+                CompactRootView(
+                    selection: $compactSelection,
+                    browsePath: $compactBrowsePath,
+                    downloadsPath: $compactDownloadsPath,
+                    historyPath: $compactHistoryPath,
+                    settingsPath: $compactSettingsPath,
+                    libraryMode: $compactLibraryMode
+                )
             } else {
-                SplitRootView()
+                SplitRootView(selection: $splitSelection, detailPath: $splitDetailPath)
             }
         }
         .accessibilityIdentifier("ehviewer-root")
@@ -22,11 +37,7 @@ struct RootView: View {
             Alert(
                 title: Text("发生错误"),
                 message: Text(error.message),
-                primaryButton: .default(Text("重试")) {
-                    model.errorMessage = nil
-                    Task { await model.retryLastListRequest() }
-                },
-                secondaryButton: .cancel(Text("好")) { model.errorMessage = nil }
+                dismissButton: .default(Text("好")) { model.errorMessage = nil }
             )
         }
     }
@@ -58,11 +69,12 @@ private struct RootNavigationStack<Content: View>: View {
 
 private struct CompactRootView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: AppRoute = .browse
-    @State private var browsePath: [AppRoute] = []
-    @State private var downloadsPath: [AppRoute] = []
-    @State private var historyPath: [AppRoute] = []
-    @State private var settingsPath: [AppRoute] = []
+    @Binding var selection: AppRoute
+    @Binding var browsePath: [AppRoute]
+    @Binding var downloadsPath: [AppRoute]
+    @Binding var historyPath: [AppRoute]
+    @Binding var settingsPath: [AppRoute]
+    @Binding var libraryMode: LibraryView.Mode
 
     var body: some View {
         TabView(selection: $selection) {
@@ -79,7 +91,7 @@ private struct CompactRootView: View {
             .tag(AppRoute.downloads)
 
             RootNavigationStack(path: $historyPath) { _ in
-                LibraryView()
+                LibraryView(mode: libraryMode)
             }
             .tabItem { Label("history_title", systemImage: "clock") }
             .tag(AppRoute.history)
@@ -104,7 +116,11 @@ private struct CompactRootView: View {
         switch route {
         case .downloads:
             selection = .downloads
-        case .history, .favorites:
+        case .history:
+            libraryMode = .history
+            selection = .history
+        case .favorites:
+            libraryMode = .favorites
             selection = .history
         case .settings:
             selection = .settings
@@ -119,8 +135,8 @@ private struct CompactRootView: View {
 
 private struct SplitRootView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: AppRoute? = .browse
-    @State private var detailPath: [AppRoute] = []
+    @Binding var selection: AppRoute?
+    @Binding var detailPath: [AppRoute]
 
     var body: some View {
         NavigationSplitView {

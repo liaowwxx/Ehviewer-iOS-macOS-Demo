@@ -60,10 +60,17 @@ struct SettingsView: View {
             Section("过滤规则") {
                 ForEach(model.filterRules.indices, id: \.self) { index in
                     let pattern = model.filterRules[index].pattern
-                    Toggle(pattern, isOn: $model.filterRules[index].isEnabled)
-                        .onChange(of: model.filterRules[index].isEnabled) { _, enabled in
-                            Task { await model.setFilterRule(pattern: pattern, isEnabled: enabled) }
+                    HStack {
+                        Toggle(pattern, isOn: $model.filterRules[index].isEnabled)
+                            .onChange(of: model.filterRules[index].isEnabled) { _, enabled in
+                                Task { await model.setFilterRule(pattern: pattern, isEnabled: enabled) }
+                            }
+                        Button("删除规则", systemImage: "trash", role: .destructive) {
+                            Task { await model.deleteFilterRule(pattern: pattern) }
                         }
+                        .labelStyle(.iconOnly)
+                        .accessibilityLabel("删除过滤规则 \(pattern)")
+                    }
                 }
                 HStack {
                     TextField("添加标题或标签关键词", text: $newFilter)

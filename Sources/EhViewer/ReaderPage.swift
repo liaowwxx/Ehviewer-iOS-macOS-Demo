@@ -12,6 +12,8 @@ struct ReaderPage: View {
     @State private var image: Image?
     @State private var aspectRatio: CGFloat?
     @State private var failed = false
+    @State private var loadToken = UUID()
+    @State private var loadErrorMessage: String?
     @State private var isSaving = false
     @State private var showingSaveConfirmation = false
     @State private var showingSaveError = false
@@ -39,6 +41,16 @@ struct ReaderPage: View {
                                     .font(.largeTitle)
                                 Text("页面加载失败")
                                     .font(.headline)
+                                if let loadErrorMessage {
+                                    Text(loadErrorMessage)
+                                        .font(.caption)
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(3)
+                                }
+                                Button("重试", systemImage: "arrow.clockwise") {
+                                    loadToken = UUID()
+                                }
+                                .buttonStyle(.bordered)
                             } else {
                                 ProgressView()
                                 Text("正在加载第 \(descriptor.index + 1) 页…")
@@ -56,13 +68,17 @@ struct ReaderPage: View {
             Button("保存图片", systemImage: "square.and.arrow.down", action: saveImage)
                 .disabled(image == nil || isSaving)
         }
-        .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)-\(pageScaling.rawValue)") {
+        .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)-\(pageScaling.rawValue)-\(loadToken)") {
             await loadImage()
         }
         .alert("图片已保存", isPresented: $showingSaveConfirmation) {
             Button("好", role: .cancel) {}
         } message: {
+#if os(iOS)
             Text("图片已保存到系统照片。")
+#else
+            Text("图片已保存到系统下载文件夹。")
+#endif
         }
         .alert("无法保存图片", isPresented: $showingSaveError) {
             Button("好", role: .cancel) { saveErrorMessage = nil }
@@ -93,6 +109,7 @@ struct ReaderPage: View {
 
     private func loadImage() async {
         failed = false
+        loadErrorMessage = nil
         do {
             let data: Data
             switch source {
@@ -122,6 +139,7 @@ struct ReaderPage: View {
         } catch is CancellationError {
             return
         } catch {
+            loadErrorMessage = error.localizedDescription
             failed = true
         }
     }

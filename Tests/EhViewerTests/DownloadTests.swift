@@ -92,6 +92,55 @@ struct DownloadTests {
         Issue.record("download jobs did not complete within the test budget")
     }
 
+    @Test("Persisted downloads load as one snapshot without saving or starting work")
+    func persistedDownloadsLoadWithoutSideEffects() async throws {
+        let saveProbe = DownloadSaveProbe()
+        let loadProbe = DownloadLoadProbe()
+        let first = restoredJob(gid: 20, token: "first", title: "First")
+        let second = restoredJob(gid: 21, token: "second", title: "Second")
+        let coordinator = DownloadCoordinator(
+            pageLoader: { page in
+                await loadProbe.record(page.galleryKey)
+                return Data(page.id.utf8)
+            },
+            persistence: { job in await saveProbe.record(job) }
+        )
+        let events = await coordinator.events()
+
+        await coordinator.loadPersisted([first, second])
+
+        #expect(await saveProbe.count == 0)
+        #expect(await loadProbe.count == 0)
+        var iterator = events.makeAsyncIterator()
+        guard case let .reset(jobs)? = await iterator.next() else {
+            Issue.record("bulk loading should publish one reset event")
+            return
+        }
+        #expect(Set(jobs.map(\.key)) == [first.key, second.key])
+    }
+
+    @Test("A stale persisted reconciliation cannot overwrite a newer user change")
+    func staleReconciliationDoesNotOverwriteNewerState() async throws {
+        let saveProbe = DownloadSaveProbe()
+        var baseline = restoredJob(gid: 22, token: "stale", title: "Original")
+        baseline.state = .paused
+        let coordinator = DownloadCoordinator(
+            pageLoader: { page in Data(page.id.utf8) },
+            persistence: { job in await saveProbe.record(job) }
+        )
+        await coordinator.loadPersisted([baseline])
+        await coordinator.setLabel("用户标签", for: baseline.key)
+
+        var reconciled = baseline
+        reconciled.completedPageIndexes = [0]
+        let applied = await coordinator.reconcilePersisted(reconciled, replacing: baseline)
+
+        #expect(applied == false)
+        #expect(await coordinator.snapshot().first?.label == "用户标签")
+        #expect(await coordinator.snapshot().first?.completedPageIndexes.isEmpty == true)
+        #expect(await saveProbe.count == 1)
+    }
+
     @Test("Download coordinator retries ordinary network failures at most three times")
     func retriesNetworkFailure() async throws {
         let attempts = RetryCounter()
@@ -116,6 +165,61 @@ struct DownloadTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         Issue.record("retrying download did not complete within the test budget")
+    }
+
+    @Test("A failed download removal keeps the job visible with an actionable error")
+    func failedRemovalKeepsJobVisible() async throws {
+        let key = GalleryKey(gid: 13, token: "remove")
+        let page = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://example.invalid/remove")!
+        )
+        let coordinator = DownloadCoordinator(
+            pageLoader: { _ in Data("page".utf8) },
+            removal: { _ in throw EHError.storageFailed("文件正被占用") }
+        )
+        await coordinator.enqueue(key: key, title: "Remove", pages: [page])
+
+        let result = await coordinator.remove(key)
+        guard case .failed = result else {
+            Issue.record("removal failure should be reported to the caller")
+            return
+        }
+        let job = await coordinator.snapshot().first(where: { $0.key == key })
+        #expect(job?.state == .failed)
+        #expect(job?.errorMessage?.contains("删除失败") == true)
+    }
+}
+
+private func restoredJob(gid: Int64, token: String, title: String) -> DownloadJob {
+    let key = GalleryKey(gid: gid, token: token)
+    return DownloadJob(
+        key: key,
+        title: title,
+        pages: [GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://example.invalid/\(gid)/0")!
+        )]
+    )
+}
+
+private actor DownloadSaveProbe {
+    private(set) var jobs: [DownloadJob] = []
+    var count: Int { jobs.count }
+
+    func record(_ job: DownloadJob) {
+        jobs.append(job)
+    }
+}
+
+private actor DownloadLoadProbe {
+    private(set) var keys: [GalleryKey] = []
+    var count: Int { keys.count }
+
+    func record(_ key: GalleryKey) {
+        keys.append(key)
     }
 }
 

@@ -85,6 +85,24 @@ if [[ "$archive_listing" != *"Payload/$app_name.app/"* ]]; then
     print "The generated IPA is missing Payload/$app_name.app/." >&2
     exit 1
 fi
+unexpected_entry=$(
+    print -r -- "$archive_listing" | /usr/bin/awk '
+        {
+            path = tolower($0)
+            if (path ~ /(^|\/)(\.ds_store|\.git|\.build|deriveddata|sourcepackages|xcuserdata)(\/|$)/ ||
+                path ~ /(^|\/)\.env($|\.)/ ||
+                path ~ /\.(swift|xcuserstate|p12|pfx|key)$/ ||
+                path ~ /(^|\/)(__preview|[^\/]+\.debug)\.dylib$/) {
+                print $0
+                exit
+            }
+        }
+    '
+)
+if [[ -n "$unexpected_entry" ]]; then
+    print "The generated IPA contains an unexpected development or sensitive file: $unexpected_entry" >&2
+    exit 1
+fi
 
 print "Archive: $archive_path"
 print "App:     $app_path"

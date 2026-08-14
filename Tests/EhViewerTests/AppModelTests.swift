@@ -70,8 +70,8 @@ struct AppModelTests {
         #expect(model.site == .eHentai)
     }
 
-    @Test("E-Hentai remains the default site for saved sessions")
-    func authenticatedSessionDefaultsToEHentai() async throws {
+    @Test("An authenticated session restores the selected site")
+    func authenticatedSessionRestoresSelectedSite() async throws {
         let suiteName = "EhViewerDefaultSiteTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -88,8 +88,8 @@ struct AppModelTests {
         await model.refreshSessionStatus()
 
         #expect(model.isGuestMode == false)
-        #expect(model.site == .eHentai)
-        #expect(defaults.string(forKey: "site") == SiteMode.eHentai.rawValue)
+        #expect(model.site == .exHentai)
+        #expect(defaults.string(forKey: "site") == SiteMode.exHentai.rawValue)
         try await vault.clear()
     }
 
@@ -200,10 +200,87 @@ struct AppModelTests {
         let pageModel = BrowsePageModel(model: model, kind: .home)
         pageModel.searchText = "blue archive"
 
-        await pageModel.updateTagSuggestions()
+        await pageModel.refreshSearchSuggestions(for: pageModel.searchText)
 
         #expect(pageModel.tagSearchSuggestions == [
             SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案")
+        ])
+    }
+
+    @Test("Rapid tag suggestion refresh follows the input and keeps the latest query")
+    func rapidTagSuggestionRefreshFollowsInputAndKeepsLatestQuery() async throws {
+        let tagLoader = ControlledTagSuggestionLoader()
+        let suiteName = "EhViewerRapidTagSuggestionTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        let pageModel = BrowsePageModel(
+            model: model,
+            kind: .home,
+            tagSuggestionLoader: { keyword in
+                try await tagLoader.suggestions(for: keyword)
+            }
+        )
+
+        pageModel.searchText = "blue archive"
+        let seedTask = Task { @MainActor in
+            await pageModel.refreshSearchSuggestions(for: "blue archive")
+        }
+        await tagLoader.waitUntilRequested("blue archive")
+        #expect(await tagLoader.respond(
+            to: "blue archive",
+            with: [SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案")]
+        ))
+        await seedTask.value
+        #expect(pageModel.tagSearchSuggestions == [
+            SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案")
+        ])
+
+        pageModel.searchText = "group"
+        let staleTask = Task { @MainActor in
+            await pageModel.refreshSearchSuggestions(for: "group")
+        }
+        await tagLoader.waitUntilRequested("group")
+        #expect(pageModel.suggestionQuery == "group")
+        #expect(pageModel.isUpdatingSearchSuggestions)
+        #expect(pageModel.tagSearchSuggestions == [
+            SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案")
+        ])
+
+        pageModel.searchText = "female"
+        let latestTask = Task { @MainActor in
+            await pageModel.refreshSearchSuggestions(for: "female")
+        }
+        await tagLoader.waitUntilRequested("female")
+        #expect(pageModel.suggestionQuery == "female")
+        #expect(pageModel.isUpdatingSearchSuggestions)
+        #expect(pageModel.tagSearchSuggestions.isEmpty)
+
+        #expect(await tagLoader.respond(
+            to: "female",
+            with: [SearchTagSuggestion(english: "female:sample")]
+        ))
+        await latestTask.value
+
+        #expect(pageModel.tagSearchSuggestions == [
+            SearchTagSuggestion(english: "female:sample")
+        ])
+        #expect(pageModel.isUpdatingSearchSuggestions == false)
+
+        #expect(await tagLoader.respond(
+            to: "group",
+            with: [SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案")]
+        ))
+        await staleTask.value
+
+        #expect(pageModel.suggestionQuery == "female")
+        #expect(pageModel.tagSearchSuggestions == [
+            SearchTagSuggestion(english: "female:sample")
         ])
     }
 
@@ -427,6 +504,33 @@ private actor ControlledListAPI: EHAPI {
     func respond(to searchText: String, with page: GalleryListPage) -> Bool {
         guard let continuation = responseContinuations.removeValue(forKey: searchText) else { return false }
         continuation.resume(returning: page)
+        return true
+    }
+}
+
+private actor ControlledTagSuggestionLoader {
+    private var requests = Set<String>()
+    private var requestWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var responseContinuations: [String: CheckedContinuation<[SearchTagSuggestion], any Error>] = [:]
+
+    func suggestions(for keyword: String) async throws -> [SearchTagSuggestion] {
+        requests.insert(keyword)
+        requestWaiters.removeValue(forKey: keyword)?.forEach { $0.resume() }
+        return try await withCheckedThrowingContinuation { continuation in
+            responseContinuations[keyword] = continuation
+        }
+    }
+
+    func waitUntilRequested(_ keyword: String) async {
+        if requests.contains(keyword) { return }
+        await withCheckedContinuation { continuation in
+            requestWaiters[keyword, default: []].append(continuation)
+        }
+    }
+
+    func respond(to keyword: String, with suggestions: [SearchTagSuggestion]) -> Bool {
+        guard let continuation = responseContinuations.removeValue(forKey: keyword) else { return false }
+        continuation.resume(returning: suggestions)
         return true
     }
 }

@@ -8,6 +8,9 @@ struct HomeBrowseView: View {
     var body: some View {
         BrowseView(model: model, kind: .home) { query in
             openSearchResults(query)
+        } onOpenGallery: { key in
+            navigationPath.removeAll()
+            navigationPath.append(.gallery(key))
         }
         .onAppear(perform: consumePendingSearch)
         .onChange(of: model.pendingSearchQuery) { _, _ in

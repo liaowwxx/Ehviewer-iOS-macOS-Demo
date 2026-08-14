@@ -16,7 +16,12 @@ public actor ImagePipeline {
 #if os(macOS)
         self.byteLimit = byteLimit ?? 2 * 1024 * 1024 * 1024
 #else
-        self.byteLimit = byteLimit ?? 512 * 1024 * 1024
+        let physicalMemory = ProcessInfo.processInfo.physicalMemory
+        let adaptiveLimit = min(
+            Int64(128 * 1024 * 1024),
+            max(Int64(32 * 1024 * 1024), Int64(physicalMemory / 16))
+        )
+        self.byteLimit = byteLimit ?? Int(adaptiveLimit)
 #endif
         self.diskRoot = diskRoot ?? Self.defaultDiskRoot
     }

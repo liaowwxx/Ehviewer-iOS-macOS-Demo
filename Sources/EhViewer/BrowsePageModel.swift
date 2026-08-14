@@ -7,10 +7,10 @@ import EHPersistence
 @MainActor
 @Observable
 final class BrowsePageModel {
+    private let model: AppModel
+    private let loadTagSuggestions: @Sendable (String) async throws -> [SearchTagSuggestion]
     let api: any EHAPI
     let persistence: PersistenceStore
-    let tagSuggestionProvider: TagSuggestionProvider
-    let site: SiteMode
     let kind: GalleryListQuery.ListKind
 
     var galleries: [GallerySummary] = []
@@ -19,19 +19,35 @@ final class BrowsePageModel {
     var searchText = ""
     var submittedSearchText = ""
     var tagSearchSuggestions: [SearchTagSuggestion] = []
+    var searchHistorySuggestions: [String] = []
+    var suggestionQuery = ""
+    var isUpdatingSearchSuggestions = false
+    var advancedSearch: GalleryAdvancedSearch?
     var errorMessage: String?
 
-    private var filterRules: [FilterRuleSnapshot] = []
-    private var didLoadFilterRules = false
     private var activeQuery: GalleryListQuery
     private var activeRequestID = UUID()
+    private var suggestionRequestID = UUID()
+    private var cachedQuickSearches: [String]?
 
-    init(model: AppModel, kind: GalleryListQuery.ListKind, initialSearchText: String? = nil) {
+    init(
+        model: AppModel,
+        kind: GalleryListQuery.ListKind,
+        initialSearchText: String? = nil,
+        tagSuggestionLoader: (@Sendable (String) async throws -> [SearchTagSuggestion])? = nil
+    ) {
+        self.model = model
         let normalizedSearchText = SearchQueryComposer.normalized(initialSearchText ?? "")
         api = model.api
         persistence = model.persistence
-        tagSuggestionProvider = model.tagSuggestionProvider
-        site = model.site
+        if let tagSuggestionLoader {
+            loadTagSuggestions = tagSuggestionLoader
+        } else {
+            let provider = model.tagSuggestionProvider
+            loadTagSuggestions = { keyword in
+                try await provider.suggestions(for: keyword)
+            }
+        }
         self.kind = kind
         searchText = normalizedSearchText
         submittedSearchText = normalizedSearchText
@@ -44,16 +60,23 @@ final class BrowsePageModel {
 
     var listQuery: GalleryListQuery {
         GalleryListQuery(
-            site: site,
+            site: model.site,
             kind: kind,
-            searchText: submittedSearchText.isEmpty ? nil : submittedSearchText
+            searchText: submittedSearchText.isEmpty ? nil : submittedSearchText,
+            advancedSearch: advancedSearch
         )
+    }
+
+    var configurationID: String {
+        let rules = model.filterRules.map { "\($0.pattern)=\($0.isEnabled)" }.joined(separator: "|")
+        return "\(model.site.rawValue)|\(rules)"
     }
 
     func load(query: GalleryListQuery) async {
         let requestID = UUID()
         activeRequestID = requestID
         isLoading = true
+        errorMessage = nil
         nextPageURL = nil
         var loadedNextPageURL: URL?
         var didLoadPage = false
@@ -66,7 +89,6 @@ final class BrowsePageModel {
 
         activeQuery = query
         do {
-            await loadFilterRulesIfNeeded()
             let result = if query.kind == .favorites {
                 try await api.favorites(query: query)
             } else {
@@ -75,11 +97,13 @@ final class BrowsePageModel {
             try Task.checkCancellation()
             guard activeRequestID == requestID else { return }
             galleries = result.items.filter(matchesFilter)
+            errorMessage = nil
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
             try await persistence.upsert(result.items)
             if let searchText = query.searchText {
                 try? await persistence.recordQuickSearch(searchText)
+                cachedQuickSearches = nil
             }
         } catch is CancellationError {
             return
@@ -137,20 +161,88 @@ final class BrowsePageModel {
         submittedSearchText = ""
     }
 
-    func updateTagSuggestions() async {
-        let fragment = SearchQueryComposer.suggestionFragment(in: searchText)
-        tagSearchSuggestions = []
-        guard fragment.isEmpty == false else { return }
+    func refreshSearchSuggestions(for query: String) async {
+        let requestID = UUID()
+        suggestionRequestID = requestID
+        let normalizedQuery = SearchQueryComposer.normalized(query)
+        let fragment = SearchQueryComposer.suggestionFragment(in: normalizedQuery)
+
+        suggestionQuery = normalizedQuery
+        isUpdatingSearchSuggestions = true
+        searchHistorySuggestions = cachedQuickSearches.map {
+            filteredSearchHistory($0, prefix: normalizedQuery)
+        } ?? []
+        tagSearchSuggestions = fragment.isEmpty ? [] : tagSearchSuggestions.filter {
+            matchesTagSuggestion($0, keyword: fragment)
+        }
+
+        // Coalesce changes made in the same run-loop turn without adding a
+        // fixed delay that makes the visible suggestions lag behind typing.
+        await Task.yield()
+
         do {
-            try await Task.sleep(for: .milliseconds(120))
-            let loadedTags = try await tagSuggestionProvider.suggestions(for: fragment)
             try Task.checkCancellation()
-            guard SearchQueryComposer.suggestionFragment(in: searchText) == fragment else { return }
-            tagSearchSuggestions = loadedTags
+            let history = try await searchHistorySuggestions(for: normalizedQuery)
+            try Task.checkCancellation()
+            let tags: [SearchTagSuggestion]
+            if fragment.isEmpty {
+                tags = []
+            } else {
+                tags = try await loadTagSuggestions(fragment)
+            }
+            try Task.checkCancellation()
+            guard isLatestSuggestionRequest(requestID, query: normalizedQuery) else { return }
+            if searchHistorySuggestions != history {
+                searchHistorySuggestions = history
+            }
+            if tagSearchSuggestions != tags {
+                tagSearchSuggestions = tags
+            }
+            isUpdatingSearchSuggestions = false
         } catch is CancellationError {
             return
         } catch {
-            tagSearchSuggestions = []
+            guard Task.isCancelled == false,
+                  isLatestSuggestionRequest(requestID, query: normalizedQuery) else { return }
+            searchHistorySuggestions = cachedQuickSearches.map {
+                filteredSearchHistory($0, prefix: normalizedQuery)
+            } ?? []
+            isUpdatingSearchSuggestions = false
+        }
+    }
+
+    private func isLatestSuggestionRequest(_ requestID: UUID, query: String) -> Bool {
+        suggestionRequestID == requestID
+            && suggestionQuery == query
+            && SearchQueryComposer.normalized(searchText) == query
+    }
+
+    private func searchHistorySuggestions(for prefix: String) async throws -> [String] {
+        if cachedQuickSearches == nil {
+            cachedQuickSearches = try await persistence.quickSearches(limit: 100)
+        }
+        return filteredSearchHistory(cachedQuickSearches ?? [], prefix: prefix)
+    }
+
+    private func filteredSearchHistory(_ searches: [String], prefix: String) -> [String] {
+        guard prefix.isEmpty == false else { return searches }
+        return searches.filter {
+            $0 != prefix && $0.range(of: prefix, options: [.caseInsensitive, .anchored]) != nil
+        }
+    }
+
+    private func matchesTagSuggestion(_ suggestion: SearchTagSuggestion, keyword: String) -> Bool {
+        suggestion.english.localizedCaseInsensitiveContains(keyword)
+            || suggestion.localizedText?.localizedCaseInsensitiveContains(keyword) == true
+    }
+
+    func deleteSearchHistory(_ query: String) async {
+        do {
+            try await persistence.deleteQuickSearch(query)
+            cachedQuickSearches = nil
+            await refreshSearchSuggestions(for: searchText)
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -158,17 +250,15 @@ final class BrowsePageModel {
         searchText = SearchQueryComposer.completing(tag: tag, in: searchText)
     }
 
-    private func loadFilterRulesIfNeeded() async {
-        guard didLoadFilterRules == false else { return }
-        filterRules = (try? await persistence.filterRules()) ?? []
-        didLoadFilterRules = true
+    func selectSearchHistory(_ query: String) {
+        searchText = SearchQueryComposer.normalized(query)
     }
 
     private func matchesFilter(_ gallery: GallerySummary) -> Bool {
         let haystack = ([gallery.title, gallery.secondaryTitle ?? ""] + gallery.tags)
             .joined(separator: " ")
             .lowercased()
-        return filterRules.contains { rule in
+        return model.filterRules.contains { rule in
             rule.isEnabled && haystack.localizedCaseInsensitiveContains(rule.pattern)
         } == false
     }

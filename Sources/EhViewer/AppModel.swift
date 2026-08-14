@@ -32,6 +32,7 @@ final class AppModel {
     var tagSearchSuggestions: [SearchTagSuggestion] = []
     var localArchive: LocalArchiveDocument?
     var selectedRoute: AppRoute? = .browse
+    var browseRefreshToken = 0
     var isLoading = false
     var searchText = ""
     var submittedSearchText = ""
@@ -55,13 +56,14 @@ final class AppModel {
         downloadFiles: DownloadFileStore? = nil,
         tagSuggestionProvider: TagSuggestionProvider = TagSuggestionProvider()
     ) {
-        self.defaults = defaults
-        site = .eHentai
-        readingSettings = ReadingSettings.load(from: defaults)
-        defaults.set(SiteMode.eHentai.rawValue, forKey: "site")
         let arguments = ProcessInfo.processInfo.arguments
         let forceGuestModeForUITest = arguments.contains("-UITestUseGuestMode")
+        self.defaults = defaults
         forceGuestMode = forceGuestModeForUITest
+        let savedSite = SiteMode(rawValue: defaults.string(forKey: "site") ?? "") ?? .eHentai
+        let selectedSite = forceGuestModeForUITest ? SiteMode.eHentai : savedSite
+        site = selectedSite
+        readingSettings = ReadingSettings.load(from: defaults)
         if forceGuestModeForUITest {
             isGuestMode = true
         }
@@ -93,7 +95,7 @@ final class AppModel {
         )
         self.backgroundSession = backgroundSession
         let downloadClient = client
-        let downloadSite = SiteMode.eHentai
+        let downloadSite = selectedSite
         downloads = DownloadCoordinator(
             pageLoader: { descriptor in
                 let imageURL: URL
@@ -126,7 +128,9 @@ final class AppModel {
                     label: job.label
                 )
             },
-            removal: { key in try? await store.deleteDownload(for: key) }
+            removal: { key in
+                try await store.deleteDownload(for: key)
+            }
         )
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -297,17 +301,14 @@ final class AppModel {
         await load(query: activeQuery)
     }
 
-    func detail(for key: GalleryKey) async -> GalleryDetail? {
-        do {
-            let detail = try await api.detail(for: key, site: site)
-            try await persistence.upsert([detail.summary])
-            return detail
-        } catch is CancellationError {
-            return nil
-        } catch {
-            errorMessage = error.localizedDescription
-            return nil
-        }
+    func requestBrowseRefresh() {
+        browseRefreshToken &+= 1
+    }
+
+    func detail(for key: GalleryKey) async throws -> GalleryDetail {
+        let detail = try await api.detail(for: key, site: site)
+        try await persistence.upsert([detail.summary])
+        return detail
     }
 
     func pageImage(for descriptor: GalleryPageDescriptor) async throws -> GalleryPageImage {
@@ -357,7 +358,14 @@ final class AppModel {
         #if os(iOS)
         try await PhotoLibrarySaver.save(data)
         #else
-        _ = try await downloadFiles.write(data, for: descriptor.galleryKey, pageIndex: descriptor.index)
+        guard let downloadsDirectory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            throw EHError.storageFailed("找不到可写入的下载目录")
+        }
+        try FileManager.default.createDirectory(at: downloadsDirectory, withIntermediateDirectories: true)
+        let fileExtension = descriptor.pageURL.pathExtension.isEmpty ? "img" : descriptor.pageURL.pathExtension
+        let fileName = "ehviewer-\(descriptor.galleryKey.gid)-\(descriptor.index + 1).\(fileExtension)"
+        try data.write(to: downloadsDirectory.appendingPathComponent(fileName), options: .atomic)
         #endif
     }
 
@@ -541,6 +549,15 @@ final class AppModel {
         }
     }
 
+    func deleteFilterRule(pattern: String) async {
+        do {
+            try await persistence.deleteFilterRule(pattern: pattern)
+            await loadFilterRules()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func setDownloadLabel(_ label: String?, for key: GalleryKey) async {
         let normalized = label?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let normalized, normalized.isEmpty == false {
@@ -647,7 +664,8 @@ final class AppModel {
                 }
             }
 
-            var restoredCount = 0
+            var restoredJobs: [DownloadJob] = []
+            restoredJobs.reserveCapacity(candidates.count)
             for (offset, candidate) in candidates.enumerated() {
                 try Task.checkCancellation()
 
@@ -678,11 +696,11 @@ final class AppModel {
                 job.completedPageIndexes = imported
                 job.state = state
                 job.errorMessage = itemError
-                await downloads.restore([job])
-                restoredCount += 1
+                restoredJobs.append(job)
             }
+            await downloads.restore(restoredJobs)
 
-            var parts = ["已恢复 \(restoredCount) 项"]
+            var parts = ["已恢复 \(restoredJobs.count) 项"]
             if skippedCount > 0 { parts.append("跳过 \(skippedCount) 项") }
             if inspection.invalidItemCount > 0 { parts.append("无效目录 \(inspection.invalidItemCount) 个") }
             if failedPageCount > 0 { parts.append("图片失败 \(failedPageCount) 页") }
@@ -772,15 +790,20 @@ final class AppModel {
 
     private func restoreDownloads() async {
         isLoadingDownloads = true
-        defer { isLoadingDownloads = false }
-        guard let persisted = try? await persistence.downloadJobs() else { return }
+        guard let persisted = try? await persistence.downloadJobs() else {
+            isLoadingDownloads = false
+            return
+        }
+
+        let baselines = persisted.map(makePersistedDownloadJob)
+        await downloads.loadPersisted(baselines)
+        isLoadingDownloads = false
+
         let restoreSite = site
-        for item in persisted {
-            let summary = try? await persistence.gallerySummary(for: item.key)
-            let title = summary?.preferredTitle ?? item.title
+        for (item, baseline) in zip(persisted, baselines) {
+            if Task.isCancelled { return }
             var pages = item.pages
-            if let expectedPageCount = summary?.pageCount,
-               expectedPageCount > pages.count,
+            if item.totalPageCount > pages.count,
                item.stateRaw != DownloadState.cancelled.rawValue,
                let detail = try? await api.detail(for: item.key, site: restoreSite) {
                 let existingIndexes = Set(pages.map(\.index))
@@ -790,14 +813,15 @@ final class AppModel {
                     pages = (pages + resolvedPages).sorted { $0.index < $1.index }
                 }
             }
-            var job = DownloadJob(key: item.key, title: title, pages: pages)
+            var job = DownloadJob(key: item.key, title: item.title, pages: pages)
             let expectedPageIndexes = Set(pages.map(\.index))
+            let persistedPageIndexes = item.completedPageIndexes.intersection(expectedPageIndexes)
             let readablePageIndexes = await downloadFiles.readablePageIndexes(
                 for: item.key,
-                pageIndexes: Array(expectedPageIndexes)
+                pageIndexes: Array(persistedPageIndexes)
             )
             job.completedPageIndexes = readablePageIndexes
-            job.state = DownloadState(rawValue: item.stateRaw) ?? .queued
+            job.state = normalizedRestoredState(item.stateRaw)
             job.label = item.label
             job.errorMessage = item.errorMessage
             if expectedPageIndexes.isEmpty == false,
@@ -812,8 +836,27 @@ final class AppModel {
                 job.state = .paused
                 job.errorMessage = "后台下载任务恢复中"
             }
-            await downloads.restore([job])
+            _ = await downloads.reconcilePersisted(job, replacing: baseline)
         }
+        await downloads.startRestoredJobs()
+    }
+
+    private func makePersistedDownloadJob(_ item: PersistedDownload) -> DownloadJob {
+        var job = DownloadJob(key: item.key, title: item.title, pages: item.pages)
+        job.completedPageIndexes = item.completedPageIndexes
+        job.state = normalizedRestoredState(item.stateRaw)
+        job.label = item.label
+        job.errorMessage = item.errorMessage
+        if item.inFlightPageIndexes.isEmpty == false {
+            job.state = .paused
+            job.errorMessage = "后台下载任务恢复中"
+        }
+        return job
+    }
+
+    private func normalizedRestoredState(_ rawValue: String) -> DownloadState {
+        let state = DownloadState(rawValue: rawValue) ?? .queued
+        return state == .running ? .queued : state
     }
 
     func saveCookie(_ cookieHeader: String) async -> Bool {
@@ -864,13 +907,12 @@ final class AppModel {
 
     func refreshSessionStatus() async {
         isGuestMode = (try? await sessionVault.hasAuthenticatedSession()) != true
-        site = .eHentai
+        if isGuestMode { site = .eHentai }
         persistSettings()
     }
 
     private func completeAuthentication() {
         isGuestMode = false
-        site = .eHentai
         selectedRoute = .browse
         errorMessage = nil
         persistSettings()
@@ -883,12 +925,18 @@ final class AppModel {
             handleIncomingURL(sharedURL)
             return
         }
+        if let key = Self.galleryKey(from: url) {
+            selectedRoute = .gallery(key)
+        }
+    }
+
+    static func galleryKey(from url: URL) -> GalleryKey? {
         let components = ([url.host].compactMap { $0 } + url.pathComponents.filter { $0 != "/" })
-        guard let gIndex = components.firstIndex(of: "g"),
+        guard let gIndex = components.firstIndex(where: { $0.caseInsensitiveCompare("g") == .orderedSame }),
               components.count > gIndex + 2,
               let gid = Int64(components[gIndex + 1]),
-              components[gIndex + 2].isEmpty == false else { return }
-        selectedRoute = .gallery(GalleryKey(gid: gid, token: components[gIndex + 2]))
+              components[gIndex + 2].isEmpty == false else { return nil }
+        return GalleryKey(gid: gid, token: components[gIndex + 2])
     }
 
     func persistSettings() {

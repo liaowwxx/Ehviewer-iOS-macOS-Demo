@@ -33,24 +33,30 @@ struct ReaderSettingsMenu: View {
             }
 
             Section("显示") {
+#if os(iOS)
                 Picker("屏幕旋转", selection: $model.readingSettings.screenRotation) {
                     ForEach(ReaderScreenRotation.allCases) { rotation in
                         Text(rotation.title).tag(rotation)
                     }
                 }
+#endif
                 Toggle("阅读时保持屏幕常亮", isOn: $model.readingSettings.keepScreenOn)
                 Toggle("显示时钟", isOn: $model.readingSettings.showClock)
                 Toggle("显示阅读进度", isOn: $model.readingSettings.showProgress)
+#if os(iOS)
                 Toggle("显示电量", isOn: $model.readingSettings.showBattery)
+#endif
                 Toggle("显示页码", isOn: $model.readingSettings.showPageInterval)
                 Toggle("进入阅读器时全屏", isOn: $model.readingSettings.fullscreen)
             }
 
+#if os(iOS)
             Section("控制") {
                 Toggle("音量键翻页", isOn: $model.readingSettings.volumePage)
                 Toggle("反转音量键方向", isOn: $model.readingSettings.reverseVolumePage)
                     .disabled(model.readingSettings.volumePage == false)
             }
+#endif
         }
         .accessibilityIdentifier("reader-settings-menu")
     }

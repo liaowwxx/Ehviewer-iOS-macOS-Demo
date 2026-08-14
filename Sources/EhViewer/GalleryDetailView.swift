@@ -15,6 +15,13 @@ struct GalleryDetailView: View {
     @State private var comments: [GalleryComment] = []
     @State private var torrents: [TorrentDescriptor] = []
     @State private var archiveOptions: [ArchiveOption] = []
+    @State private var isLoadingDetail = true
+    @State private var detailError: String?
+    @State private var detailLoadToken = UUID()
+    @State private var isEnqueueing = false
+    @State private var isUpdatingFavorite = false
+    @State private var isRating = false
+    @State private var isSubmittingComment = false
 
     var body: some View {
         Group {
@@ -47,15 +54,22 @@ struct GalleryDetailView: View {
                                 .accessibilityIdentifier("new-window-reader-action")
                                 #endif
                                 Button {
-                                    Task { await model.enqueue(detail) }
+                                    isEnqueueing = true
+                                    Task {
+                                        defer { isEnqueueing = false }
+                                        await model.enqueue(detail)
+                                    }
                                 } label: {
                                     Label("加入下载", systemImage: "arrow.down.circle")
                                         .frame(maxWidth: .infinity, minHeight: 44)
                                 }
                                 .buttonStyle(.bordered)
+                                .disabled(isEnqueueing)
                                 .accessibilityIdentifier("enqueue-download-action")
                                 Button {
+                                    isUpdatingFavorite = true
                                     Task {
+                                        defer { isUpdatingFavorite = false }
                                         await model.toggleFavorite(for: key, remoteDetail: detail)
                                         isFavorite = await model.favoriteState(for: key)
                                     }
@@ -64,6 +78,7 @@ struct GalleryDetailView: View {
                                         .frame(maxWidth: .infinity, minHeight: 44)
                                 }
                                 .buttonStyle(.bordered)
+                                .disabled(isUpdatingFavorite)
                                 .accessibilityIdentifier("favorite-action")
                             }
 
@@ -71,11 +86,16 @@ struct GalleryDetailView: View {
                                 Menu("我的评分", systemImage: "star") {
                                     ForEach(1...5, id: \.self) { value in
                                         Button("评分 \(value)") {
-                                            Task { await model.rate(detail, value: Double(value)) }
+                                            isRating = true
+                                            Task {
+                                                defer { isRating = false }
+                                                await model.rate(detail, value: Double(value))
+                                            }
                                         }
                                     }
                                 }
                                 .buttonStyle(.bordered)
+                                .disabled(isRating)
                             }
                             if detail.tags.isEmpty == false {
                                 FlowTags(tags: detail.tags)
@@ -122,26 +142,50 @@ struct GalleryDetailView: View {
                         .padding()
                         .frame(maxWidth: 760, alignment: .leading)
                     }
-                    GalleryCommentsSection(comments: comments, commentText: $commentText, canSubmit: model.isGuestMode == false) {
+                    GalleryCommentsSection(
+                        comments: comments,
+                        commentText: $commentText,
+                        canSubmit: model.isGuestMode == false,
+                        isSubmitting: isSubmittingComment
+                    ) {
                         guard commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { return }
                         let body = commentText
-                        commentText = ""
+                        isSubmittingComment = true
                         Task {
+                            defer { isSubmittingComment = false }
                             if let updated = await model.submitComment(for: detail, body: body) {
                                 comments = updated
+                                commentText = ""
                             }
                         }
                     }
                     .padding(.horizontal)
                     .frame(maxWidth: 760, alignment: .leading)
                 }
+            } else if let detailError {
+                VStack(spacing: 12) {
+                    ContentUnavailableView("详情加载失败", systemImage: "exclamationmark.triangle", description: Text(detailError))
+                    Button("重试", systemImage: "arrow.clockwise") {
+                        detailLoadToken = UUID()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
             } else {
                 ProgressView("读取详情…")
             }
         }
         .navigationTitle("详情")
-        .task(id: key) {
-            detail = await model.detail(for: key)
+        .task(id: "\(key.id)-\(detailLoadToken)") {
+            await loadDetail()
+        }
+    }
+
+    private func loadDetail() async {
+        isLoadingDetail = true
+        detailError = nil
+        do {
+            detail = try await model.detail(for: key)
             isFavorite = await model.favoriteState(for: key)
             comments = detail?.comments ?? []
             if detail != nil {
@@ -150,7 +194,12 @@ struct GalleryDetailView: View {
                 torrents = await loadedTorrents
                 archiveOptions = await loadedArchives
             }
+        } catch is CancellationError {
+            return
+        } catch {
+            detailError = error.localizedDescription
         }
+        isLoadingDetail = false
     }
 }
 
@@ -158,6 +207,7 @@ private struct GalleryCommentsSection: View {
     let comments: [GalleryComment]
     @Binding var commentText: String
     let canSubmit: Bool
+    let isSubmitting: Bool
     let submit: () -> Void
 
     var body: some View {
@@ -182,9 +232,17 @@ private struct GalleryCommentsSection: View {
             TextField(canSubmit ? "写评论" : "登录后发表评论", text: $commentText, axis: .vertical)
                 .lineLimit(3...6)
                 .disabled(canSubmit == false)
-            Button("发布评论", systemImage: "paperplane") { submit() }
+            Button {
+                submit()
+            } label: {
+                if isSubmitting {
+                    ProgressView()
+                } else {
+                    Label("发布评论", systemImage: "paperplane")
+                }
+            }
                 .buttonStyle(.bordered)
-                .disabled(canSubmit == false || commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(isSubmitting || canSubmit == false || commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 }
@@ -283,7 +341,7 @@ private struct FlowTags: View {
                         .font(.caption)
                         .lineLimit(1)
                         .padding(.horizontal, 8)
-                        .frame(minHeight: 22, alignment: .leading)
+                        .frame(minHeight: 44, alignment: .leading)
                 }
                 .buttonStyle(.plain)
                 .background(.quaternary, in: Capsule())

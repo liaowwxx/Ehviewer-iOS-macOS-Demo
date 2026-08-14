@@ -232,6 +232,7 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
                 from: [currentPageIndex],
                 displayOrder: descriptors.map(\.index)
             )
+            prunePages(around: currentPageIndex)
         }
 
         private var orderedDescriptors: [GalleryPageDescriptor] {
@@ -270,7 +271,16 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
                 model: model
             )
             pages[pageIndex] = page
+            prunePages(around: pageIndex)
             return page
+        }
+
+        private func prunePages(around pageIndex: Int) {
+            let retainedIndexes = Set(
+                [pageIndex - 1, pageIndex, pageIndex + 1]
+                    .filter { candidate in descriptors.contains(where: { descriptor in descriptor.index == candidate }) }
+            )
+            pages = pages.filter { retainedIndexes.contains($0.key) }
         }
 
         private func navigationDirection(

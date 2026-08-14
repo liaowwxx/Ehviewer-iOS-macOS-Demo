@@ -15,7 +15,7 @@ final class ShareViewController: UIViewController {
     private func forwardSharedURL() async {
         guard let extensionItem = extensionContext?.inputItems.first as? NSExtensionItem,
               let provider = extensionItem.attachments?.first else {
-            complete()
+            showFailure("没有找到可分享的链接。")
             return
         }
 
@@ -25,15 +25,18 @@ final class ShareViewController: UIViewController {
         }
         guard let sharedURL,
               var components = URLComponents(string: "ehviewer://open") else {
-            complete()
+            showFailure("无法识别分享内容，请分享画廊网页或 URL。")
             return
         }
         components.queryItems = [URLQueryItem(name: "url", value: sharedURL.absoluteString)]
         guard let callbackURL = components.url else {
-            complete()
+            showFailure("无法生成应用打开链接。")
             return
         }
-        _ = await extensionContext?.open(callbackURL)
+        guard await extensionContext?.open(callbackURL) == true else {
+            showFailure("EhViewer 未能打开该链接，请确认主应用可用。")
+            return
+        }
         complete()
     }
 
@@ -71,5 +74,18 @@ final class ShareViewController: UIViewController {
 
     private func complete() {
         extensionContext?.completeRequest(returningItems: nil)
+    }
+
+    @MainActor
+    private func showFailure(_ message: String) {
+        let alert = UIAlertController(title: "无法分享", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+            self?.extensionContext?.cancelRequest(withError: NSError(
+                domain: "EhViewerShare",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            ))
+        })
+        present(alert, animated: true)
     }
 }

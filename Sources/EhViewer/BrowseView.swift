@@ -7,18 +7,22 @@ struct BrowseView: View {
     let model: AppModel
     var kind: GalleryListQuery.ListKind = .home
     let onOpenSearchResults: ((String) -> Void)?
+    let onOpenGallery: ((GalleryKey) -> Void)?
     @State private var pageModel: BrowsePageModel
     @State private var suppressNextSearchSubmission = false
+    @State private var showingAdvancedSearch = false
 
     init(
         model: AppModel,
         kind: GalleryListQuery.ListKind = .home,
         initialSearchText: String? = nil,
-        onOpenSearchResults: ((String) -> Void)? = nil
+        onOpenSearchResults: ((String) -> Void)? = nil,
+        onOpenGallery: ((GalleryKey) -> Void)? = nil
     ) {
         self.model = model
         self.kind = kind
         self.onOpenSearchResults = onOpenSearchResults
+        self.onOpenGallery = onOpenGallery
         _pageModel = State(initialValue: BrowsePageModel(
             model: model,
             kind: kind,
@@ -46,6 +50,17 @@ struct BrowseView: View {
         }
         .overlay {
             if pageModel.isLoading && pageModel.galleries.isEmpty { ProgressView("加载中…") }
+            else if pageModel.galleries.isEmpty, let message = pageModel.errorMessage {
+                VStack(spacing: 12) {
+                    ContentUnavailableView("加载失败", systemImage: "exclamationmark.triangle", description: Text(message))
+                    Button("重试", systemImage: "arrow.clockwise") {
+                        pageModel.errorMessage = nil
+                        Task { await pageModel.load(query: pageModel.listQuery) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+            }
             else if pageModel.galleries.isEmpty { ContentUnavailableView("没有结果", systemImage: "magnifyingglass") }
         }
         .navigationTitle(navigationTitle)
@@ -54,14 +69,26 @@ struct BrowseView: View {
 #endif
         .searchable(text: $pageModel.searchText, placement: .toolbar, prompt: "搜索画廊或标签")
         .searchSuggestions {
-            BrowseSearchSuggestions(pageModel: pageModel) { tag in
-                suppressNextSearchSubmission = true
-                pageModel.completeTagSuggestion(tag)
-                Task { @MainActor in
-                    await Task.yield()
-                    suppressNextSearchSubmission = false
+            BrowseSearchSuggestions(
+                query: pageModel.suggestionQuery,
+                isUpdating: pageModel.isUpdatingSearchSuggestions,
+                searchHistory: pageModel.searchHistorySuggestions,
+                tags: pageModel.tagSearchSuggestions,
+                onSelectHistory: { query in
+                    pageModel.selectSearchHistory(query)
+                },
+                onDeleteHistory: { query in
+                    Task { await pageModel.deleteSearchHistory(query) }
+                },
+                onSelectTag: { tag in
+                    suppressNextSearchSubmission = true
+                    pageModel.completeTagSuggestion(tag)
+                    Task { @MainActor in
+                        await Task.yield()
+                        suppressNextSearchSubmission = false
+                    }
                 }
-            }
+            )
         }
         .onSubmit(of: .search, submitSearch)
         .toolbar {
@@ -75,19 +102,26 @@ struct BrowseView: View {
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 if kind == .home {
-                    BrowseMoreMenu()
+                    BrowseMoreMenu {
+                        showingAdvancedSearch = true
+                    }
                 }
             }
         }
         .refreshable { await pageModel.load(query: pageModel.listQuery) }
-        .task(id: pageModel.listQuery) {
+        .task(id: BrowseLoadID(query: pageModel.listQuery, configurationID: pageModel.configurationID, refreshToken: model.browseRefreshToken)) {
             await pageModel.load(query: pageModel.listQuery)
         }
         .task(id: pageModel.searchText) {
-            await pageModel.updateTagSuggestions()
+            let query = pageModel.searchText
+            await pageModel.refreshSearchSuggestions(for: query)
         }
-        .onChange(of: pageModel.errorMessage) { _, message in
-            if let message { model.errorMessage = message }
+        .sheet(isPresented: $showingAdvancedSearch) {
+            AdvancedSearchView(
+                initialValue: pageModel.advancedSearch,
+                apply: { value in pageModel.advancedSearch = value },
+                clear: { pageModel.advancedSearch = nil }
+            )
         }
     }
 
@@ -121,7 +155,11 @@ struct BrowseView: View {
             return
         }
         if kind == .home, let onOpenSearchResults {
-            onOpenSearchResults(query)
+            if let url = URL(string: query), let key = AppModel.galleryKey(from: url) {
+                onOpenGallery?(key)
+            } else {
+                onOpenSearchResults(query)
+            }
             pageModel.clearSearch()
         } else {
             pageModel.submitSearch()
@@ -141,8 +179,11 @@ struct BrowseView: View {
 }
 
 private struct BrowseMoreMenu: View {
+    let showAdvancedSearch: () -> Void
+
     var body: some View {
         Menu("更多", systemImage: "ellipsis.circle") {
+            Button("高级搜索", systemImage: "slider.horizontal.3", action: showAdvancedSearch)
             Section("浏览") {
                 NavigationLink(value: AppRoute.subscriptions) {
                     Label("subscriptions_title", systemImage: "tag")
@@ -159,6 +200,12 @@ private struct BrowseMoreMenu: View {
     }
 }
 
+private struct BrowseLoadID: Hashable {
+    let query: GalleryListQuery
+    let configurationID: String
+    let refreshToken: Int
+}
+
 private struct GalleryCard: View {
     let gallery: GallerySummary
 
@@ -171,7 +218,7 @@ private struct GalleryCard: View {
         .padding(6)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(gallery.preferredTitle)，\(gallery.pageCount ?? 0) 页")
+        .accessibilityLabel(accessibilityTitle)
     }
 
     private var textContent: some View {
@@ -193,6 +240,13 @@ private struct GalleryCard: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
+    }
+
+    private var accessibilityTitle: String {
+        if let pageCount = gallery.pageCount {
+            return "\(gallery.preferredTitle)，\(pageCount) 页"
+        }
+        return "\(gallery.preferredTitle)，页数未知"
     }
 }
 

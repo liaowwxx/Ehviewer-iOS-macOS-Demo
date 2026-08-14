@@ -46,6 +46,7 @@ struct PersistenceTests {
         let restored = try await store.downloadJobs()
         #expect(restored.count == 1)
         #expect(restored.first?.pages.map(\.index) == [0, 1, 2])
+        #expect(restored.first?.totalPageCount == 3)
         #expect(restored.first?.pages.first?.previewURL?.absoluteString == "https://example.invalid/preview/0.jpg")
         #expect(restored.first?.completedPageIndexes == [0, 2])
         #expect(restored.first?.stateRaw == "paused")
