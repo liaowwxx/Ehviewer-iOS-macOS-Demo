@@ -9,9 +9,7 @@ struct DownloadsView: View {
     @State private var jobs: [DownloadJob] = []
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
-    @State private var showingArchiveImporter = false
     @State private var showingDownloadRestoreImporter = false
-    @State private var archiveDocument: LocalArchiveDocument?
     @State private var searchText = ""
     @State private var statusFilter: DownloadStatusFilter = .all
     @State private var sortOrder: DownloadSortOrder = .titleAscending
@@ -91,10 +89,6 @@ struct DownloadsView: View {
                         }
                     }
                     Divider()
-                    Button("打开本地归档", systemImage: "archivebox") {
-                        showingArchiveImporter = true
-                    }
-                    .accessibilityIdentifier("open-local-archive")
                     Button("恢复下载项", systemImage: "arrow.counterclockwise.circle") {
                         showingDownloadRestoreImporter = true
                     }
@@ -143,30 +137,11 @@ struct DownloadsView: View {
             Text(removalErrorMessage ?? "请稍后重试。")
         }
         .fileImporter(
-            isPresented: $showingArchiveImporter,
-            allowedContentTypes: LocalArchiveView.supportedContentTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            guard case let .success(urls) = result, let url = urls.first else {
-                if case let .failure(error) = result { model.errorMessage = error.localizedDescription }
-                return
-            }
-            Task {
-                archiveDocument = await model.openLocalArchive(from: url)
-            }
-        }
-        .fileImporter(
             isPresented: $showingDownloadRestoreImporter,
             allowedContentTypes: LocalArchiveView.supportedContentTypes,
             allowsMultipleSelection: false,
             onCompletion: handleDownloadRestoreSelection
         )
-        .sheet(item: $archiveDocument) { document in
-            NavigationStack {
-                LocalArchiveView(document: document)
-                    .environment(model)
-            }
-        }
         .task(id: model.isLoadingDownloads) { jobs = await model.downloads.snapshot() }
         .task {
             for await event in await model.downloads.events() {

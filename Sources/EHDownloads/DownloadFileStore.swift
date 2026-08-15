@@ -1,6 +1,20 @@
 import Foundation
 import EHDomain
 
+public struct DownloadFileExportEntry: Sendable, Hashable {
+    public let pageIndex: Int
+    public let fileURL: URL
+    public let byteCount: Int64
+    public let fileExtension: String
+
+    public init(pageIndex: Int, fileURL: URL, byteCount: Int64, fileExtension: String) {
+        self.pageIndex = pageIndex
+        self.fileURL = fileURL
+        self.byteCount = byteCount
+        self.fileExtension = fileExtension
+    }
+}
+
 public actor DownloadFileStore {
     private let root: URL
     private let minimumFreeBytes: Int64
@@ -38,6 +52,21 @@ public actor DownloadFileStore {
         } catch {
             throw EHError.storageFailed(error.localizedDescription)
         }
+    }
+
+    public func exportEntry(for key: GalleryKey, pageIndex: Int) -> DownloadFileExportEntry? {
+        let url = finalURL(for: key, pageIndex: pageIndex)
+        guard FileManager.default.fileExists(atPath: url.path),
+              let fileExtension = DownloadMediaValidator.fileExtension(of: url),
+              let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
+              let byteCount = resourceValues.fileSize,
+              byteCount >= 0 else { return nil }
+        return DownloadFileExportEntry(
+            pageIndex: pageIndex,
+            fileURL: url,
+            byteCount: Int64(byteCount),
+            fileExtension: fileExtension
+        )
     }
 
     @discardableResult

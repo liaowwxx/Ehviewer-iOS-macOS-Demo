@@ -483,9 +483,19 @@ public actor PersistenceStore {
             descriptor.fetchLimit = 1
             if let existing = try modelContext.fetch(descriptor).first {
                 existing.update(from: item.summary)
-                existing.lastReadPage = item.lastReadPage
-                existing.lastReadAt = item.lastReadAt
-                existing.isFavorite = item.isFavorite
+                let shouldUseImportedProgress: Bool
+                if let importedDate = item.lastReadAt {
+                    shouldUseImportedProgress = existing.lastReadAt.map { importedDate > $0 } ?? true
+                } else {
+                    shouldUseImportedProgress = existing.lastReadAt == nil && item.lastReadPage > existing.lastReadPage
+                }
+                if shouldUseImportedProgress {
+                    existing.lastReadPage = item.lastReadPage
+                    existing.lastReadAt = item.lastReadAt
+                } else if existing.lastReadAt == nil && item.lastReadPage > existing.lastReadPage {
+                    existing.lastReadPage = item.lastReadPage
+                }
+                existing.isFavorite = existing.isFavorite || item.isFavorite
             } else {
                 modelContext.insert(
                     GalleryRecord(
@@ -505,17 +515,23 @@ public actor PersistenceStore {
             })
             descriptor.fetchLimit = 1
             let record: DownloadJobRecord
+            let localUpdatedAt: Date?
             if let existing = try modelContext.fetch(descriptor).first {
                 record = existing
+                localUpdatedAt = existing.updatedAt
             } else {
                 record = DownloadJobRecord(key: key, title: item.title, totalPages: item.pages.count)
                 modelContext.insert(record)
+                localUpdatedAt = nil
             }
-            record.title = item.title
-            record.totalPages = item.pages.count
-            record.stateRaw = item.stateRaw
-            record.label = item.label
-            record.errorMessage = item.errorMessage
+            let importedMetadataIsNewer = localUpdatedAt.map { item.updatedAt >= $0 } ?? true
+            if importedMetadataIsNewer {
+                record.title = item.title
+                record.stateRaw = item.stateRaw
+                record.errorMessage = item.errorMessage
+            }
+            record.totalPages = max(record.totalPages, item.pages.count)
+            if record.label == nil { record.label = item.label }
             record.createdAt = min(record.createdAt, item.createdAt)
             record.updatedAt = max(record.updatedAt, item.updatedAt)
             for itemPage in item.pages {
@@ -528,12 +544,15 @@ public actor PersistenceStore {
                     record.pages.append(page)
                     modelContext.insert(page)
                 }
-                page.fileName = itemPage.fileName
-                page.bytes = itemPage.bytes
-                page.directURLString = itemPage.directURLString
-                page.previewURLString = itemPage.previewURLString
-                page.stateRaw = itemPage.stateRaw
-                page.retryCount = itemPage.retryCount
+                if page.fileName.isEmpty { page.fileName = itemPage.fileName }
+                page.bytes = max(page.bytes, itemPage.bytes)
+                if page.directURLString == nil { page.directURLString = itemPage.directURLString }
+                if page.previewURLString == nil { page.previewURLString = itemPage.previewURLString }
+                let hadLocalCompletedFile = page.stateRaw == "completed"
+                page.stateRaw = hadLocalCompletedFile || itemPage.stateRaw == "completed"
+                    ? "completed"
+                    : (importedMetadataIsNewer ? itemPage.stateRaw : page.stateRaw)
+                page.retryCount = max(page.retryCount, itemPage.retryCount)
                 page.backgroundTaskIdentifier = nil
             }
             record.completedPages = record.pages.filter { $0.stateRaw == "completed" }.count
@@ -555,7 +574,7 @@ public actor PersistenceStore {
             var descriptor = FetchDescriptor<FilterRuleRecord>(predicate: #Predicate { $0.pattern == item.pattern })
             descriptor.fetchLimit = 1
             if let existing = try modelContext.fetch(descriptor).first {
-                existing.isEnabled = item.isEnabled
+                existing.isEnabled = existing.isEnabled || item.isEnabled
             } else {
                 modelContext.insert(FilterRuleRecord(pattern: item.pattern, isEnabled: item.isEnabled))
             }

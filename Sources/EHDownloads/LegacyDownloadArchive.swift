@@ -89,7 +89,10 @@ public enum LegacyDownloadArchive {
     private static let maximumMetadataBytes = 16 * 1_024 * 1_024
     private static let maximumPageBytes: Int64 = 256 * 1_024 * 1_024
     private static let minimumFreeBytes: Int64 = 1_024 * 1_024 * 1_024
-    private static let supportedImageExtensions = Set(["jpg", "jpeg", "png", "gif", "webp"])
+    private static let supportedMediaExtensions = Set([
+        "jpg", "jpeg", "png", "gif", "webp",
+        "mp4", "webm", "mkv", "mpg", "mpeg"
+    ])
 
     @concurrent
     public static func inspect(_ archiveURL: URL) async throws -> LegacyDownloadArchiveInspection {
@@ -323,7 +326,7 @@ public enum LegacyDownloadArchive {
               components.count - 3 <= 1 else { return nil }
         let fileName = components[components.count - 1]
         let fileURL = URL(fileURLWithPath: fileName)
-        guard supportedImageExtensions.contains(fileURL.pathExtension.lowercased()) else { return nil }
+        guard supportedMediaExtensions.contains(fileURL.pathExtension.lowercased()) else { return nil }
         let stem = fileURL.deletingPathExtension().lastPathComponent
         guard stem.count == 8,
               stem.allSatisfy(\.isNumber),

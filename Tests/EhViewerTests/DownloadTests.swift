@@ -120,6 +120,39 @@ struct DownloadTests {
         #expect(Set(jobs.map(\.key)) == [first.key, second.key])
     }
 
+    @Test("Download restore merges existing pages instead of replacing the job")
+    func mergeRestoredJobs() async throws {
+        let key = GalleryKey(gid: 23, token: "merge")
+        let localPage = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://example.invalid/local/0")!
+        )
+        let importedPage = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 1,
+            pageURL: URL(string: "https://example.invalid/imported/1")!
+        )
+        var local = DownloadJob(key: key, title: "Local", pages: [localPage], label: "本地")
+        local.completedPageIndexes = [0]
+        local.state = .paused
+        var imported = DownloadJob(key: key, title: "Imported", pages: [importedPage])
+        imported.completedPageIndexes = [1]
+        imported.state = .paused
+
+        let coordinator = DownloadCoordinator(pageLoader: { _ in Data() })
+        await coordinator.restore([local])
+        await coordinator.mergeRestored([imported])
+
+        let merged = try #require(await coordinator.snapshot().first)
+        #expect(merged.title == "Local")
+        #expect(merged.label == "本地")
+        #expect(merged.pages.map(\.index) == [0, 1])
+        #expect(merged.pages.first?.pageURL == localPage.pageURL)
+        #expect(merged.completedPageIndexes == [0, 1])
+        #expect(merged.state == .completed)
+    }
+
     @Test("A stale persisted reconciliation cannot overwrite a newer user change")
     func staleReconciliationDoesNotOverwriteNewerState() async throws {
         let saveProbe = DownloadSaveProbe()

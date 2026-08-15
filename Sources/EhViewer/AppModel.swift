@@ -6,6 +6,20 @@ import EHNetworking
 import EHPersistence
 import EHDownloads
 
+struct MigrationProgress: Sendable, Hashable {
+    let status: String
+    let completed: Int
+    let total: Int
+    let fraction: Double?
+
+    init(status: String, completed: Int = 0, total: Int = 0, fraction: Double? = nil) {
+        self.status = status
+        self.completed = completed
+        self.total = total
+        self.fraction = fraction ?? (total > 0 ? min(1, max(0, Double(completed) / Double(total))) : nil)
+    }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -42,6 +56,8 @@ final class AppModel {
     var errorMessage: String?
     var isRestoringDownloads = false
     var downloadRestoreStatus = ""
+    private(set) var isMigrating = false
+    private(set) var migrationProgress: MigrationProgress?
     private(set) var isLoadingDownloads = true
     private(set) var nextPageURL: URL?
     var hasMorePage: Bool { nextPageURL != nil }
@@ -629,7 +645,10 @@ final class AppModel {
         await downloads.job(for: key)
     }
 
-    func restoreDownloads(from archiveURL: URL) async -> String {
+    func restoreDownloads(
+        from archiveURL: URL,
+        progress: ((Int, Int) -> Void)? = nil
+    ) async -> String {
         guard isRestoringDownloads == false else { return "已有恢复任务正在进行。" }
         isRestoringDownloads = true
         downloadRestoreStatus = "正在检查备份压缩包…"
@@ -647,17 +666,17 @@ final class AppModel {
                     : "没有在压缩包的 download 目录中找到可恢复的下载项。"
             }
 
-            let existingGIDs = Set(await downloads.snapshot().map { $0.key.gid })
-            var seenGIDs = existingGIDs
-            var skippedCount = 0
-            let candidates = inspection.candidates.filter { candidate in
-                if seenGIDs.insert(candidate.key.gid).inserted { return true }
-                skippedCount += 1
-                return false
+            let existingJobs = Dictionary(uniqueKeysWithValues: await downloads.snapshot().map { ($0.key, $0) })
+            var existingLocalIndexes: [GalleryKey: Set<Int>] = [:]
+            for candidate in inspection.candidates {
+                let pageIndexes = Array(0..<candidate.declaredPageCount)
+                existingLocalIndexes[candidate.key] = await downloadFiles.readablePageIndexes(
+                    for: candidate.key,
+                    pageIndexes: pageIndexes
+                )
             }
-            guard candidates.isEmpty == false else {
-                return "没有可恢复的新下载项，已跳过 \(skippedCount) 项。"
-            }
+            let candidates = inspection.candidates
+            progress?(0, candidates.count)
 
             downloadRestoreStatus = "正在获取画廊信息…"
             let summaries = (try? await api.gallerySummaries(
@@ -672,6 +691,7 @@ final class AppModel {
             let selections = candidates.flatMap { candidate -> [LegacyDownloadPageSelection] in
                 return candidate.images.compactMap { image in
                     guard (0..<candidate.declaredPageCount).contains(image.pageIndex) else { return nil }
+                    guard existingLocalIndexes[candidate.key, default: []].contains(image.pageIndex) == false else { return nil }
                     return LegacyDownloadPageSelection(
                         archivePath: image.archivePath,
                         key: candidate.key,
@@ -687,7 +707,7 @@ final class AppModel {
             )
             defer { try? FileManager.default.removeItem(at: extraction.temporaryDirectory) }
 
-            var importedIndexes: [GalleryKey: Set<Int>] = [:]
+            var importedIndexes = existingLocalIndexes
             var failedPageCount = extraction.failedPageCount
             for (offset, page) in extraction.pages.enumerated() {
                 try Task.checkCancellation()
@@ -713,9 +733,18 @@ final class AppModel {
 
                 let imported = importedIndexes[candidate.key] ?? []
                 let legacyPages = legacyPageDescriptors(candidate: candidate, site: restoreSite)
-                let expected = Set(0..<candidate.declaredPageCount)
+                var pageByIndex = Dictionary(uniqueKeysWithValues: legacyPages.pages.map { ($0.index, $0) })
+                if let existing = existingJobs[candidate.key] {
+                    for page in existing.pages {
+                        if let mergedPage = pageByIndex[page.index], mergedPage.requiresPageResolution {
+                            continue
+                        }
+                        pageByIndex[page.index] = page
+                    }
+                }
+                let pages = pageByIndex.values.sorted { $0.index < $1.index }
+                let expected = Set(0..<max(candidate.declaredPageCount, (pages.map(\.index).max() ?? -1) + 1))
                 let isComplete = expected.isEmpty == false && imported == expected
-                let pages = legacyPages.pages
                 var state: DownloadState = isComplete ? .completed : .paused
                 var itemError: String?
 
@@ -732,18 +761,22 @@ final class AppModel {
 
                 var job = DownloadJob(
                     key: candidate.key,
-                    title: summaryByKey[candidate.key]?.preferredTitle ?? fallbackDownloadTitle(for: candidate),
-                    pages: pages
+                    title: existingJobs[candidate.key]?.title
+                        ?? summaryByKey[candidate.key]?.preferredTitle
+                        ?? fallbackDownloadTitle(for: candidate),
+                    pages: pages,
+                    label: existingJobs[candidate.key]?.label,
+                    addedAt: existingJobs[candidate.key]?.addedAt ?? Date()
                 )
                 job.completedPageIndexes = imported
                 job.state = state
                 job.errorMessage = itemError
                 restoredJobs.append(job)
+                progress?(offset + 1, candidates.count)
             }
-            await downloads.restore(restoredJobs)
+            await downloads.mergeRestored(restoredJobs)
 
-            var parts = ["已恢复 \(restoredJobs.count) 项"]
-            if skippedCount > 0 { parts.append("跳过 \(skippedCount) 项") }
+            var parts = ["已合并恢复 \(restoredJobs.count) 项"]
             if inspection.invalidItemCount > 0 { parts.append("无效目录 \(inspection.invalidItemCount) 个") }
             if failedPageCount > 0 { parts.append("图片失败 \(failedPageCount) 页") }
             return parts.joined(separator: "，") + "。"
@@ -850,7 +883,7 @@ final class AppModel {
         )
     }
 
-    private func restoreDownloads() async {
+    private func restoreDownloads(progress: ((Int, Int) -> Void)? = nil) async {
         isLoadingDownloads = true
         guard let persisted = try? await persistence.downloadJobs() else {
             isLoadingDownloads = false
@@ -860,9 +893,10 @@ final class AppModel {
         let baselines = persisted.map(makePersistedDownloadJob)
         await downloads.loadPersisted(baselines)
         isLoadingDownloads = false
+        progress?(0, persisted.count)
 
         let restoreSite = site
-        for (item, baseline) in zip(persisted, baselines) {
+        for (offset, (item, baseline)) in zip(persisted, baselines).enumerated() {
             if Task.isCancelled { return }
             var pages = item.pages
             if item.totalPageCount > pages.count,
@@ -904,6 +938,7 @@ final class AppModel {
                 job.errorMessage = "后台下载任务恢复中"
             }
             _ = await downloads.reconcilePersisted(job, replacing: baseline)
+            progress?(offset + 1, persisted.count)
         }
         await downloads.startRestoredJobs()
     }
@@ -1020,11 +1055,73 @@ final class AppModel {
     }
 
     func exportMigrationData() async -> Data? {
+        guard beginMigration(status: "正在准备 JSON 数据…") else { return nil }
+        defer { finishMigration() }
+
         do {
+            setMigrationProgress(status: "正在读取本地数据…", fraction: 0.1)
             var snapshot = try await persistence.exportSnapshot()
             snapshot.siteRaw = site.rawValue
-            snapshot.readingSettingsData = try JSONEncoder().encode(readingSettings)
-            return try JSONEncoder().encode(snapshot)
+            setMigrationProgress(status: "正在编码阅读设置…", fraction: 0.35)
+            let settings = readingSettings
+            snapshot.readingSettingsData = try await Task.detached(priority: .userInitiated) {
+                try JSONEncoder().encode(settings)
+            }.value
+            setMigrationProgress(status: "正在生成 JSON 文件…", fraction: 0.7)
+            let data = try await Task.detached(priority: .userInitiated) {
+                try JSONEncoder().encode(snapshot)
+            }.value
+            setMigrationProgress(status: "JSON 数据已准备完成", fraction: 1)
+            return data
+        } catch is CancellationError {
+            return nil
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func exportDownloadArchive() async -> URL? {
+        guard beginMigration(status: "正在准备下载压缩包…") else { return nil }
+        defer { finishMigration() }
+
+        do {
+            setMigrationProgress(status: "正在读取下载任务…", fraction: 0.05)
+            let persisted = try await persistence.downloadJobs()
+            let items = persisted.map { item in
+                let pageTokens = Dictionary(uniqueKeysWithValues: item.pages.compactMap { page -> (Int, String)? in
+                    guard let token = pageToken(from: page.pageURL) else { return nil }
+                    return (page.index, token)
+                })
+                let highestPage = item.pages.map { $0.index + 1 }.max() ?? 0
+                return DownloadArchiveExportItem(
+                    key: item.key,
+                    title: item.title,
+                    totalPageCount: max(item.totalPageCount, highestPage),
+                    pageTokens: pageTokens
+                )
+            }
+            setMigrationProgress(status: "正在创建下载压缩包…", fraction: 0.1)
+            let archiveURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("EhViewer-Downloads-\(UUID().uuidString).zip")
+            _ = try await DownloadArchiveExporter.export(
+                items: items,
+                files: downloadFiles,
+                to: archiveURL
+            ) { [weak self] progress in
+                guard let self else { return }
+                let archiveFraction = progress.fraction
+                await self.setMigrationProgress(
+                    status: progress.currentTitle.map { "正在导出《\($0)》…" } ?? "正在导出下载文件…",
+                    completed: progress.completedFiles,
+                    total: progress.totalFiles,
+                    fraction: 0.1 + archiveFraction * 0.85
+                )
+            }
+            setMigrationProgress(status: "下载压缩包已准备完成", fraction: 1)
+            return archiveURL
+        } catch is CancellationError {
+            return nil
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -1032,10 +1129,19 @@ final class AppModel {
     }
 
     func importMigrationData(_ data: Data) async -> Bool {
+        guard beginMigration(status: "正在准备导入…") else { return false }
+        defer { finishMigration() }
+
         do {
-            let snapshot = try JSONDecoder().decode(MigrationSnapshot.self, from: data)
+            setMigrationProgress(status: "正在解析迁移数据…", fraction: 0.1)
+            let snapshot = try await Task.detached(priority: .userInitiated) {
+                try JSONDecoder().decode(MigrationSnapshot.self, from: data)
+            }.value
+            setMigrationProgress(status: "正在合并本地数据…", fraction: 0.35)
             try await persistence.importSnapshot(snapshot)
-            if let rawSite = snapshot.siteRaw, let importedSite = SiteMode(rawValue: rawSite), isGuestMode == false || importedSite == .eHentai {
+            if let rawSite = snapshot.siteRaw,
+               let importedSite = SiteMode(rawValue: rawSite),
+               isGuestMode == false || importedSite == .eHentai {
                 site = importedSite
                 persistSettings()
             }
@@ -1044,17 +1150,65 @@ final class AppModel {
                 readingSettings = importedSettings
                 persistReadingSettings()
             }
+            setMigrationProgress(status: "正在刷新搜索与过滤数据…", fraction: 0.58)
             await loadFilterRules()
             await loadTagTranslations()
             await loadQuickSearches()
-            await restoreDownloads()
+            setMigrationProgress(status: "正在刷新下载内容…", fraction: 0.7)
+            await restoreDownloads(progress: { [weak self] completed, total in
+                guard let self else { return }
+                let fraction = total > 0 ? 0.7 + 0.22 * Double(completed) / Double(total) : 0.92
+                self.setMigrationProgress(
+                    status: total > 0 ? "正在刷新下载内容 \(completed)/\(total)…" : "正在刷新下载内容…",
+                    completed: completed,
+                    total: total,
+                    fraction: fraction
+                )
+            })
             historyGalleries = (try? await persistence.recent()) ?? historyGalleries
             favoriteGalleries = (try? await persistence.favorites()) ?? favoriteGalleries
+            setMigrationProgress(status: "数据已合并完成", fraction: 1)
             return true
+        } catch is CancellationError {
+            return false
         } catch {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    private func beginMigration(status: String) -> Bool {
+        guard isMigrating == false else { return false }
+        isMigrating = true
+        migrationProgress = MigrationProgress(status: status, fraction: 0)
+        return true
+    }
+
+    private func finishMigration() {
+        isMigrating = false
+        migrationProgress = nil
+    }
+
+    private func setMigrationProgress(
+        status: String,
+        completed: Int = 0,
+        total: Int = 0,
+        fraction: Double? = nil
+    ) {
+        migrationProgress = MigrationProgress(
+            status: status,
+            completed: completed,
+            total: total,
+            fraction: fraction
+        )
+    }
+
+    private func pageToken(from url: URL) -> String? {
+        let components = url.pathComponents
+        guard let index = components.firstIndex(where: { $0.caseInsensitiveCompare("s") == .orderedSame }),
+              components.indices.contains(index + 1),
+              components[index + 1].isEmpty == false else { return nil }
+        return components[index + 1]
     }
 
     private func imageURL(for image: GalleryPageImage, resolution: ImageResolution) -> URL {

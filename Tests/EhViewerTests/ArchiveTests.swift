@@ -86,6 +86,66 @@ struct ArchiveTests {
         #expect(candidate.declaredPageCount == 1)
     }
 
+    @Test("Download archive exporter writes a restorable mixed-media backup with progress")
+    func downloadArchiveExportRoundTrip() async throws {
+        let imageData = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
+        let videoData = Data([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6D, 0x70, 0x34, 0x32])
+        let key = GalleryKey(gid: 654, token: "archive-token")
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-export-source-\(UUID().uuidString)")
+        let importedRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-export-destination-\(UUID().uuidString)")
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-export-\(UUID().uuidString).zip")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: importedRoot)
+            try? FileManager.default.removeItem(at: archiveURL)
+        }
+
+        let store = DownloadFileStore(root: root, minimumFreeBytes: 1)
+        _ = try await store.write(imageData, for: key, pageIndex: 0)
+        _ = try await store.write(videoData, for: key, pageIndex: 1)
+        let item = DownloadArchiveExportItem(
+            key: key,
+            title: "导出/测试画廊",
+            totalPageCount: 2,
+            pageTokens: [0: "page-token"]
+        )
+        let progress = ProgressProbe()
+        let result = try await DownloadArchiveExporter.export(
+            items: [item],
+            files: store,
+            to: archiveURL
+        ) { update in
+            await progress.record(update)
+        }
+
+        #expect(result.completedFiles == 2)
+        #expect(await progress.isMonotonic)
+        #expect(await progress.values.last == 1)
+
+        let inspection = try await LegacyDownloadArchive.inspect(archiveURL)
+        let candidate = try #require(inspection.candidates.first)
+        #expect(candidate.key == key)
+        #expect(candidate.declaredPageCount == 2)
+        #expect(candidate.images.map(\.pageIndex) == [0, 1])
+        #expect(candidate.pageTokens == [0: "page-token"])
+        #expect(candidate.images.contains { $0.archivePath.hasSuffix("00000002.mp4") })
+
+        let selections = candidate.images.map {
+            LegacyDownloadPageSelection(archivePath: $0.archivePath, key: key, pageIndex: $0.pageIndex)
+        }
+        let extraction = try await LegacyDownloadArchive.extractPages(from: archiveURL, selections: selections)
+        defer { try? FileManager.default.removeItem(at: extraction.temporaryDirectory) }
+        let importedStore = DownloadFileStore(root: importedRoot, minimumFreeBytes: 1)
+        for page in extraction.pages {
+            _ = try await importedStore.importFile(at: page.fileURL, for: page.key, pageIndex: page.pageIndex)
+        }
+        #expect(try await importedStore.data(for: key, pageIndex: 0) == imageData)
+        #expect(try await importedStore.data(for: key, pageIndex: 1) == videoData)
+    }
+
     private func makeStoredZip(entries: [(String, Data)]) -> Data {
         var zip = Data()
         var records: [(name: Data, payload: Data, crc: UInt32, offset: UInt32)] = []
@@ -152,6 +212,18 @@ struct ArchiveTests {
             }
         }
         return crc ^ 0xFFFFFFFF
+    }
+}
+
+private actor ProgressProbe {
+    private(set) var values: [Double] = []
+
+    var isMonotonic: Bool {
+        zip(values, values.dropFirst()).allSatisfy { $0 <= $1 }
+    }
+
+    func record(_ progress: DownloadArchiveExportProgress) {
+        values.append(progress.fraction)
     }
 }
 

@@ -239,6 +239,48 @@ public actor DownloadCoordinator {
         startNextQueuedJobIfNeeded()
     }
 
+    public func mergeRestored(_ restoredJobs: [DownloadJob]) async {
+        for incoming in restoredJobs {
+            if let existing = jobs[incoming.key] {
+                var mergedPages = Dictionary(uniqueKeysWithValues: existing.pages.map { ($0.index, $0) })
+                for page in incoming.pages where mergedPages[page.index] == nil {
+                    mergedPages[page.index] = page
+                }
+                let pages = mergedPages.values.sorted { $0.index < $1.index }
+                let expectedIndexes = Set(pages.map(\.index))
+                let completedIndexes = existing.completedPageIndexes.union(incoming.completedPageIndexes)
+                var merged = DownloadJob(
+                    key: existing.key,
+                    title: existing.title.isEmpty ? incoming.title : existing.title,
+                    pages: pages,
+                    label: existing.label ?? incoming.label,
+                    addedAt: min(existing.addedAt, incoming.addedAt)
+                )
+                merged.completedPageIndexes = completedIndexes.intersection(expectedIndexes)
+                if expectedIndexes.isEmpty == false && merged.completedPageIndexes == expectedIndexes {
+                    merged.state = .completed
+                    merged.errorMessage = nil
+                } else if existing.state == .running || existing.state == .queued {
+                    merged.state = existing.state
+                    merged.errorMessage = existing.errorMessage ?? incoming.errorMessage
+                } else {
+                    merged.state = incoming.state == .running ? .paused : incoming.state
+                    merged.errorMessage = existing.errorMessage ?? incoming.errorMessage
+                }
+                jobs[existing.key] = merged
+                await save(merged)
+                emit(.changed(merged))
+            } else {
+                var job = incoming
+                if job.state == .running { job.state = .queued }
+                jobs[job.key] = job
+                await save(job)
+                emit(.changed(job))
+            }
+        }
+        startNextQueuedJobIfNeeded()
+    }
+
     public func loadPersisted(_ restoredJobs: [DownloadJob]) {
         for task in tasks.values { task.cancel() }
         tasks.removeAll(keepingCapacity: true)
@@ -317,6 +359,7 @@ public actor DownloadCoordinator {
                     return indexes
                 }
 
+                guard Task.isCancelled == false, runTokens[key] == runToken else { return }
                 guard var current = jobs[key] else { return }
                 current.completedPageIndexes.formUnion(completed)
                 jobs[key] = current
@@ -324,6 +367,7 @@ public actor DownloadCoordinator {
                 emit(.changed(current))
             }
 
+            guard Task.isCancelled == false, runTokens[key] == runToken else { return }
             guard var completed = jobs[key] else { return }
             completed.state = .completed
             completed.errorMessage = nil

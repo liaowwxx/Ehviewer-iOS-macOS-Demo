@@ -10,7 +10,9 @@ struct SettingsView: View {
     @State private var newFilter = ""
     @State private var showingMigrationExporter = false
     @State private var showingMigrationImporter = false
-    @State private var migrationDocument: MigrationDocument?
+    @State private var migrationExportDocument: MigrationExportDocument?
+    @State private var migrationExportContentTypes: [UTType] = [.json]
+    @State private var migrationExportFilename = "ehviewer-migration.json"
     @State private var showingMigrationResult = false
     @State private var migrationMessage = ""
 
@@ -84,17 +86,39 @@ struct SettingsView: View {
                 }
             }
             Section("数据迁移") {
-                Button("导出数据", systemImage: "square.and.arrow.up") {
+                Button("导出 JSON", systemImage: "doc.badge.gearshape") {
                     Task {
-                        guard let data = await model.exportMigrationData() else { return }
-                        migrationDocument = MigrationDocument(data: data)
+                        guard let data = await model.exportMigrationData() else {
+                            migrationMessage = model.errorMessage ?? "JSON 导出失败，请稍后重试。"
+                            showingMigrationResult = true
+                            return
+                        }
+                        migrationExportContentTypes = [.json]
+                        migrationExportFilename = "ehviewer-migration.json"
+                        migrationExportDocument = MigrationExportDocument(data: data)
                         showingMigrationExporter = true
                     }
                 }
+                .disabled(model.isMigrating)
+                Button("导出下载压缩包", systemImage: "archivebox") {
+                    Task {
+                        guard let url = await model.exportDownloadArchive() else {
+                            migrationMessage = model.errorMessage ?? "下载压缩包导出失败，请稍后重试。"
+                            showingMigrationResult = true
+                            return
+                        }
+                        migrationExportContentTypes = [.zip]
+                        migrationExportFilename = "ehviewer-downloads.zip"
+                        migrationExportDocument = MigrationExportDocument(sourceURL: url)
+                        showingMigrationExporter = true
+                    }
+                }
+                .disabled(model.isMigrating)
                 Button("导入数据", systemImage: "square.and.arrow.down") {
                     showingMigrationImporter = true
                 }
-                Text("迁移包包含收藏、阅读进度、下载任务、搜索记录、过滤规则和阅读设置；下载图片文件不会被打包。")
+                .disabled(model.isMigrating)
+                Text("JSON 包含收藏、阅读进度、下载任务、搜索记录、过滤规则和阅读设置；下载压缩包包含本地已下载文件。导入会与本地数据合并。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -107,10 +131,14 @@ struct SettingsView: View {
         .sheet(isPresented: $showingPasswordLogin) { PasswordLoginSheet() }
         .fileExporter(
             isPresented: $showingMigrationExporter,
-            document: migrationDocument,
-            contentTypes: MigrationDocument.writableContentTypes,
-            defaultFilename: "ehviewer-migration.json"
+            document: migrationExportDocument,
+            contentTypes: migrationExportContentTypes,
+            defaultFilename: migrationExportFilename
         ) { result in
+            if let sourceURL = migrationExportDocument?.sourceURL {
+                try? FileManager.default.removeItem(at: sourceURL)
+            }
+            migrationExportDocument = nil
             if case let .failure(error) = result {
                 migrationMessage = error.localizedDescription
                 showingMigrationResult = true
@@ -132,9 +160,11 @@ struct SettingsView: View {
                 do {
                     let scoped = url.startAccessingSecurityScopedResource()
                     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    let data = try Data(contentsOf: url)
+                    let data = try await Task.detached(priority: .userInitiated) {
+                        try Data(contentsOf: url, options: .mappedIfSafe)
+                    }.value
                     let imported = await model.importMigrationData(data)
-                    migrationMessage = imported ? "数据已导入。现有数据会被合并，下载图片文件需要单独复制。" : "数据导入失败，请检查迁移文件。"
+                    migrationMessage = imported ? "数据已导入，并已与本地数据合并。" : "数据导入失败，请检查迁移文件。"
                 } catch {
                     migrationMessage = error.localizedDescription
                 }
@@ -145,6 +175,26 @@ struct SettingsView: View {
             Button("好", role: .cancel) {}
         } message: {
             Text(migrationMessage)
+        }
+        .overlay {
+            if let progress = model.migrationProgress {
+                VStack(spacing: 10) {
+                    if let fraction = progress.fraction {
+                        ProgressView(value: fraction)
+                            .progressViewStyle(.linear)
+                    } else {
+                        ProgressView()
+                    }
+                    Text(progress.status)
+                        .font(.callout)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+                .frame(maxWidth: 280)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(progress.status)
+            }
         }
         .task { await model.loadFilterRules() }
     }
