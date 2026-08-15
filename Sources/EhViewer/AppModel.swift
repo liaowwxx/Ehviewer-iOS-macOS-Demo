@@ -47,6 +47,7 @@ final class AppModel {
     var hasMorePage: Bool { nextPageURL != nil }
     private var activeQuery = GalleryListQuery()
     private var activeListRequestID = UUID()
+    @ObservationIgnored private var searchPageModels: [String: BrowsePageModel] = [:]
 
     init(
         container: ModelContainer,
@@ -98,23 +99,50 @@ final class AppModel {
         let downloadSite = selectedSite
         downloads = DownloadCoordinator(
             pageLoader: { descriptor in
-                let imageURL: URL
-                if descriptor.requiresPageResolution {
-                    imageURL = try await downloadClient.pageImage(for: descriptor, site: downloadSite).imageURL
-                } else {
-                    imageURL = descriptor.pageURL
+                var pageDescriptor = descriptor
+                var lastValidationError: EHError?
+
+                for attempt in 0..<5 {
+                    try Task.checkCancellation()
+                    let pageImage: GalleryPageImage
+                    if pageDescriptor.requiresPageResolution {
+                        pageImage = try await downloadClient.pageImage(for: pageDescriptor, site: downloadSite)
+                    } else {
+                        pageImage = GalleryPageImage(
+                            galleryKey: pageDescriptor.galleryKey,
+                            index: pageDescriptor.index,
+                            imageURL: pageDescriptor.pageURL
+                        )
+                    }
+
+                    var request = URLRequest(url: pageImage.imageURL)
+                    request.httpMethod = "GET"
+                    request.setValue("image/avif,image/webp,image/apng,video/mp4,video/*,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+                    request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
+                    request.setValue(pageDescriptor.pageURL.absoluteString, forHTTPHeaderField: "Referer")
+                    if let cookieHeader = try? await sessionVault.loadAuthenticatedCookieHeader() {
+                        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+                    }
+
+                    let data = try await backgroundSession.data(
+                        for: request,
+                        taskDescription: "\(descriptor.galleryKey.gid)|\(descriptor.galleryKey.token)|\(descriptor.index)"
+                    )
+                    do {
+                        try DownloadMediaValidator.validate(data)
+                        return data
+                    } catch let error as EHError {
+                        lastValidationError = error
+                        guard attempt < 4 else { throw error }
+                        if descriptor.requiresPageResolution,
+                           let skipHathKey = pageImage.skipHathKey {
+                            pageDescriptor = Self.pageDescriptor(descriptor, skippingHathNodeWith: skipHathKey)
+                        } else {
+                            pageDescriptor = descriptor
+                        }
+                    }
                 }
-                var request = URLRequest(url: imageURL)
-                request.httpMethod = "GET"
-                request.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
-                request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
-                if let cookieHeader = try? await sessionVault.loadAuthenticatedCookieHeader() {
-                    request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
-                }
-                return try await backgroundSession.data(
-                    for: request,
-                    taskDescription: "\(descriptor.galleryKey.gid)|\(descriptor.galleryKey.token)|\(descriptor.index)"
-                )
+                throw lastValidationError ?? EHError.parsingFailed("下载结果不是有效图片或视频")
             },
             fileStore: fileStore,
             persistence: { job in
@@ -207,6 +235,14 @@ final class AppModel {
         let searchSyntax = SearchQueryComposer.searchSyntax(for: normalizedTag)
         pendingSearchQuery = searchSyntax
         selectedRoute = .browse
+    }
+
+    func searchPageModel(for query: String) -> BrowsePageModel {
+        let normalized = SearchQueryComposer.normalized(query)
+        if let cached = searchPageModels[normalized] { return cached }
+        let pageModel = BrowsePageModel(model: self, kind: .search, initialSearchText: normalized)
+        searchPageModels[normalized] = pageModel
+        return pageModel
     }
 
     func updateSearchSuggestions(for query: String) async {
@@ -356,14 +392,19 @@ final class AppModel {
             data = try await imageData(for: image, resolution: resolution)
         }
         #if os(iOS)
-        try await PhotoLibrarySaver.save(data)
+        guard let mediaKind = DownloadMediaValidator.kind(of: data) else {
+            throw EHError.parsingFailed("媒体数据无效")
+        }
+        try await PhotoLibrarySaver.save(data, kind: mediaKind)
         #else
         guard let downloadsDirectory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             throw EHError.storageFailed("找不到可写入的下载目录")
         }
         try FileManager.default.createDirectory(at: downloadsDirectory, withIntermediateDirectories: true)
-        let fileExtension = descriptor.pageURL.pathExtension.isEmpty ? "img" : descriptor.pageURL.pathExtension
+        let fileExtension = DownloadMediaValidator.kind(of: data) == .video
+            ? "mp4"
+            : (descriptor.pageURL.pathExtension.isEmpty ? "img" : descriptor.pageURL.pathExtension)
         let fileName = "ehviewer-\(descriptor.galleryKey.gid)-\(descriptor.index + 1).\(fileExtension)"
         try data.write(to: downloadsDirectory.appendingPathComponent(fileName), options: .atomic)
         #endif
@@ -577,14 +618,15 @@ final class AppModel {
     }
 
     func enqueue(_ detail: GalleryDetail) async {
-        do {
-            let resolvedPages = try await resolvedDownloadPages(detail.pages)
-            await downloads.enqueue(key: detail.summary.key, title: detail.summary.preferredTitle, pages: resolvedPages)
-        } catch is CancellationError {
-            return
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await downloads.enqueue(
+            key: detail.summary.key,
+            title: detail.summary.preferredTitle,
+            pages: detail.pages
+        )
+    }
+
+    func downloadJob(for key: GalleryKey) async -> DownloadJob? {
+        await downloads.job(for: key)
     }
 
     func restoreDownloads(from archiveURL: URL) async -> String {
@@ -788,6 +830,26 @@ final class AppModel {
         )
     }
 
+    nonisolated private static func pageDescriptor(
+        _ descriptor: GalleryPageDescriptor,
+        skippingHathNodeWith key: String
+    ) -> GalleryPageDescriptor {
+        guard var components = URLComponents(url: descriptor.pageURL, resolvingAgainstBaseURL: false) else {
+            return descriptor
+        }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == "nl" }
+        queryItems.append(URLQueryItem(name: "nl", value: key))
+        components.queryItems = queryItems
+        guard let pageURL = components.url else { return descriptor }
+        return GalleryPageDescriptor(
+            galleryKey: descriptor.galleryKey,
+            index: descriptor.index,
+            pageURL: pageURL,
+            previewURL: descriptor.previewURL
+        )
+    }
+
     private func restoreDownloads() async {
         isLoadingDownloads = true
         guard let persisted = try? await persistence.downloadJobs() else {
@@ -813,7 +875,12 @@ final class AppModel {
                     pages = (pages + resolvedPages).sorted { $0.index < $1.index }
                 }
             }
-            var job = DownloadJob(key: item.key, title: item.title, pages: pages)
+            var job = DownloadJob(
+                key: item.key,
+                title: item.title,
+                pages: pages,
+                addedAt: item.createdAt
+            )
             let expectedPageIndexes = Set(pages.map(\.index))
             let persistedPageIndexes = item.completedPageIndexes.intersection(expectedPageIndexes)
             let readablePageIndexes = await downloadFiles.readablePageIndexes(
@@ -842,7 +909,12 @@ final class AppModel {
     }
 
     private func makePersistedDownloadJob(_ item: PersistedDownload) -> DownloadJob {
-        var job = DownloadJob(key: item.key, title: item.title, pages: item.pages)
+        var job = DownloadJob(
+            key: item.key,
+            title: item.title,
+            pages: item.pages,
+            addedAt: item.createdAt
+        )
         job.completedPageIndexes = item.completedPageIndexes
         job.state = normalizedRestoredState(item.stateRaw)
         job.label = item.label

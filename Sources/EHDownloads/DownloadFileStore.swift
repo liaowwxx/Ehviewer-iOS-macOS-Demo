@@ -1,5 +1,4 @@
 import Foundation
-import ImageIO
 import EHDomain
 
 public actor DownloadFileStore {
@@ -28,8 +27,8 @@ public actor DownloadFileStore {
         Set(pageIndexes.filter { pageIndex in
             let url = finalURL(for: key, pageIndex: pageIndex)
             guard FileManager.default.fileExists(atPath: url.path),
-                  let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
-            return CGImageSourceGetCount(source) > 0
+                  let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
+            return DownloadMediaValidator.kind(of: data) != nil
         })
     }
 
@@ -43,10 +42,7 @@ public actor DownloadFileStore {
 
     @discardableResult
     public func write(_ data: Data, for key: GalleryKey, pageIndex: Int) throws -> URL {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              CGImageSourceGetCount(source) > 0 else {
-            throw EHError.parsingFailed("下载结果不是有效图片")
-        }
+        try DownloadMediaValidator.validate(data)
         if let available = try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage,
            available < minimumFreeBytes {
             throw EHError.diskSpaceLow
@@ -78,9 +74,9 @@ public actor DownloadFileStore {
     @discardableResult
     public func importFile(at sourceURL: URL, for key: GalleryKey, pageIndex: Int) throws -> URL {
         guard FileManager.default.fileExists(atPath: sourceURL.path),
-              let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
-              CGImageSourceGetCount(source) > 0 else {
-            throw EHError.parsingFailed("恢复文件不是有效图片")
+              let data = try? Data(contentsOf: sourceURL, options: .mappedIfSafe),
+              DownloadMediaValidator.kind(of: data) != nil else {
+            throw EHError.parsingFailed("恢复文件不是有效图片或视频")
         }
         if let available = try? root.resourceValues(
             forKeys: [.volumeAvailableCapacityForImportantUsageKey]

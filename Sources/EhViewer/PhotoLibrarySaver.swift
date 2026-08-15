@@ -1,9 +1,10 @@
 #if os(iOS)
 import Foundation
 import Photos
+import EHDownloads
 
 enum PhotoLibrarySaver {
-    static func save(_ imageData: Data) async throws {
+    static func save(_ mediaData: Data, kind: DownloadMediaKind) async throws {
         let authorization = await authorizationStatus()
         guard authorization == .authorized || authorization == .limited else {
             throw NSError(
@@ -13,7 +14,7 @@ enum PhotoLibrarySaver {
             )
         }
 
-        try await performChanges(with: imageData)
+        try await performChanges(with: mediaData, kind: kind)
     }
 
     private static func authorizationStatus() async -> PHAuthorizationStatus {
@@ -27,11 +28,11 @@ enum PhotoLibrarySaver {
         }
     }
 
-    private static func performChanges(with imageData: Data) async throws {
+    private static func performChanges(with mediaData: Data, kind: DownloadMediaKind) async throws {
         try await withCheckedThrowingContinuation { continuation in
             PHPhotoLibrary.shared().performChanges {
                 let request = PHAssetCreationRequest.forAsset()
-                request.addResource(with: .photo, data: imageData, options: nil)
+                request.addResource(with: kind == .video ? .video : .photo, data: mediaData, options: nil)
             } completionHandler: { success, error in
                 if success {
                     continuation.resume()

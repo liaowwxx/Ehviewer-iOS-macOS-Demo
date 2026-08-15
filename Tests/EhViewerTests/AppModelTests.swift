@@ -459,6 +459,86 @@ struct AppModelTests {
 
         #expect(loaded == localData)
     }
+
+    @Test("Search result models are reused and do not reload after returning from detail")
+    func searchResultModelIsCached() async throws {
+        let result = GallerySummary(key: GalleryKey(gid: 20, token: "cached"), title: "Cached")
+        let api = SearchPaginationAPI(firstPage: GalleryListPage(items: [result]), secondPage: GalleryListPage(items: []))
+        let suiteName = "EhViewerSearchCacheTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: api,
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+
+        let first = model.searchPageModel(for: "  artist:test  ")
+        await first.loadIfNeeded(query: first.listQuery)
+        first.scrollPosition = result.key
+        let restored = model.searchPageModel(for: "artist:test")
+        await restored.loadIfNeeded(query: restored.listQuery)
+
+        #expect(first === restored)
+        #expect(restored.galleries == [result])
+        #expect(restored.scrollPosition == result.key)
+        #expect(await api.firstPageRequestCount() == 1)
+    }
+
+    @Test("A fully blocked page continues from the exact next cursor")
+    func blockedFirstPageCanContinueLoading() async throws {
+        let blocked = GallerySummary(key: GalleryKey(gid: 21, token: "blocked"), title: "spoiler gallery")
+        let visible = GallerySummary(key: GalleryKey(gid: 22, token: "visible"), title: "visible gallery")
+        let cursor = try #require(URL(string: "https://e-hentai.org/?next=blocked-page"))
+        let api = SearchPaginationAPI(
+            firstPage: GalleryListPage(items: [blocked], cursor: GalleryCursor(page: 0, nextPageURL: cursor)),
+            secondPage: GalleryListPage(items: [visible])
+        )
+        let suiteName = "EhViewerBlockedPageTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: api,
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        await model.setFilterRule(pattern: "spoiler", isEnabled: true)
+        let pageModel = BrowsePageModel(model: model, kind: .home)
+
+        await pageModel.load(query: pageModel.listQuery)
+        #expect(pageModel.galleries.isEmpty)
+        await pageModel.loadMore()
+
+        #expect(pageModel.galleries == [visible])
+        #expect(await api.requestedPageURLs() == [cursor])
+    }
+
+    @Test("Enqueue keeps page URLs so each download attempt can resolve a fresh image node")
+    func enqueueKeepsResolvablePageURL() async throws {
+        let suiteName = "EhViewerResolvableDownloadTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: OfflineReaderAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        let key = GalleryKey(gid: 23, token: "fresh")
+        let pageURL = try #require(URL(string: "https://e-hentai.org/s/page-token/23-1"))
+        let detail = GalleryDetail(
+            summary: GallerySummary(key: key, title: "Fresh node"),
+            pages: [GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: pageURL)]
+        )
+
+        await model.enqueue(detail)
+        let job = await model.downloadJob(for: key)
+
+        #expect(job?.pages.first?.pageURL == pageURL)
+        #expect(job?.pages.first?.requiresPageResolution == true)
+    }
 }
 
 private actor OfflineReaderAPI: EHAPI {

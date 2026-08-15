@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import EHDomain
 import EHDownloads
+@testable import EhViewerPreview
 
 struct DownloadTests {
     @Test("Download coordinator limits a job to bounded page batches")
@@ -165,6 +166,57 @@ struct DownloadTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         Issue.record("retrying download did not complete within the test budget")
+    }
+
+    @Test("Download coordinator leaves media re-resolution to its page loader")
+    func parsingFailureIsNotBlindlyRetried() async throws {
+        let attempts = RetryCounter()
+        let key = GalleryKey(gid: 14, token: "stale-node")
+        let page = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://e-hentai.org/s/page/14-1")!
+        )
+        let coordinator = DownloadCoordinator { _ in
+            _ = await attempts.next()
+            throw EHError.parsingFailed("下载结果不是有效图片或视频")
+        }
+        await coordinator.enqueue(key: key, title: "Retry stale node", pages: [page])
+
+        for _ in 0..<100 {
+            if await coordinator.snapshot().first?.state == .failed {
+                #expect(await attempts.value == 1)
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("permanent parsing failure did not stop the job")
+    }
+
+    @Test("Download media validation recognizes ISO base media video data")
+    func recognizesVideoData() {
+        let header: [UInt8] = [0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6D, 0x70, 0x34, 0x32]
+        #expect(DownloadMediaValidator.kind(of: Data(header)) == .video)
+        #expect(DownloadMediaValidator.kind(of: Data("<html>error</html>".utf8)) == nil)
+    }
+
+    @Test("Downloads can sort by the time they were added in both directions")
+    func sortsByAddedTime() {
+        let older = DownloadJob(
+            key: GalleryKey(gid: 15, token: "older"),
+            title: "Older",
+            pages: [],
+            addedAt: Date(timeIntervalSince1970: 1)
+        )
+        let newer = DownloadJob(
+            key: GalleryKey(gid: 16, token: "newer"),
+            title: "Newer",
+            pages: [],
+            addedAt: Date(timeIntervalSince1970: 2)
+        )
+
+        #expect([older, newer].sorted(by: DownloadSortOrder.addedNewest.areInIncreasingOrder).map(\.key) == [newer.key, older.key])
+        #expect([older, newer].sorted(by: DownloadSortOrder.addedOldest.areInIncreasingOrder).map(\.key) == [older.key, newer.key])
     }
 
     @Test("A failed download removal keeps the job visible with an actionable error")

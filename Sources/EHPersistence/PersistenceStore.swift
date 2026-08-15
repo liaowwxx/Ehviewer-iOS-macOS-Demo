@@ -7,6 +7,8 @@ public struct PersistedDownload: Hashable, Sendable {
     public let title: String
     public let pages: [GalleryPageDescriptor]
     public let totalPageCount: Int
+    public let createdAt: Date
+    public let updatedAt: Date
     public let label: String?
     public let completedPageIndexes: Set<Int>
     public let stateRaw: String
@@ -18,6 +20,8 @@ public struct PersistedDownload: Hashable, Sendable {
         title: String,
         pages: [GalleryPageDescriptor],
         totalPageCount: Int? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
         label: String? = nil,
         completedPageIndexes: Set<Int>,
         stateRaw: String,
@@ -28,6 +32,8 @@ public struct PersistedDownload: Hashable, Sendable {
         self.title = title
         self.pages = pages
         self.totalPageCount = totalPageCount ?? pages.count
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
         self.label = label
         self.completedPageIndexes = completedPageIndexes
         self.stateRaw = stateRaw
@@ -248,6 +254,8 @@ public actor PersistenceStore {
                 title: record.title,
                 pages: pages,
                 totalPageCount: record.totalPages,
+                createdAt: record.createdAt,
+                updatedAt: record.updatedAt,
                 label: record.label,
                 completedPageIndexes: completed,
                 stateRaw: record.stateRaw,

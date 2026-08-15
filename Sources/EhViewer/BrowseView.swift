@@ -30,6 +30,19 @@ struct BrowseView: View {
         ))
     }
 
+    init(
+        model: AppModel,
+        pageModel: BrowsePageModel,
+        onOpenSearchResults: ((String) -> Void)? = nil,
+        onOpenGallery: ((GalleryKey) -> Void)? = nil
+    ) {
+        self.model = model
+        kind = pageModel.kind
+        self.onOpenSearchResults = onOpenSearchResults
+        self.onOpenGallery = onOpenGallery
+        _pageModel = State(initialValue: pageModel)
+    }
+
     var body: some View {
         @Bindable var pageModel = pageModel
 
@@ -37,17 +50,26 @@ struct BrowseView: View {
             LazyVStack(spacing: 4) {
                 ForEach(pageModel.galleries) { gallery in
                     galleryLink(gallery)
-                        .task(id: pageModel.nextPageURL) {
-                            await pageModel.loadMoreIfNeeded(after: gallery.key)
-                        }
                 }
                 if pageModel.nextPageURL != nil {
-                    BrowsePaginationFooter()
+                    if pageModel.shouldAutomaticallyLoadMore {
+                        BrowsePaginationFooter()
+                            .task(id: pageModel.nextPageURL) {
+                                await pageModel.loadMore()
+                            }
+                    } else {
+                        Button("继续查找未屏蔽内容", systemImage: "arrow.down") {
+                            Task { await pageModel.continueAfterFilteredPages() }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                        .buttonStyle(.bordered)
+                    }
                 }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
         }
+        .scrollPosition(id: $pageModel.scrollPosition, anchor: .top)
         .overlay {
             if pageModel.isLoading && pageModel.galleries.isEmpty { ProgressView("加载中…") }
             else if pageModel.galleries.isEmpty, let message = pageModel.errorMessage {
@@ -110,7 +132,7 @@ struct BrowseView: View {
         }
         .refreshable { await pageModel.load(query: pageModel.listQuery) }
         .task(id: BrowseLoadID(query: pageModel.listQuery, configurationID: pageModel.configurationID, refreshToken: model.browseRefreshToken)) {
-            await pageModel.load(query: pageModel.listQuery)
+            await pageModel.loadIfNeeded(query: pageModel.listQuery)
         }
         .task(id: pageModel.searchText) {
             let query = pageModel.searchText
@@ -174,6 +196,7 @@ struct BrowseView: View {
         NavigationLink(value: AppRoute.gallery(gallery.key)) {
             GalleryCard(gallery: gallery)
         }
+        .id(gallery.key)
         .buttonStyle(.plain)
     }
 }

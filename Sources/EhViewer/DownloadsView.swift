@@ -29,24 +29,7 @@ struct DownloadsView: View {
                     || $0.title.localizedCaseInsensitiveContains(searchText)
                     || ($0.label?.localizedCaseInsensitiveContains(searchText) == true)
             }
-            .sorted { lhs, rhs in
-                switch sortOrder {
-                case .titleAscending:
-                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
-                case .titleDescending:
-                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedDescending
-                case .progress:
-                    if lhs.progress == rhs.progress {
-                        return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
-                    }
-                    return lhs.progress > rhs.progress
-                case .status:
-                    if lhs.state.rawValue == rhs.state.rawValue {
-                        return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
-                    }
-                    return lhs.state.rawValue < rhs.state.rawValue
-                }
-            }
+            .sorted(by: sortOrder.areInIncreasingOrder)
     }
 
     var body: some View {
@@ -293,7 +276,9 @@ private enum DownloadStatusFilter: String, CaseIterable, Identifiable {
     }
 }
 
-private enum DownloadSortOrder: String, CaseIterable, Identifiable {
+enum DownloadSortOrder: String, CaseIterable, Identifiable {
+    case addedNewest
+    case addedOldest
     case titleAscending
     case titleDescending
     case progress
@@ -303,11 +288,38 @@ private enum DownloadSortOrder: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .addedNewest: "添加时间（最新）"
+        case .addedOldest: "添加时间（最早）"
         case .titleAscending: "标题 A-Z"
         case .titleDescending: "标题 Z-A"
         case .progress: "完成度"
         case .status: "状态"
         }
+    }
+
+    func areInIncreasingOrder(_ lhs: DownloadJob, _ rhs: DownloadJob) -> Bool {
+        switch self {
+        case .addedNewest:
+            if lhs.addedAt == rhs.addedAt { return titleAscending(lhs, rhs) }
+            return lhs.addedAt > rhs.addedAt
+        case .addedOldest:
+            if lhs.addedAt == rhs.addedAt { return titleAscending(lhs, rhs) }
+            return lhs.addedAt < rhs.addedAt
+        case .titleAscending:
+            return titleAscending(lhs, rhs)
+        case .titleDescending:
+            return lhs.title.localizedStandardCompare(rhs.title) == .orderedDescending
+        case .progress:
+            if lhs.progress == rhs.progress { return titleAscending(lhs, rhs) }
+            return lhs.progress > rhs.progress
+        case .status:
+            if lhs.state.rawValue == rhs.state.rawValue { return titleAscending(lhs, rhs) }
+            return lhs.state.rawValue < rhs.state.rawValue
+        }
+    }
+
+    private func titleAscending(_ lhs: DownloadJob, _ rhs: DownloadJob) -> Bool {
+        lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
     }
 }
 

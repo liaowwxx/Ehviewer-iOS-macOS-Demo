@@ -18,16 +18,24 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
     public let key: GalleryKey
     public let title: String
     public let pages: [GalleryPageDescriptor]
+    public let addedAt: Date
     public var label: String?
     public var completedPageIndexes: Set<Int>
     public var state: DownloadState
     public var errorMessage: String?
 
-    public init(key: GalleryKey, title: String, pages: [GalleryPageDescriptor], label: String? = nil) {
+    public init(
+        key: GalleryKey,
+        title: String,
+        pages: [GalleryPageDescriptor],
+        label: String? = nil,
+        addedAt: Date = Date()
+    ) {
         self.key = key
         self.title = title
         self.pages = pages
         self.label = label
+        self.addedAt = addedAt
         completedPageIndexes = []
         state = .queued
         errorMessage = nil
@@ -215,6 +223,10 @@ public actor DownloadCoordinator {
 
     public func snapshot() -> [DownloadJob] {
         jobs.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    public func job(for key: GalleryKey) -> DownloadJob? {
+        jobs[key]
     }
 
     public func restore(_ restoredJobs: [DownloadJob]) async {

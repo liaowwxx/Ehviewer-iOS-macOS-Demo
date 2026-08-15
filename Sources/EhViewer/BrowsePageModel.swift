@@ -7,7 +7,7 @@ import EHPersistence
 @MainActor
 @Observable
 final class BrowsePageModel {
-    private let model: AppModel
+    private unowned let model: AppModel
     private let loadTagSuggestions: @Sendable (String) async throws -> [SearchTagSuggestion]
     let api: any EHAPI
     let persistence: PersistenceStore
@@ -24,11 +24,19 @@ final class BrowsePageModel {
     var isUpdatingSearchSuggestions = false
     var advancedSearch: GalleryAdvancedSearch?
     var errorMessage: String?
+    var scrollPosition: GalleryKey?
 
     private var activeQuery: GalleryListQuery
     private var activeRequestID = UUID()
     private var suggestionRequestID = UUID()
     private var cachedQuickSearches: [String]?
+    private var hasLoadedList = false
+    private var loadedConfigurationID: String?
+    private var consecutiveFilteredPages = 0
+
+    var shouldAutomaticallyLoadMore: Bool {
+        consecutiveFilteredPages < 5
+    }
 
     init(
         model: AppModel,
@@ -97,9 +105,12 @@ final class BrowsePageModel {
             try Task.checkCancellation()
             guard activeRequestID == requestID else { return }
             galleries = result.items.filter(matchesFilter)
+            consecutiveFilteredPages = galleries.isEmpty ? 1 : 0
             errorMessage = nil
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
+            hasLoadedList = true
+            loadedConfigurationID = configurationID
             try await persistence.upsert(result.items)
             if let searchText = query.searchText {
                 try? await persistence.recordQuickSearch(searchText)
@@ -114,9 +125,20 @@ final class BrowsePageModel {
         }
     }
 
+    func loadIfNeeded(query: GalleryListQuery) async {
+        guard hasLoadedList == false
+                || isSameList(query, activeQuery) == false
+                || loadedConfigurationID != configurationID else { return }
+        await load(query: query)
+    }
+
     func loadMoreIfNeeded(after galleryKey: GalleryKey) async {
-        guard galleries.last?.key == galleryKey,
-              let pageURL = nextPageURL,
+        guard galleries.last?.key == galleryKey else { return }
+        await loadMore()
+    }
+
+    func loadMore() async {
+        guard let pageURL = nextPageURL,
               isLoading == false else { return }
 
         let requestID = activeRequestID
@@ -136,7 +158,13 @@ final class BrowsePageModel {
             let result = try await api.list(query: query, pageURL: pageURL)
             try Task.checkCancellation()
             guard activeRequestID == requestID else { return }
-            appendUniqueGalleries(result.items)
+            let visibleItems = result.items.filter(matchesFilter)
+            appendUniqueGalleries(visibleItems)
+            if visibleItems.isEmpty {
+                consecutiveFilteredPages += 1
+            } else {
+                consecutiveFilteredPages = 0
+            }
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
             activeQuery = query
@@ -148,6 +176,19 @@ final class BrowsePageModel {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    func continueAfterFilteredPages() async {
+        consecutiveFilteredPages = 0
+        await loadMore()
+    }
+
+    private func isSameList(_ lhs: GalleryListQuery, _ rhs: GalleryListQuery) -> Bool {
+        var lhs = lhs
+        var rhs = rhs
+        lhs.page = 0
+        rhs.page = 0
+        return lhs == rhs
     }
 
     func submitSearch() {
@@ -266,7 +307,7 @@ final class BrowsePageModel {
     private func appendUniqueGalleries(_ newGalleries: [GallerySummary]) {
         var existingKeys = Set(galleries.map(\.key))
         galleries.append(contentsOf: newGalleries.filter {
-            matchesFilter($0) && existingKeys.insert($0.key).inserted
+            existingKeys.insert($0.key).inserted
         })
     }
 }

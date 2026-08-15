@@ -52,6 +52,7 @@ struct PersistenceTests {
         #expect(restored.first?.stateRaw == "paused")
         #expect(restored.first?.errorMessage == "磁盘空间不足")
         #expect(restored.first?.inFlightPageIndexes == [1])
+        #expect((restored.first?.createdAt.timeIntervalSinceNow ?? 1) <= 0)
 
         try await store.deleteDownload(for: key)
         #expect(try await store.downloadJobs().isEmpty)

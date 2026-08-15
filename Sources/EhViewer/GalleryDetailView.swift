@@ -1,6 +1,7 @@
 import SwiftUI
 import ImageIO
 import EHDomain
+import EHDownloads
 
 struct GalleryDetailView: View {
     @Environment(AppModel.self) private var model
@@ -22,6 +23,7 @@ struct GalleryDetailView: View {
     @State private var isUpdatingFavorite = false
     @State private var isRating = false
     @State private var isSubmittingComment = false
+    @State private var downloadJob: DownloadJob?
 
     var body: some View {
         Group {
@@ -37,7 +39,7 @@ struct GalleryDetailView: View {
                                 spacing: 10
                             ) {
                                 NavigationLink(value: AppRoute.reader(key, page: 0)) {
-                                    Label("开始阅读", systemImage: "book")
+                                    Label(readingActionTitle, systemImage: downloadJob == nil ? "book" : "internaldrive")
                                         .frame(maxWidth: .infinity, minHeight: 44)
                                         .foregroundStyle(AppTheme.onAccent)
                                 }
@@ -53,19 +55,27 @@ struct GalleryDetailView: View {
                                 .buttonStyle(.bordered)
                                 .accessibilityIdentifier("new-window-reader-action")
                                 #endif
-                                Button {
-                                    isEnqueueing = true
-                                    Task {
-                                        defer { isEnqueueing = false }
-                                        await model.enqueue(detail)
-                                    }
-                                } label: {
-                                    Label("加入下载", systemImage: "arrow.down.circle")
+                                if let downloadJob {
+                                    Label(downloadStatusTitle(downloadJob), systemImage: downloadStatusIcon(downloadJob))
                                         .frame(maxWidth: .infinity, minHeight: 44)
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityIdentifier("download-status")
+                                } else {
+                                    Button {
+                                        isEnqueueing = true
+                                        Task {
+                                            defer { isEnqueueing = false }
+                                            await model.enqueue(detail)
+                                            downloadJob = await model.downloadJob(for: key)
+                                        }
+                                    } label: {
+                                        Label("加入下载", systemImage: "arrow.down.circle")
+                                            .frame(maxWidth: .infinity, minHeight: 44)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isEnqueueing)
+                                    .accessibilityIdentifier("enqueue-download-action")
                                 }
-                                .buttonStyle(.bordered)
-                                .disabled(isEnqueueing)
-                                .accessibilityIdentifier("enqueue-download-action")
                                 Button {
                                     isUpdatingFavorite = true
                                     Task {
@@ -179,11 +189,18 @@ struct GalleryDetailView: View {
         .task(id: "\(key.id)-\(detailLoadToken)") {
             await loadDetail()
         }
+        .task {
+            for await event in await model.downloads.events() {
+                applyDownloadEvent(event)
+            }
+        }
     }
 
     private func loadDetail() async {
         isLoadingDetail = true
         detailError = nil
+        let localJob = await model.downloadJob(for: key)
+        downloadJob = localJob
         do {
             detail = try await model.detail(for: key)
             isFavorite = await model.favoriteState(for: key)
@@ -197,9 +214,52 @@ struct GalleryDetailView: View {
         } catch is CancellationError {
             return
         } catch {
-            detailError = error.localizedDescription
+            if let localJob {
+                detail = ReaderView.downloadedDetail(for: localJob, site: model.site)
+                comments = []
+            } else {
+                detailError = error.localizedDescription
+            }
         }
         isLoadingDetail = false
+    }
+
+    private var readingActionTitle: String {
+        guard let downloadJob else { return "开始阅读" }
+        return downloadJob.completedPageIndexes.isEmpty ? "开始阅读（下载中）" : "阅读本地内容"
+    }
+
+    private func downloadStatusTitle(_ job: DownloadJob) -> String {
+        switch job.state {
+        case .completed: "已下载"
+        case .queued, .running: "下载中 \(job.completedPageIndexes.count)/\(job.pages.count)"
+        case .paused: "下载已暂停 \(job.completedPageIndexes.count)/\(job.pages.count)"
+        case .failed, .authenticationRequired, .rateLimited, .bandwidthLimited: "下载异常，可在下载页重试"
+        case .cancelled: "下载已取消"
+        }
+    }
+
+    private func downloadStatusIcon(_ job: DownloadJob) -> String {
+        switch job.state {
+        case .completed: "checkmark.circle.fill"
+        case .queued, .running: "arrow.down.circle"
+        case .paused: "pause.circle"
+        case .failed, .authenticationRequired, .rateLimited, .bandwidthLimited: "exclamationmark.triangle"
+        case .cancelled: "xmark.circle"
+        }
+    }
+
+    private func applyDownloadEvent(_ event: DownloadEvent) {
+        switch event {
+        case .reset(let jobs):
+            downloadJob = jobs.first { $0.key == key }
+        case .changed(let job) where job.key == key:
+            downloadJob = job
+        case .removed(let removedKey) where removedKey == key:
+            downloadJob = nil
+        default:
+            break
+        }
     }
 }
 
@@ -327,16 +387,12 @@ private struct GalleryDetailHeader: View {
 
 private struct FlowTags: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
     let tags: [String]
 
     var body: some View {
         TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 4) {
             ForEach(tags, id: \.self) { tag in
-                Button {
-                    dismiss()
-                    model.searchTag(tag)
-                } label: {
+                NavigationLink(value: AppRoute.search(SearchQueryComposer.searchSyntax(for: tag))) {
                     Text(model.localizedTag(tag))
                         .font(.caption)
                         .lineLimit(1)

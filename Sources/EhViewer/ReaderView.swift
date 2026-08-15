@@ -12,8 +12,8 @@ struct ReaderView: View {
     @Environment(\.scenePhase) private var scenePhase
     let key: GalleryKey
     let initialPage: Int
-    private let source: ReaderContentSource
     private let downloadedJob: DownloadJob?
+    @State private var source: ReaderContentSource
     @State private var detail: GalleryDetail?
     @State private var position: ReaderPositionState
     @State private var isFullscreen = false
@@ -30,16 +30,16 @@ struct ReaderView: View {
     init(key: GalleryKey, initialPage: Int) {
         self.key = key
         self.initialPage = initialPage
-        source = .remote
         downloadedJob = nil
+        _source = State(initialValue: .remote)
         _position = State(initialValue: ReaderPositionState(page: initialPage))
     }
 
     init(downloaded job: DownloadJob, initialPage: Int) {
         key = job.key
         self.initialPage = initialPage
-        source = .download
         downloadedJob = job
+        _source = State(initialValue: .download)
         _position = State(initialValue: ReaderPositionState(page: initialPage))
     }
 
@@ -193,9 +193,17 @@ struct ReaderView: View {
         detailError = nil
         do {
             let loadedDetail: GalleryDetail
+            let localJob: DownloadJob?
             if let downloadedJob {
-                loadedDetail = Self.downloadedDetail(for: downloadedJob, site: model.site)
+                localJob = downloadedJob
             } else {
+                localJob = await model.downloadJob(for: key)
+            }
+            if let localJob {
+                source = .download
+                loadedDetail = Self.downloadedDetail(for: localJob, site: model.site)
+            } else {
+                source = .remote
                 loadedDetail = try await model.detail(for: key)
             }
             guard Task.isCancelled == false else { return }

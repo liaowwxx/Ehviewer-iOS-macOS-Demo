@@ -188,7 +188,7 @@ struct DestinationView: View {
         case .browse:
             HomeBrowseView(model: model, navigationPath: navigationPath ?? .constant([]))
         case .search(let query):
-            BrowseView(model: model, kind: .search, initialSearchText: query)
+            BrowseView(model: model, pageModel: model.searchPageModel(for: query))
         case .subscriptions:
             BrowseView(model: model, kind: .subscriptions)
         case .popular:

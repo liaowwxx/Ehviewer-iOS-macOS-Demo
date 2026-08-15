@@ -38,6 +38,7 @@
 		EHB00000000000000000025 /* AdvancedSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000025 /* AdvancedSearchView.swift */; };
 		EHB00000000000000000026 /* ReadingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000026 /* ReadingMode.swift */; };
 		EHB00000000000000000027 /* ReaderPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000027 /* ReaderPage.swift */; };
+		EHB0000000000000000003D /* ReaderMediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003D /* ReaderMediaView.swift */; };
 		EHB00000000000000000028 /* ReaderPositionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000028 /* ReaderPositionState.swift */; };
 		EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002B /* ReaderContinuousView.swift */; };
 		EHB0000000000000000002C /* ReaderPagedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000002C /* ReaderPagedView.swift */; };
@@ -119,6 +120,7 @@
 		EHF00000000000000000025 /* AdvancedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSearchView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000026 /* ReadingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingMode.swift; sourceTree = "<group>"; };
 		EHF00000000000000000027 /* ReaderPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPage.swift; sourceTree = "<group>"; };
+		EHF0000000000000000003D /* ReaderMediaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderMediaView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000028 /* ReaderPositionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPositionState.swift; sourceTree = "<group>"; };
 		EHF0000000000000000002B /* ReaderContinuousView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderContinuousView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000002C /* ReaderPagedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPagedView.swift; sourceTree = "<group>"; };
@@ -206,6 +208,7 @@
 				EHF0000000000000000002E /* PasswordLoginSheet.swift */,
 				EHF00000000000000000026 /* ReadingMode.swift */,
 				EHF0000000000000000002B /* ReaderContinuousView.swift */,
+				EHF0000000000000000003D /* ReaderMediaView.swift */,
 				EHF00000000000000000027 /* ReaderPage.swift */,
 				EHF0000000000000000002C /* ReaderPagedView.swift */,
 				EHF00000000000000000028 /* ReaderPositionState.swift */,
@@ -406,6 +409,7 @@
 				EHB0000000000000000002E /* PasswordLoginSheet.swift in Sources */,
 				EHB00000000000000000026 /* ReadingMode.swift in Sources */,
 				EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */,
+				EHB0000000000000000003D /* ReaderMediaView.swift in Sources */,
 				EHB00000000000000000027 /* ReaderPage.swift in Sources */,
 				EHB0000000000000000002C /* ReaderPagedView.swift in Sources */,
 				EHB00000000000000000028 /* ReaderPositionState.swift in Sources */,

@@ -1,5 +1,4 @@
 import SwiftUI
-import ImageIO
 import UniformTypeIdentifiers
 import EHDomain
 import EHDownloads
@@ -13,9 +12,9 @@ struct LocalArchiveView: View {
         Group {
             if document.imageEntries.isEmpty {
                 ContentUnavailableView(
-                    "归档中没有图片",
+                    "归档中没有媒体文件",
                     systemImage: "photo.badge.exclamationmark",
-                    description: Text("支持 ZIP、7z、RAR 中的常见图片格式。")
+                    description: Text("支持 ZIP、7z、RAR 中的常见图片、动图和视频格式。")
                 )
             } else {
                 List(document.imageEntries) { entry in
@@ -83,18 +82,16 @@ struct LocalArchiveImageView: View {
     @Environment(AppModel.self) private var model
     let document: LocalArchiveDocument
     let entry: LocalArchiveEntry
-    @State private var image: Image?
+    @State private var media: ReaderMediaView.Content?
     @State private var errorMessage: String?
     @State private var scale: CGFloat = 1
     @State private var loadToken = UUID()
 
     var body: some View {
         Group {
-            if let image {
+            if let media {
                 ScrollView([.vertical, .horizontal]) {
-                    image
-                        .resizable()
-                        .scaledToFit()
+                    ReaderMediaView(content: media, pageScaling: .fit, fitsViewport: false)
                         .scaleEffect(scale)
                         .gesture(
                             MagnifyGesture()
@@ -105,7 +102,7 @@ struct LocalArchiveImageView: View {
                 }
             } else if let errorMessage {
                 VStack(spacing: 12) {
-                    ContentUnavailableView("图片无法打开", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
+                    ContentUnavailableView("媒体无法打开", systemImage: "exclamationmark.triangle", description: Text(errorMessage))
                     Button("重试", systemImage: "arrow.clockwise") { loadToken = UUID() }
                         .buttonStyle(.borderedProminent)
                 }
@@ -116,11 +113,7 @@ struct LocalArchiveImageView: View {
         .task(id: "\(entry.id)-\(loadToken)") {
             do {
                 let data = try await model.data(for: entry, in: document)
-                guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                      let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-                    throw EHError.parsingFailed("图片数据无效")
-                }
-                image = Image(decorative: cgImage, scale: 1, orientation: .up)
+                media = try ReaderMediaView.Content.decode(data)
                 errorMessage = nil
             } catch is CancellationError {
                 return

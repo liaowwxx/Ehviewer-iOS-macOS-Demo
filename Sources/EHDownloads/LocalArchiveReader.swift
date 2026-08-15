@@ -36,7 +36,10 @@ public struct LocalArchiveEntry: Identifiable, Hashable, Sendable {
 
     public var isImage: Bool {
         let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
-        return ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp"].contains(ext)
+        return [
+            "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp",
+            "mp4", "m4v", "mov", "webm"
+        ].contains(ext)
     }
 
     public init(path: String, size: Int64, isDirectory: Bool) {

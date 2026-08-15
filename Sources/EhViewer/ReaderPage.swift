@@ -1,5 +1,4 @@
 import SwiftUI
-import ImageIO
 import EHDomain
 
 struct ReaderPage: View {
@@ -9,7 +8,7 @@ struct ReaderPage: View {
     let source: ReaderContentSource
     let pageScaling: ReaderPageScaling
     let fitsViewport: Bool
-    @State private var image: Image?
+    @State private var media: ReaderMediaView.Content?
     @State private var aspectRatio: CGFloat?
     @State private var failed = false
     @State private var loadToken = UUID()
@@ -21,14 +20,8 @@ struct ReaderPage: View {
 
     var body: some View {
         Group {
-            if let image {
-                image
-                    .resizable()
-                    .aspectRatio(aspectRatio, contentMode: pageScaling == .original ? .fill : .fit)
-                    .frame(
-                        maxWidth: pageScaling == .original || pageScaling == .height ? nil : .infinity,
-                        maxHeight: fitsViewport || pageScaling == .height ? .infinity : nil
-                    )
+            if let media {
+                ReaderMediaView(content: media, pageScaling: pageScaling, fitsViewport: fitsViewport)
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.quaternary)
@@ -65,33 +58,33 @@ struct ReaderPage: View {
         .contentShape(Rectangle())
         .clipped()
         .contextMenu {
-            Button("保存图片", systemImage: "square.and.arrow.down", action: saveImage)
-                .disabled(image == nil || isSaving)
+            Button("保存媒体", systemImage: "square.and.arrow.down", action: saveMedia)
+                .disabled(media == nil || isSaving)
         }
         .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)-\(pageScaling.rawValue)-\(loadToken)") {
             await loadImage()
         }
-        .alert("图片已保存", isPresented: $showingSaveConfirmation) {
+        .alert("媒体已保存", isPresented: $showingSaveConfirmation) {
             Button("好", role: .cancel) {}
         } message: {
 #if os(iOS)
-            Text("图片已保存到系统照片。")
+            Text("媒体已保存到系统照片。")
 #else
-            Text("图片已保存到系统下载文件夹。")
+            Text("媒体已保存到系统下载文件夹。")
 #endif
         }
-        .alert("无法保存图片", isPresented: $showingSaveError) {
+        .alert("无法保存媒体", isPresented: $showingSaveError) {
             Button("好", role: .cancel) { saveErrorMessage = nil }
         } message: {
             Text(saveErrorMessage ?? "请稍后重试。")
         }
         .accessibilityLabel("第 \(descriptor.index + 1) 页")
         .accessibilityIdentifier("reader-page-\(descriptor.index)")
-        .accessibilityHint("长按图片可保存；缩放和移动由系统滚动容器处理")
+        .accessibilityHint("长按媒体可保存；缩放和移动由系统滚动容器处理")
     }
 
-    private func saveImage() {
-        guard image != nil, isSaving == false else { return }
+    private func saveMedia() {
+        guard media != nil, isSaving == false else { return }
         isSaving = true
         Task {
             defer { isSaving = false }
@@ -110,6 +103,7 @@ struct ReaderPage: View {
     private func loadImage() async {
         failed = false
         loadErrorMessage = nil
+        media = nil
         do {
             let data: Data
             switch source {
@@ -123,18 +117,9 @@ struct ReaderPage: View {
                 data = try await model.downloadedPageData(for: descriptor, resolution: resolution)
             }
             try Task.checkCancellation()
-            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                      kCGImageSourceCreateThumbnailFromImageAlways: true,
-                      kCGImageSourceCreateThumbnailWithTransform: true,
-                      kCGImageSourceThumbnailMaxPixelSize: 2_400
-                  ] as CFDictionary) else {
-                throw EHError.parsingFailed("图片数据无效")
-            }
-            if aspectRatio == nil, cgImage.height > 0 {
-                aspectRatio = CGFloat(cgImage.width) / CGFloat(cgImage.height)
-            }
-            image = Image(decorative: cgImage, scale: 1, orientation: .up)
+            let decodedMedia = try ReaderMediaView.Content.decode(data)
+            aspectRatio = decodedMedia.aspectRatio
+            media = decodedMedia
             failed = false
         } catch is CancellationError {
             return

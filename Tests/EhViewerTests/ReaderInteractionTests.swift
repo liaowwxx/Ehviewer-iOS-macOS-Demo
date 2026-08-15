@@ -1,6 +1,8 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 import EHDomain
 import EHDownloads
 @testable import EhViewerPreview
@@ -51,5 +53,34 @@ struct ReaderInteractionTests {
         #expect(detail.summary.thumbnailURL == pages[0].previewURL)
         #expect(detail.pages == pages)
         #expect(detail.externalURL?.absoluteString == "https://e-hentai.org/g/42/downloaded/")
+    }
+
+    @MainActor
+    @Test("Animated GIF pages retain all frames and their timing")
+    func animatedGIFRetainsFrames() throws {
+        let png = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
+        let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(
+            data,
+            UTType.gif.identifier as CFString,
+            2,
+            nil
+        ))
+        let properties = [
+            kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.05]
+        ] as CFDictionary
+        CGImageDestinationAddImage(destination, image, properties)
+        CGImageDestinationAddImage(destination, image, properties)
+        #expect(CGImageDestinationFinalize(destination))
+
+        let content = try ReaderMediaView.Content.decode(data as Data)
+        guard case .image(let sequence) = content else {
+            Issue.record("GIF should decode as an image sequence")
+            return
+        }
+        #expect(sequence.frames.count == 2)
+        #expect(sequence.totalDuration >= 0.1)
     }
 }
