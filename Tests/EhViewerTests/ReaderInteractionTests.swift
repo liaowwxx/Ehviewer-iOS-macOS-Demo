@@ -31,6 +31,37 @@ struct ReaderInteractionTests {
         #expect(state.scrollRequestSequence == 1)
     }
 
+    @Test("Immediate navigation updates the page without an animation request")
+    func immediateNavigationRequestsNoAnimation() {
+        var state = ReaderPositionState(page: 0)
+
+        state.requestPage(7, pageCount: 10, animated: false)
+
+        #expect(state.page == 7)
+        #expect(state.scrollTarget == 7)
+        #expect(state.scrollRequestSequence == 1)
+        #expect(state.scrollRequestAnimated == false)
+    }
+
+    @Test("Thumbnail windows keep the target near the center and clamp to the edges")
+    func thumbnailWindowClampsToEdges() {
+        #expect(ReaderPageWindow.indexes(target: 0, pageCount: 20, maximumCount: 5) == Array(0..<5))
+        #expect(ReaderPageWindow.indexes(target: 9, pageCount: 20, maximumCount: 5) == Array(7..<12))
+        #expect(ReaderPageWindow.indexes(target: 19, pageCount: 20, maximumCount: 5) == Array(15..<20))
+        #expect(ReaderPageWindow.indexes(target: 2, pageCount: 4, maximumCount: 10) == Array(0..<4))
+        #expect(ReaderPageWindow.indexes(target: 100, pageCount: 0, maximumCount: 10).isEmpty)
+    }
+
+    @Test("Thumbnail count adapts to the available width")
+    func thumbnailCountAdaptsToWidth() {
+        let narrowCount = ReaderPageWindow.maximumCount(forAvailableWidth: 320)
+        let wideCount = ReaderPageWindow.maximumCount(forAvailableWidth: 834)
+
+        #expect(narrowCount == 4)
+        #expect(wideCount == 12)
+        #expect(wideCount > narrowCount)
+    }
+
     @Test("Downloaded galleries reuse the normal reader detail model")
     @MainActor
     func downloadedGalleryBuildsReaderDetail() throws {

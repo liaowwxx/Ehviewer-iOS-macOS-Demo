@@ -160,6 +160,21 @@ struct ReaderView: View {
         #endif
         #if os(iOS)
         .toolbar(isFullscreen ? .hidden : .visible, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let detail {
+                ReaderProgressControl(
+                    page: position.page,
+                    pageCount: detail.pages.count,
+                    descriptors: detail.pages,
+                    source: source,
+                    requestPage: { page in
+                        requestPage(page, pageCount: detail.pages.count, animated: false)
+                    },
+                    onSeekEnded: saveProgressImmediately
+                )
+            }
+        }
         #elseif os(macOS)
         .toolbar(isFullscreen ? .hidden : .visible)
         #endif
@@ -278,9 +293,9 @@ struct ReaderView: View {
     }
 #endif
 
-    private func requestPage(_ page: Int, pageCount: Int) {
+    private func requestPage(_ page: Int, pageCount: Int, animated: Bool = true) {
         resetZoom()
-        position.requestPage(page, pageCount: pageCount)
+        position.requestPage(page, pageCount: pageCount, animated: animated)
     }
 
     private func horizontalPageDelta(forLeftDirection: Bool) -> Int {

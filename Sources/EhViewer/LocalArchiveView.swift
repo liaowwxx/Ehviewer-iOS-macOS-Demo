@@ -75,6 +75,9 @@ private struct LocalArchiveReaderView: View {
         .tabViewStyle(.automatic)
 #endif
         .navigationTitle(document.url.lastPathComponent)
+#if os(iOS)
+        .toolbar(.hidden, for: .tabBar)
+#endif
     }
 }
 

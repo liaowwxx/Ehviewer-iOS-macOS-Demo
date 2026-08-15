@@ -203,7 +203,11 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
                 let target = position.scrollTarget ?? position.page
                 let direction = navigationDirection(to: target, from: currentPageIndex ?? position.page)
                 let targetController = pageController(for: target)
-                controller.setViewControllers([targetController], direction: direction, animated: true)
+                controller.setViewControllers(
+                    [targetController],
+                    direction: direction,
+                    animated: position.scrollRequestAnimated
+                )
             }
         }
 

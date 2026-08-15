@@ -56,6 +56,11 @@
 		EHB0000000000000000003A /* ReaderSettingsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003A /* ReaderSettingsMenu.swift */; };
 		EHB0000000000000000003B /* BrowsePageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003B /* BrowsePageModel.swift */; };
 		EHB0000000000000000003C /* HomeBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003C /* HomeBrowseView.swift */; };
+		EHB00000000000000000040 /* ReaderPageWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000040 /* ReaderPageWindow.swift */; };
+		EHB00000000000000000041 /* ReaderProgressControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000041 /* ReaderProgressControl.swift */; };
+		EHB00000000000000000042 /* ReaderThumbnailStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000042 /* ReaderThumbnailStrip.swift */; };
+		EHB00000000000000000043 /* ReaderThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000043 /* ReaderThumbnailView.swift */; };
+		EHB00000000000000000044 /* ReaderThumbnailLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000044 /* ReaderThumbnailLoader.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -138,6 +143,11 @@
 		EHF0000000000000000003A /* ReaderSettingsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsMenu.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003B /* BrowsePageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsePageModel.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003C /* HomeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBrowseView.swift; sourceTree = "<group>"; };
+		EHF00000000000000000040 /* ReaderPageWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPageWindow.swift; sourceTree = "<group>"; };
+		EHF00000000000000000041 /* ReaderProgressControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderProgressControl.swift; sourceTree = "<group>"; };
+		EHF00000000000000000042 /* ReaderThumbnailStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderThumbnailStrip.swift; sourceTree = "<group>"; };
+		EHF00000000000000000043 /* ReaderThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderThumbnailView.swift; sourceTree = "<group>"; };
+		EHF00000000000000000044 /* ReaderThumbnailLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderThumbnailLoader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -224,6 +234,11 @@
 				EHF00000000000000000039 /* PhotoLibrarySaver.swift */,
 				EHF0000000000000000003A /* ReaderSettingsMenu.swift */,
 				EHF00000000000000000037 /* VolumeButtonMonitor.swift */,
+				EHF00000000000000000040 /* ReaderPageWindow.swift */,
+				EHF00000000000000000041 /* ReaderProgressControl.swift */,
+				EHF00000000000000000042 /* ReaderThumbnailStrip.swift */,
+				EHF00000000000000000043 /* ReaderThumbnailView.swift */,
+				EHF00000000000000000044 /* ReaderThumbnailLoader.swift */,
 			);
 			path = Sources/EhViewer;
 			sourceTree = "<group>";
@@ -427,6 +442,11 @@
 				EHB0000000000000000003B /* BrowsePageModel.swift in Sources */,
 				EHB0000000000000000003C /* HomeBrowseView.swift in Sources */,
 				EHB00000000000000000037 /* VolumeButtonMonitor.swift in Sources */,
+				EHB00000000000000000040 /* ReaderPageWindow.swift in Sources */,
+				EHB00000000000000000041 /* ReaderProgressControl.swift in Sources */,
+				EHB00000000000000000042 /* ReaderThumbnailStrip.swift in Sources */,
+				EHB00000000000000000043 /* ReaderThumbnailView.swift in Sources */,
+				EHB00000000000000000044 /* ReaderThumbnailLoader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -4,6 +4,7 @@ struct ReaderPositionState: Equatable {
     private(set) var page: Int
     private(set) var scrollTarget: Int?
     private(set) var scrollRequestSequence = 0
+    private(set) var scrollRequestAnimated = true
 
     init(page: Int = 0) {
         self.page = max(page, 0)
@@ -13,6 +14,7 @@ struct ReaderPositionState: Equatable {
         self.page = clamped(page, pageCount: pageCount)
         scrollTarget = nil
         scrollRequestSequence = 0
+        scrollRequestAnimated = true
     }
 
     mutating func markVisiblePage(from visiblePages: [Int], displayOrder: [Int]) {
@@ -21,10 +23,11 @@ struct ReaderPositionState: Equatable {
         page = visiblePage
     }
 
-    mutating func requestPage(_ page: Int, pageCount: Int) {
+    mutating func requestPage(_ page: Int, pageCount: Int, animated: Bool = true) {
         let target = clamped(page, pageCount: pageCount)
         self.page = target
         scrollTarget = target
+        scrollRequestAnimated = animated
         scrollRequestSequence &+= 1
     }
 

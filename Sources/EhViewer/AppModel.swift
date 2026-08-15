@@ -399,6 +399,13 @@ final class AppModel {
         }
     }
 
+    func downloadedPageDataIfAvailable(for descriptor: GalleryPageDescriptor) async -> Data? {
+        guard await downloadFiles.contains(descriptor.galleryKey, pageIndex: descriptor.index) else {
+            return nil
+        }
+        return try? await downloadFiles.data(for: descriptor.galleryKey, pageIndex: descriptor.index)
+    }
+
     func savePage(_ descriptor: GalleryPageDescriptor, resolution: ImageResolution = .preview) async throws {
         let data: Data
         if await downloadFiles.contains(descriptor.galleryKey, pageIndex: descriptor.index) {
