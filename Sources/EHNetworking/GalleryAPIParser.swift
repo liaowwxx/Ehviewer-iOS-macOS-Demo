@@ -22,23 +22,25 @@ public struct GalleryAPIParser: Sendable {
                   item["error"] == nil else { return nil }
 
             let title = (item["title"] as? String)?.nilIfEmpty ?? "Gallery \(gid)"
-            let secondaryTitle = (item["title_jpn"] as? String)?.nilIfEmpty
+            let japaneseTitle = (item["title_jpn"] as? String)?.nilIfEmpty
             let thumbnailURL = Self.urlValue(item["thumb"], site: site)
             let category = (item["category"] as? String)?.nilIfEmpty
             let pageCount = Self.intValue(item["filecount"]).flatMap(Int.init(exactly:))
             let postedAt = (item["posted"] as? String).flatMap(Self.date(from:))
             let rating = Self.doubleValue(item["rating"])
+            let uploader = (item["uploader"] as? String)?.nilIfEmpty
             let tags = item["tags"] as? [String] ?? []
 
             return GallerySummary(
                 key: GalleryKey(gid: gid, token: token),
                 title: title,
-                secondaryTitle: secondaryTitle,
+                japaneseTitle: japaneseTitle,
                 thumbnailURL: thumbnailURL,
                 category: category,
                 pageCount: pageCount,
                 postedAt: postedAt,
                 rating: rating,
+                uploader: uploader,
                 tags: tags
             )
         }

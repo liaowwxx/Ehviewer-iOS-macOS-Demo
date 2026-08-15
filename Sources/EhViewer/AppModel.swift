@@ -165,6 +165,7 @@ final class AppModel {
                 try? await store.upsertDownload(
                     key: job.key,
                     title: job.title,
+                    japaneseTitle: job.japaneseTitle,
                     pages: job.pages,
                     completedPageIndexes: job.completedPageIndexes,
                     stateRaw: job.state.rawValue,
@@ -187,8 +188,9 @@ final class AppModel {
         Task { @MainActor [weak self] in
             await self?.restoreDownloads()
         }
-        Task { [tagSuggestionProvider] in
+        Task { [tagSuggestionProvider, weak self] in
             await tagSuggestionProvider.preload()
+            await self?.importTagTranslationsIfNeeded()
         }
     }
 
@@ -217,10 +219,11 @@ final class AppModel {
             }
             try Task.checkCancellation()
             guard activeListRequestID == requestID else { return }
-            galleries = result.items.filter(matchesFilter)
+            let items = await enrichedForTagFiltering(result.items)
+            galleries = items.filter(matchesFilter)
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
-            try await persistence.upsert(result.items)
+            try await persistence.upsert(items)
             if let searchText = query.searchText { try? await persistence.recordQuickSearch(searchText) }
             quickSearches = (try? await persistence.quickSearches()) ?? quickSearches
         } catch is CancellationError {
@@ -229,6 +232,28 @@ final class AppModel {
             if activeListRequestID == requestID {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    var hasActiveTagFilterRules: Bool {
+        filterRules.contains { rule in
+            rule.isEnabled && (rule.mode == .tag || rule.mode == .tagNamespace)
+        }
+    }
+
+    /// Mirrors the reference `EhEngine.fillGalleryList`: list pages only carry
+    /// a few summary tags, so when tag or tag-namespace filters are enabled
+    /// the full tag list is fetched through the gdata API before matching.
+    func enrichedForTagFiltering(_ items: [GallerySummary]) async -> [GallerySummary] {
+        guard hasActiveTagFilterRules, items.isEmpty == false else { return items }
+        guard let fetched = try? await api.gallerySummaries(for: items.map(\.key), site: site),
+              fetched.isEmpty == false else { return items }
+        let tagsByKey = Dictionary(uniqueKeysWithValues: fetched.map { ($0.key, $0.tags) })
+        return items.map { item in
+            guard let tags = tagsByKey[item.key], tags.isEmpty == false else { return item }
+            var enriched = item
+            enriched.tags = tags
+            return enriched
         }
     }
 
@@ -593,29 +618,76 @@ final class AppModel {
     }
 
     func loadTagTranslations() async {
-        tagTranslations = (try? await persistence.tagTranslations(locale: Locale.current.identifier)) ?? [:]
+        var loaded = (try? await persistence.tagTranslations(locale: Self.tagTranslationLocale)) ?? [:]
+        if Locale.current.identifier != Self.tagTranslationLocale,
+           let local = try? await persistence.tagTranslations(locale: Locale.current.identifier) {
+            loaded.merge(local) { _, new in new }
+        }
+        tagTranslations = loaded
+    }
+
+    static let tagTranslationLocale = "zh-rCN"
+
+    /// Imports the reference tag database once so detail pages can show the
+    /// same Chinese tag translations as the original client.
+    func importTagTranslationsIfNeeded() async {
+        guard defaults.string(forKey: "tagTranslationImportLocale") != Self.tagTranslationLocale else { return }
+        guard let entries = try? await tagSuggestionProvider.allEntries() else { return }
+        let pairs = entries.compactMap { entry -> (tag: String, localizedText: String)? in
+            guard let text = entry.localizedText, text.isEmpty == false else { return nil }
+            return (entry.rawKey ?? entry.english, text)
+        }
+        guard pairs.isEmpty == false else { return }
+        try? await persistence.saveTagTranslations(pairs, locale: Self.tagTranslationLocale)
+        defaults.set(Self.tagTranslationLocale, forKey: "tagTranslationImportLocale")
+        await loadTagTranslations()
     }
 
     func localizedTag(_ tag: String) -> String {
         tagTranslations[tag] ?? tag
     }
 
+    /// Detail-page tag display, mirroring the reference client: only the tag
+    /// value is shown (never the `misc:`/`artist:` prefix), translated when
+    /// the reference database has an entry for it.
+    func displayTag(_ tag: String) -> String {
+        let value: String
+        if let separator = tag.firstIndex(of: ":") {
+            value = String(tag[tag.index(after: separator)...])
+        } else {
+            value = tag
+        }
+        if let translated = tagTranslations[tag] { return translated }
+        let databaseKey = SearchQueryComposer.databaseTagKey(for: tag)
+        if databaseKey != tag, let translated = tagTranslations[databaseKey] { return translated }
+        if value != tag, let translated = tagTranslations[value] { return translated }
+        return value
+    }
+
     func loadQuickSearches() async {
         quickSearches = (try? await persistence.quickSearches()) ?? []
     }
 
-    func setFilterRule(pattern: String, isEnabled: Bool) async {
+    func setFilterRule(pattern: String, isEnabled: Bool, mode: GalleryFilterMode = .title) async {
         do {
-            try await persistence.setFilterRule(pattern: pattern, isEnabled: isEnabled)
+            try await persistence.setFilterRule(pattern: pattern, isEnabled: isEnabled, mode: mode)
             await loadFilterRules()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    func deleteFilterRule(pattern: String) async {
+    /// Tag candidates for the filter-rule keyword field, backed by the same
+    /// database as the browse search suggestions.
+    func filterTagSuggestions(for keyword: String, limit: Int = 10) async -> [SearchTagSuggestion] {
+        let normalized = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.isEmpty == false else { return [] }
+        return (try? await tagSuggestionProvider.suggestions(for: normalized, limit: limit)) ?? []
+    }
+
+    func deleteFilterRule(pattern: String, mode: GalleryFilterMode = .title) async {
         do {
-            try await persistence.deleteFilterRule(pattern: pattern)
+            try await persistence.deleteFilterRule(pattern: pattern, mode: mode)
             await loadFilterRules()
         } catch {
             errorMessage = error.localizedDescription
@@ -643,7 +715,8 @@ final class AppModel {
     func enqueue(_ detail: GalleryDetail) async {
         await downloads.enqueue(
             key: detail.summary.key,
-            title: detail.summary.preferredTitle,
+            title: detail.summary.displayTitle(showJapaneseTitle: readingSettings.showJapaneseTitle),
+            japaneseTitle: detail.summary.japaneseTitle,
             pages: detail.pages
         )
     }
@@ -769,8 +842,10 @@ final class AppModel {
                 var job = DownloadJob(
                     key: candidate.key,
                     title: existingJobs[candidate.key]?.title
-                        ?? summaryByKey[candidate.key]?.preferredTitle
+                        ?? summaryByKey[candidate.key]?.displayTitle(showJapaneseTitle: readingSettings.showJapaneseTitle)
                         ?? fallbackDownloadTitle(for: candidate),
+                    japaneseTitle: existingJobs[candidate.key]?.japaneseTitle
+                        ?? summaryByKey[candidate.key]?.japaneseTitle,
                     pages: pages,
                     label: existingJobs[candidate.key]?.label,
                     addedAt: existingJobs[candidate.key]?.addedAt ?? Date()
@@ -919,6 +994,7 @@ final class AppModel {
             var job = DownloadJob(
                 key: item.key,
                 title: item.title,
+                japaneseTitle: item.japaneseTitle,
                 pages: pages,
                 addedAt: item.createdAt
             )
@@ -954,6 +1030,7 @@ final class AppModel {
         var job = DownloadJob(
             key: item.key,
             title: item.title,
+            japaneseTitle: item.japaneseTitle,
             pages: item.pages,
             addedAt: item.createdAt
         )
@@ -1223,8 +1300,9 @@ final class AppModel {
     }
 
     private func matchesFilter(_ gallery: GallerySummary) -> Bool {
-        let haystack = ([gallery.title, gallery.secondaryTitle ?? ""] + gallery.tags).joined(separator: " ").lowercased()
-        return filterRules.contains { $0.isEnabled && haystack.localizedCaseInsensitiveContains($0.pattern) } == false
+        return filterRules.contains { rule in
+            rule.isEnabled && GalleryFilterMatcher.isBlocked(gallery, mode: rule.mode, keyword: rule.pattern)
+        } == false
     }
 
     private func appendUniqueGalleries(_ newGalleries: [GallerySummary]) {

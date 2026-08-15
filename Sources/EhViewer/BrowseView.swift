@@ -230,12 +230,53 @@ private struct BrowseLoadID: Hashable {
 }
 
 private struct GalleryCard: View {
+    @Environment(AppModel.self) private var model
     let gallery: GallerySummary
 
     var body: some View {
         HStack(spacing: 10) {
             GalleryThumbnail(url: gallery.thumbnailURL, key: gallery.key)
-            textContent
+            VStack(alignment: .leading, spacing: 4) {
+                Text(displayTitle)
+                    .font(.headline)
+                    .lineLimit(2)
+                if let uploader = gallery.uploader {
+                    Label(uploader, systemImage: "person")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                HStack(spacing: 6) {
+                    if let category = gallery.category {
+                        CategoryBadge(name: category)
+                    }
+                    if let language = gallery.simpleLanguage {
+                        Text(language)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                            .accessibilityLabel("语言 \(language)")
+                    }
+                    if let pageCount = gallery.pageCount { Text("\(pageCount) 页") }
+                    if let favoriteCategory = gallery.favoriteCategory, favoriteCategory != 0 {
+                        Image(systemName: "heart.fill")
+                            .foregroundStyle(.pink)
+                            .accessibilityLabel("已收藏")
+                    }
+                    Spacer(minLength: 0)
+                    if let postedAt = gallery.postedAt {
+                        Text(postedAt, format: .relative(presentation: .named))
+                            .lineLimit(1)
+                    }
+                    if let rating = gallery.rating {
+                        Label(String(format: "%.1f", rating), systemImage: "star.fill")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
             Spacer(minLength: 0)
         }
         .padding(6)
@@ -244,32 +285,15 @@ private struct GalleryCard: View {
         .accessibilityLabel(accessibilityTitle)
     }
 
-    private var textContent: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(gallery.preferredTitle)
-                .font(.headline)
-                .lineLimit(2)
-            if let alternateTitle = gallery.alternateTitle {
-                Text(alternateTitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            HStack {
-                if let pageCount = gallery.pageCount { Text("· \(pageCount) 页") }
-                Spacer()
-                if let rating = gallery.rating { Label(String(format: "%.1f", rating), systemImage: "star.fill") }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
+    private var displayTitle: String {
+        gallery.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
     }
 
     private var accessibilityTitle: String {
         if let pageCount = gallery.pageCount {
-            return "\(gallery.preferredTitle)，\(pageCount) 页"
+            return "\(displayTitle)，\(pageCount) 页"
         }
-        return "\(gallery.preferredTitle)，页数未知"
+        return "\(displayTitle)，页数未知"
     }
 }
 

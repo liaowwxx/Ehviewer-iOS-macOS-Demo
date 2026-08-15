@@ -174,4 +174,117 @@ struct DomainTests {
         #expect(try await vault.hasExHentaiSession() == false)
         try await vault.clear()
     }
+
+    @Test("Display title mirrors the reference getSuitableTitle toggle behavior")
+    func displayTitlePreference() {
+        let key = GalleryKey(gid: 1, token: "a")
+        let paired = GallerySummary(key: key, title: "English title", japaneseTitle: "日本語タイトル")
+        #expect(paired.displayTitle(showJapaneseTitle: false) == "English title")
+        #expect(paired.displayTitle(showJapaneseTitle: true) == "日本語タイトル")
+
+        let englishOnly = GallerySummary(key: key, title: "English title")
+        #expect(englishOnly.displayTitle(showJapaneseTitle: true) == "English title")
+
+        let japaneseOnly = GallerySummary(key: key, title: "", japaneseTitle: "日本語タイトル")
+        #expect(japaneseOnly.displayTitle(showJapaneseTitle: false) == "日本語タイトル")
+        #expect(japaneseOnly.displayTitle(showJapaneseTitle: true) == "日本語タイトル")
+    }
+
+    @Test("Title search matches against both stored titles")
+    func containsTitleMatchesBothTitles() {
+        let key = GalleryKey(gid: 1, token: "a")
+        let summary = GallerySummary(key: key, title: "English title", japaneseTitle: "日本語タイトル")
+        #expect(summary.containsTitle("english"))
+        #expect(summary.containsTitle("日本語"))
+        #expect(summary.containsTitle("missing") == false)
+        #expect(summary.containsTitle("  ") == true)
+    }
+
+    @Test("Simple language prefers language tags and falls back to title patterns")
+    func simpleLanguageDerivation() {
+        let key = GalleryKey(gid: 1, token: "a")
+        let tagged = GallerySummary(key: key, title: "Untitled", tags: ["artist:sample", "language:chinese"])
+        #expect(tagged.simpleLanguage == "ZH")
+
+        let fromTitle = GallerySummary(key: key, title: "[Circle] Sample (Chinese)")
+        #expect(fromTitle.simpleLanguage == "ZH")
+
+        let english = GallerySummary(key: key, title: "Plain title", tags: ["language:english"])
+        #expect(english.simpleLanguage == "EN")
+
+        let none = GallerySummary(key: key, title: "Plain title")
+        #expect(none.simpleLanguage == nil)
+    }
+
+    @Test("Similar-search keywords strip decorations and keep the pre-pipe title")
+    func extractTitleKeyword() {
+        #expect(SearchQueryComposer.extractTitleKeyword(from: "(C101) [Circle (Artist)] Sample Title | サンプル") == "Sample Title")
+        #expect(SearchQueryComposer.extractTitleKeyword(from: "Sample ch. 1-23") == "Sample")
+        #expect(SearchQueryComposer.extractTitleKeyword(from: "  ~decorated~ Title  ") == "Title")
+        #expect(SearchQueryComposer.extractTitleKeyword(from: "| only decorations") == nil)
+        #expect(SearchQueryComposer.uploaderSyntax("john doe") == "uploader:\"john doe\"")
+        #expect(SearchQueryComposer.exactKeyword("blue archive") == "\"blue archive\"")
+    }
+
+    @Test("Preview clips crop the site offset and clamp aspect to the reference range")
+    func previewClipGeometry() {
+        let clipped = GalleryPreviewClip(xOffset: 100, width: 250, height: 156)
+        #expect(clipped.cropRect == CGRect(x: 100, y: 0, width: 250, height: 156))
+
+        let wide = GalleryPreviewClip(xOffset: 0, width: 400, height: 100)
+        #expect(wide.clampedAspect == 0.8)
+
+        let tall = GalleryPreviewClip(xOffset: 0, width: 100, height: 400)
+        #expect(tall.clampedAspect == 0.5)
+
+        let middle = GalleryPreviewClip(xOffset: 0, width: 2, height: 3)
+        #expect(abs(middle.clampedAspect - 2.0 / 3.0) < 0.0001)
+    }
+
+    @Test("Detail tags convert into the reference database's short keys")
+    func databaseTagKeys() {
+        #expect(SearchQueryComposer.databaseTagKey(for: "artist:john doe") == "a:john doe")
+        #expect(SearchQueryComposer.databaseTagKey(for: "female:big breasts") == "f:big breasts")
+        #expect(SearchQueryComposer.databaseTagKey(for: "misc:some tag") == "some tag")
+        #expect(SearchQueryComposer.databaseTagKey(for: "unknown:value") == "unknown:value")
+        #expect(SearchQueryComposer.databaseTagKey(for: "plain") == "plain")
+    }
+
+    @Test("Filter rules mirror the reference EhFilter matching modes")
+    func filterRuleModes() {
+        let key = GalleryKey(gid: 1, token: "a")
+        let gallery = GallerySummary(
+            key: key,
+            title: "Sample Title",
+            uploader: "john doe",
+            tags: ["misc:ai generated", "male:furry", "language:english"]
+        )
+
+        // Title: case-insensitive substring.
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .title, keyword: "sample"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .title, keyword: "SAM"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .title, keyword: "missing") == false)
+
+        // Uploader: exact equality, case-sensitive.
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .uploader, keyword: "john doe"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .uploader, keyword: "John Doe") == false)
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .uploader, keyword: "john") == false)
+
+        // Tag: exact name match; optional namespace; keyword is lowercased
+        // like the reference does when the rule is saved.
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tag, keyword: "ai generated"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tag, keyword: "AI Generated"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tag, keyword: "misc:ai generated"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tag, keyword: "male:ai generated") == false)
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tag, keyword: "generated") == false)
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tag, keyword: "furry"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tag, keyword: "male:furry"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tag, keyword: "misc:furry") == false)
+
+        // Tag namespace: any tag in the namespace.
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tagNamespace, keyword: "male"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tagNamespace, keyword: "MALE"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tagNamespace, keyword: "language"))
+        #expect(GalleryFilterMatcher.isBlocked(gallery, mode: .tagNamespace, keyword: "artist") == false)
+    }
 }

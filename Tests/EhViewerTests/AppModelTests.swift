@@ -184,7 +184,7 @@ struct AppModelTests {
         try data.write(to: cacheURL, options: .atomic)
 
         let provider = TagSuggestionProvider(
-            sourceURL: URL(string: "https://example.invalid/tags")!,
+            sourceURLs: [URL(string: "https://example.invalid/tags")!],
             cacheURL: cacheURL
         )
         let suiteName = "EhViewerBrowseTagSuggestionTests-\(UUID().uuidString)"
@@ -203,8 +203,60 @@ struct AppModelTests {
         await pageModel.refreshSearchSuggestions(for: pageModel.searchText)
 
         #expect(pageModel.tagSearchSuggestions == [
-            SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案")
+            SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案", rawKey: "g:blue archive")
         ])
+    }
+
+    @Test("The reference tag database import translates detail tags to Chinese")
+    func tagDatabaseImportTranslatesDetailTags() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-tag-import-\(UUID().uuidString)")
+        let cacheURL = root.appendingPathComponent("tag-translations-zh-rCN")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func databaseLine(_ key: String, _ text: String) -> String {
+            "\(key)\r\(Data(text.utf8).base64EncodedString())\n"
+        }
+        let payload = Data(
+            (
+                databaseLine("a:blue archive", "蓝色档案")
+                    + databaseLine("n:artist", "画师")
+                    + databaseLine("n:male", "男性")
+                    + databaseLine("n:other", "其他")
+                    + databaseLine("m:furry", "毛茸茸")
+                    + databaseLine("o:full color", "全彩")
+                    + databaseLine("o:artbook", "画集")
+            ).utf8
+        )
+        var data = withUnsafeBytes(of: UInt32(payload.count).bigEndian) { Data($0) }
+        data.append(payload)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try data.write(to: cacheURL, options: .atomic)
+
+        let provider = TagSuggestionProvider(
+            sourceURLs: [URL(string: "https://example.invalid/tags")!],
+            cacheURL: cacheURL
+        )
+        let suiteName = "EhViewerTagImportTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: OfflineReaderAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            tagSuggestionProvider: provider
+        )
+
+        await model.importTagTranslationsIfNeeded()
+
+        #expect(model.displayTag("artist:blue archive") == "蓝色档案")
+        #expect(model.displayTag("male:furry") == "毛茸茸")
+        #expect(model.displayTag("other:full color") == "全彩")
+        #expect(model.displayTag("other:artbook") == "画集")
+        #expect(model.displayTag("misc:unknown") == "unknown")
+        #expect(model.localizedTag("n:artist") == "画师")
+        #expect(model.localizedTag("n:male") == "男性")
     }
 
     @Test("Rapid tag suggestion refresh follows the input and keeps the latest query")
@@ -515,6 +567,75 @@ struct AppModelTests {
         #expect(await api.requestedPageURLs() == [cursor])
     }
 
+    @Test("Tag and tag-namespace filter rules remove matching list items")
+    func tagFilterRulesBlockListItems() async throws {
+        let furry = GallerySummary(
+            key: GalleryKey(gid: 31, token: "furry"),
+            title: "Furry comic",
+            tags: ["female:furry", "male:furry", "misc:full color"]
+        )
+        let aiGenerated = GallerySummary(
+            key: GalleryKey(gid: 32, token: "ai"),
+            title: "AI sample",
+            tags: ["misc:ai generated"]
+        )
+        let clean = GallerySummary(
+            key: GalleryKey(gid: 33, token: "clean"),
+            title: "Clean gallery",
+            tags: ["language:english"]
+        )
+        let api = SearchPaginationAPI(
+            firstPage: GalleryListPage(items: [furry, aiGenerated, clean]),
+            secondPage: GalleryListPage(items: [])
+        )
+        let suiteName = "EhViewerTagFilterTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: api,
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        let pageModel = BrowsePageModel(model: model, kind: .home)
+
+        await model.setFilterRule(pattern: "female", isEnabled: true, mode: .tagNamespace)
+        await pageModel.load(query: pageModel.listQuery)
+        #expect(pageModel.galleries.map(\.key) == [aiGenerated.key, clean.key])
+
+        await model.setFilterRule(pattern: "ai generated", isEnabled: true, mode: .tag)
+        await pageModel.load(query: pageModel.listQuery)
+        #expect(pageModel.galleries.map(\.key) == [clean.key])
+    }
+
+    @Test("Tag filters fetch full tags through the gdata API before blocking")
+    func tagFiltersEnrichListItemsFromAPI() async throws {
+        let key = GalleryKey(gid: 41, token: "enrich")
+        // The list page only carries a few summary tags; the full tag list
+        // only comes from the gdata API, like the reference's fillGalleryListByApi.
+        let sparse = GallerySummary(key: key, title: "Sparse summary", tags: ["language:english"])
+        let api = TagFilterListAPI(
+            items: [sparse],
+            fullTagsByKey: [key: ["female:furry", "misc:ai generated"]]
+        )
+        let suiteName = "EhViewerTagEnrichTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: api,
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        await model.setFilterRule(pattern: "female", isEnabled: true, mode: .tagNamespace)
+        let pageModel = BrowsePageModel(model: model, kind: .home)
+
+        await pageModel.load(query: pageModel.listQuery)
+
+        #expect(pageModel.galleries.isEmpty)
+        #expect(await api.summaryRequestCount == 1)
+    }
+
     @Test("Enqueue keeps page URLs so each download attempt can resolve a fresh image node")
     func enqueueKeepsResolvablePageURL() async throws {
         let suiteName = "EhViewerResolvableDownloadTests-\(UUID().uuidString)"
@@ -553,6 +674,35 @@ private actor OfflineReaderAPI: EHAPI {
     func imageData(for image: GalleryPageImage, resolution: ImageResolution) async throws -> Data {
         Issue.record("a completed downloaded page must not use the network")
         throw EHError.networkFailed("offline")
+    }
+}
+
+private actor TagFilterListAPI: EHAPI {
+    private let items: [GallerySummary]
+    private let fullTagsByKey: [GalleryKey: [String]]
+    private(set) var summaryRequestCount = 0
+
+    init(items: [GallerySummary], fullTagsByKey: [GalleryKey: [String]]) {
+        self.items = items
+        self.fullTagsByKey = fullTagsByKey
+    }
+
+    func list(query: GalleryListQuery) async throws -> GalleryListPage {
+        GalleryListPage(items: items)
+    }
+
+    func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
+        throw EHError.networkFailed("offline")
+    }
+
+    func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary] {
+        summaryRequestCount += 1
+        return keys.compactMap { key in
+            guard let tags = fullTagsByKey[key] else { return nil }
+            var summary = GallerySummary(key: key, title: "fetched")
+            summary.tags = tags
+            return summary
+        }
     }
 }
 

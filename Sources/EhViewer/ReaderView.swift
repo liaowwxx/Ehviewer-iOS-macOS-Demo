@@ -316,6 +316,7 @@ struct ReaderView: View {
         let summary = GallerySummary(
             key: job.key,
             title: job.title,
+            japaneseTitle: job.japaneseTitle,
             thumbnailURL: job.pages.lazy.compactMap(\.previewURL).first,
             pageCount: job.pages.count
         )

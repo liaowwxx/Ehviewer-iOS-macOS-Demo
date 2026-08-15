@@ -17,6 +17,7 @@ public enum DownloadState: String, Codable, Hashable, Sendable {
 public struct DownloadJob: Identifiable, Hashable, Sendable {
     public let key: GalleryKey
     public let title: String
+    public let japaneseTitle: String?
     public let pages: [GalleryPageDescriptor]
     public let addedAt: Date
     public var label: String?
@@ -27,12 +28,14 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
     public init(
         key: GalleryKey,
         title: String,
+        japaneseTitle: String? = nil,
         pages: [GalleryPageDescriptor],
         label: String? = nil,
         addedAt: Date = Date()
     ) {
         self.key = key
         self.title = title
+        self.japaneseTitle = japaneseTitle
         self.pages = pages
         self.label = label
         self.addedAt = addedAt
@@ -45,6 +48,30 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
     public var progress: Double {
         guard pages.isEmpty == false else { return 0 }
         return Double(completedPageIndexes.count) / Double(pages.count)
+    }
+
+    /// Mirrors the reference client's `EhUtils.getSuitableTitle` for download
+    /// rows: the stored title snapshot stays the on-disk name, while the list
+    /// follows the Japanese-title preference live.
+    public func displayTitle(showJapaneseTitle: Bool) -> String {
+        let japanese = japaneseTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if showJapaneseTitle {
+            if let japanese, japanese.isEmpty == false { return japanese }
+            return title
+        }
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedTitle.isEmpty == false { return title }
+        if let japanese, japanese.isEmpty == false { return japanese }
+        return title
+    }
+
+    /// Mirrors the reference client's `judgeSuitableTitle`: download search
+    /// matches against both stored titles.
+    public func containsTitle(_ query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty == false else { return true }
+        let haystack = "\(japaneseTitle ?? "")\(title)"
+        return haystack.localizedCaseInsensitiveContains(query)
     }
 }
 
@@ -103,9 +130,9 @@ public actor DownloadCoordinator {
         return stream
     }
 
-    public func enqueue(key: GalleryKey, title: String, pages: [GalleryPageDescriptor]) async {
+    public func enqueue(key: GalleryKey, title: String, japaneseTitle: String? = nil, pages: [GalleryPageDescriptor]) async {
         guard jobs[key] == nil else { return }
-        let job = DownloadJob(key: key, title: title, pages: pages)
+        let job = DownloadJob(key: key, title: title, japaneseTitle: japaneseTitle, pages: pages)
         jobs[key] = job
         await save(job)
         emit(.changed(job))
@@ -252,6 +279,7 @@ public actor DownloadCoordinator {
                 var merged = DownloadJob(
                     key: existing.key,
                     title: existing.title.isEmpty ? incoming.title : existing.title,
+                    japaneseTitle: existing.japaneseTitle ?? incoming.japaneseTitle,
                     pages: pages,
                     label: existing.label ?? incoming.label,
                     addedAt: min(existing.addedAt, incoming.addedAt)
@@ -287,11 +315,14 @@ public actor DownloadCoordinator {
         runTokens.removeAll(keepingCapacity: true)
         activeKey = nil
 
-        jobs = Dictionary(uniqueKeysWithValues: restoredJobs.map { job in
-            var restored = job
+        // Keep jobs that were enqueued while restoration was in flight instead
+        // of wiping them: startup restore must never discard a fresh enqueue.
+        for var restored in restoredJobs {
             if restored.state == .running { restored.state = .queued }
-            return (restored.key, restored)
-        })
+            if jobs[restored.key] == nil {
+                jobs[restored.key] = restored
+            }
+        }
         emit(.reset(snapshot()))
     }
 

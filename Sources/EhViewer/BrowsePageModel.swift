@@ -76,7 +76,7 @@ final class BrowsePageModel {
     }
 
     var configurationID: String {
-        let rules = model.filterRules.map { "\($0.pattern)=\($0.isEnabled)" }.joined(separator: "|")
+        let rules = model.filterRules.map { "\($0.mode.rawValue):\($0.pattern)=\($0.isEnabled)" }.joined(separator: "|")
         return "\(model.site.rawValue)|\(rules)"
     }
 
@@ -104,14 +104,15 @@ final class BrowsePageModel {
             }
             try Task.checkCancellation()
             guard activeRequestID == requestID else { return }
-            galleries = result.items.filter(matchesFilter)
+            let items = await model.enrichedForTagFiltering(result.items)
+            galleries = items.filter(matchesFilter)
             consecutiveFilteredPages = galleries.isEmpty ? 1 : 0
             errorMessage = nil
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
             hasLoadedList = true
             loadedConfigurationID = configurationID
-            try await persistence.upsert(result.items)
+            try await persistence.upsert(items)
             if let searchText = query.searchText {
                 try? await persistence.recordQuickSearch(searchText)
                 cachedQuickSearches = nil
@@ -158,7 +159,8 @@ final class BrowsePageModel {
             let result = try await api.list(query: query, pageURL: pageURL)
             try Task.checkCancellation()
             guard activeRequestID == requestID else { return }
-            let visibleItems = result.items.filter(matchesFilter)
+            let items = await model.enrichedForTagFiltering(result.items)
+            let visibleItems = items.filter(matchesFilter)
             appendUniqueGalleries(visibleItems)
             if visibleItems.isEmpty {
                 consecutiveFilteredPages += 1
@@ -168,7 +170,7 @@ final class BrowsePageModel {
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
             activeQuery = query
-            try await persistence.upsert(result.items)
+            try await persistence.upsert(items)
         } catch is CancellationError {
             return
         } catch {
@@ -296,11 +298,8 @@ final class BrowsePageModel {
     }
 
     private func matchesFilter(_ gallery: GallerySummary) -> Bool {
-        let haystack = ([gallery.title, gallery.secondaryTitle ?? ""] + gallery.tags)
-            .joined(separator: " ")
-            .lowercased()
         return model.filterRules.contains { rule in
-            rule.isEnabled && haystack.localizedCaseInsensitiveContains(rule.pattern)
+            rule.isEnabled && GalleryFilterMatcher.isBlocked(gallery, mode: rule.mode, keyword: rule.pattern)
         } == false
     }
 

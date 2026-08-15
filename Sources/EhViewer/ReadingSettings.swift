@@ -64,6 +64,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
     var volumePage = false
     var reverseVolumePage = false
     var fullscreen = false
+    var showJapaneseTitle = false
 
     static let defaults = ReadingSettings()
     private static let storageKey = "readingSettings"
@@ -82,6 +83,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
         case volumePage
         case reverseVolumePage
         case fullscreen
+        case showJapaneseTitle
     }
 
     init() {}
@@ -116,6 +118,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
         volumePage = try container.decodeIfPresent(Bool.self, forKey: .volumePage) ?? false
         reverseVolumePage = try container.decodeIfPresent(Bool.self, forKey: .reverseVolumePage) ?? false
         fullscreen = try container.decodeIfPresent(Bool.self, forKey: .fullscreen) ?? false
+        showJapaneseTitle = try container.decodeIfPresent(Bool.self, forKey: .showJapaneseTitle) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -133,6 +136,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
         try container.encode(volumePage, forKey: .volumePage)
         try container.encode(reverseVolumePage, forKey: .reverseVolumePage)
         try container.encode(fullscreen, forKey: .fullscreen)
+        try container.encode(showJapaneseTitle, forKey: .showJapaneseTitle)
     }
 
     static func load(from defaults: UserDefaults) -> ReadingSettings {

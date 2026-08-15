@@ -57,6 +57,7 @@ public struct MigrationPage: Codable, Hashable, Sendable {
 public struct MigrationDownload: Codable, Hashable, Sendable {
     public var key: GalleryKey
     public var title: String
+    public var japaneseTitle: String?
     public var stateRaw: String
     public var label: String?
     public var errorMessage: String?
@@ -67,6 +68,7 @@ public struct MigrationDownload: Codable, Hashable, Sendable {
     public init(
         key: GalleryKey,
         title: String,
+        japaneseTitle: String? = nil,
         stateRaw: String,
         label: String?,
         errorMessage: String?,
@@ -76,6 +78,7 @@ public struct MigrationDownload: Codable, Hashable, Sendable {
     ) {
         self.key = key
         self.title = title
+        self.japaneseTitle = japaneseTitle
         self.stateRaw = stateRaw
         self.label = label
         self.errorMessage = errorMessage
@@ -98,10 +101,32 @@ public struct MigrationQuickSearch: Codable, Hashable, Sendable {
 public struct MigrationFilterRule: Codable, Hashable, Sendable {
     public var pattern: String
     public var isEnabled: Bool
+    public var mode: GalleryFilterMode
 
-    public init(pattern: String, isEnabled: Bool) {
+    public init(pattern: String, isEnabled: Bool, mode: GalleryFilterMode = .title) {
         self.pattern = pattern
         self.isEnabled = isEnabled
+        self.mode = mode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pattern
+        case isEnabled
+        case mode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pattern = try container.decode(String.self, forKey: .pattern)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        mode = try container.decodeIfPresent(GalleryFilterMode.self, forKey: .mode) ?? .title
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(pattern, forKey: .pattern)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(mode, forKey: .mode)
     }
 }
 

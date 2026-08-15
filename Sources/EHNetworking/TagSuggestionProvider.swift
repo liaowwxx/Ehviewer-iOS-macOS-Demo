@@ -7,11 +7,16 @@ public actor TagSuggestionProvider {
         let limit: Int
     }
 
-    public static let originalProjectSourceURL = URL(
-        string: "https://raw.githubusercontent.com/Mapaler/EhViewer/tag-translations/tag-translations/tag-translations-zh-rCN"
-    )!
+    /// The database used by the reference CN fork, then the original
+    /// project's mirror. Both share the same binary format.
+    public static let referenceSourceURLs = [
+        URL(string: "https://raw.githubusercontent.com/xiaojieonly/EhTagTranslation/main/tag-translations/tag-translations-zh-rCN.json")!,
+        URL(string: "https://raw.githubusercontent.com/Mapaler/EhViewer/tag-translations/tag-translations/tag-translations-zh-rCN")!,
+    ]
 
-    private let sourceURL: URL
+    public static let originalProjectSourceURL = referenceSourceURLs[0]
+
+    private let sourceURLs: [URL]
     private let cacheURL: URL
     private let session: URLSession
     private var entries: [SearchTagSuggestion]?
@@ -19,11 +24,11 @@ public actor TagSuggestionProvider {
     private var suggestionCache: [SuggestionCacheKey: [SearchTagSuggestion]] = [:]
 
     public init(
-        sourceURL: URL = TagSuggestionProvider.originalProjectSourceURL,
+        sourceURLs: [URL] = TagSuggestionProvider.referenceSourceURLs,
         cacheURL: URL? = nil,
         session: URLSession? = nil
     ) {
-        self.sourceURL = sourceURL
+        self.sourceURLs = sourceURLs
         self.cacheURL = cacheURL ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appending(path: "EhViewer/TagSuggestions/tag-translations-zh-rCN")
         if let session {
@@ -70,6 +75,11 @@ public actor TagSuggestionProvider {
         _ = try? await loadEntries()
     }
 
+    /// The complete decoded tag database, for bulk import into persistence.
+    public func allEntries() async throws -> [SearchTagSuggestion] {
+        try await loadEntries()
+    }
+
     public static func decodeDatabase(_ data: Data) throws -> [SearchTagSuggestion] {
         guard data.count >= 4 else { throw EHError.parsingFailed("标签数据库文件不完整") }
         let declaredLength = data.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
@@ -86,7 +96,8 @@ public actor TagSuggestionProvider {
                   let localizedText = String(data: localizedData, encoding: .utf8) else { return nil }
             return SearchTagSuggestion(
                 english: expandedNamespace(in: rawEnglish),
-                localizedText: localizedText == "null" ? nil : localizedText
+                localizedText: localizedText == "null" ? nil : localizedText,
+                rawKey: rawEnglish
             )
         }
     }
@@ -98,8 +109,8 @@ public actor TagSuggestionProvider {
             return try await loadingTask.value
         }
 
-        let task = Task { [sourceURL, cacheURL, session] in
-            try await Self.loadEntries(sourceURL: sourceURL, cacheURL: cacheURL, session: session)
+        let task = Task { [sourceURLs, cacheURL, session] in
+            try await Self.loadEntries(sourceURLs: sourceURLs, cacheURL: cacheURL, session: session)
         }
         loadingTask = task
         do {
@@ -114,7 +125,7 @@ public actor TagSuggestionProvider {
     }
 
     private static func loadEntries(
-        sourceURL: URL,
+        sourceURLs: [URL],
         cacheURL: URL,
         session: URLSession
     ) async throws -> [SearchTagSuggestion] {
@@ -124,21 +135,25 @@ public actor TagSuggestionProvider {
             return decoded
         }
 
-        do {
-            let (data, response) = try await session.data(from: sourceURL)
-            guard let response = response as? HTTPURLResponse,
-                  (200..<300).contains(response.statusCode) else { throw EHError.invalidResponse }
-            let decoded = try Self.decodeDatabase(data)
-            try persist(data, to: cacheURL)
-            return decoded
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            if let cachedData, let decoded = try? Self.decodeDatabase(cachedData) {
+        var lastError: Error?
+        for sourceURL in sourceURLs {
+            do {
+                let (data, response) = try await session.data(from: sourceURL)
+                guard let response = response as? HTTPURLResponse,
+                      (200..<300).contains(response.statusCode) else { throw EHError.invalidResponse }
+                let decoded = try Self.decodeDatabase(data)
+                try persist(data, to: cacheURL)
                 return decoded
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
             }
-            throw error
         }
+        if let cachedData, let decoded = try? Self.decodeDatabase(cachedData) {
+            return decoded
+        }
+        throw lastError ?? EHError.networkFailed("标签数据库下载失败")
     }
 
     private static func isCacheFresh(at cacheURL: URL) -> Bool {

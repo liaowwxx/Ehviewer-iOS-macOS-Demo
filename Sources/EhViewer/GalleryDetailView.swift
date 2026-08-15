@@ -16,6 +16,7 @@ struct GalleryDetailView: View {
     @State private var comments: [GalleryComment] = []
     @State private var torrents: [TorrentDescriptor] = []
     @State private var archiveOptions: [ArchiveOption] = []
+    @State private var readingPage: Int?
     @State private var isLoadingDetail = true
     @State private var detailError: String?
     @State private var detailLoadToken = UUID()
@@ -33,89 +34,15 @@ struct GalleryDetailView: View {
                         GalleryDetailHeader(summary: detail.summary, pageCount: detail.pages.count)
 
                         VStack(alignment: .leading, spacing: 20) {
-                            LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 150, maximum: 240), spacing: 10)],
-                                alignment: .leading,
-                                spacing: 10
-                            ) {
-                                NavigationLink(value: AppRoute.reader(key, page: 0)) {
-                                    Label(readingActionTitle, systemImage: downloadJob == nil ? "book" : "internaldrive")
-                                        .frame(maxWidth: .infinity, minHeight: 44)
-                                        .foregroundStyle(AppTheme.onAccent)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .accessibilityIdentifier("start-reading-action")
-                                #if os(macOS)
-                                Button {
-                                    openWindow(value: AppRoute.reader(key, page: 0))
-                                } label: {
-                                    Label("新窗口阅读", systemImage: "rectangle.split.2x1")
-                                        .frame(maxWidth: .infinity, minHeight: 44)
-                                }
-                                .buttonStyle(.bordered)
-                                .accessibilityIdentifier("new-window-reader-action")
-                                #endif
-                                if let downloadJob {
-                                    Label(downloadStatusTitle(downloadJob), systemImage: downloadStatusIcon(downloadJob))
-                                        .frame(maxWidth: .infinity, minHeight: 44)
-                                        .foregroundStyle(.secondary)
-                                        .accessibilityIdentifier("download-status")
-                                } else {
-                                    Button {
-                                        isEnqueueing = true
-                                        Task {
-                                            defer { isEnqueueing = false }
-                                            await model.enqueue(detail)
-                                            downloadJob = await model.downloadJob(for: key)
-                                        }
-                                    } label: {
-                                        Label("加入下载", systemImage: "arrow.down.circle")
-                                            .frame(maxWidth: .infinity, minHeight: 44)
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(isEnqueueing)
-                                    .accessibilityIdentifier("enqueue-download-action")
-                                }
-                                Button {
-                                    isUpdatingFavorite = true
-                                    Task {
-                                        defer { isUpdatingFavorite = false }
-                                        await model.toggleFavorite(for: key, remoteDetail: detail)
-                                        isFavorite = await model.favoriteState(for: key)
-                                    }
-                                } label: {
-                                    Label(isFavorite ? "取消收藏" : "收藏", systemImage: isFavorite ? "heart.fill" : "heart")
-                                        .frame(maxWidth: .infinity, minHeight: 44)
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(isUpdatingFavorite)
-                                .accessibilityIdentifier("favorite-action")
-                            }
+                            GalleryInfoCard(detail: detail, readingPage: readingPage)
 
-                            if detail.apiUID != nil, detail.apiKey != nil {
-                                Menu("我的评分", systemImage: "star") {
-                                    ForEach(1...5, id: \.self) { value in
-                                        Button("评分 \(value)") {
-                                            isRating = true
-                                            Task {
-                                                defer { isRating = false }
-                                                await model.rate(detail, value: Double(value))
-                                            }
-                                        }
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(isRating)
-                            }
+                            actionSection(detail)
+
                             if detail.tags.isEmpty == false {
-                                FlowTags(tags: detail.tags)
+                                GroupedTags(tags: detail.tags)
                             }
                             if let descriptionText = detail.descriptionText {
                                 Text(descriptionText).font(.body)
-                            }
-                            if let externalURL = detail.externalURL {
-                                Link("在站点打开", destination: externalURL)
-                                    .font(.subheadline)
                             }
                             if detail.torrentURL != nil || detail.archiveURL != nil {
                                 VStack(alignment: .leading, spacing: 10) {
@@ -151,6 +78,16 @@ struct GalleryDetailView: View {
                         }
                         .padding()
                         .frame(maxWidth: 760, alignment: .leading)
+
+                        if detail.pages.isEmpty == false {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("预览").font(.headline)
+                                GalleryPreviewGrid(key: key, pages: detail.pages)
+                            }
+                            .padding(.horizontal)
+                            .frame(maxWidth: 760, alignment: .leading)
+                            .padding(.bottom, 12)
+                        }
                     }
                     GalleryCommentsSection(
                         comments: comments,
@@ -171,6 +108,7 @@ struct GalleryDetailView: View {
                     }
                     .padding(.horizontal)
                     .frame(maxWidth: 760, alignment: .leading)
+                    .padding(.bottom, 12)
                 }
             } else if let detailError {
                 VStack(spacing: 12) {
@@ -186,14 +124,159 @@ struct GalleryDetailView: View {
             }
         }
         .navigationTitle("详情")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    if let externalURL = detail?.externalURL {
+                        Link("在站点打开", destination: externalURL)
+                    }
+                    Button("刷新", systemImage: "arrow.clockwise") {
+                        detailLoadToken = UUID()
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityIdentifier("detail-more-menu")
+            }
+        }
         .task(id: "\(key.id)-\(detailLoadToken)") {
             await loadDetail()
+        }
+        .task(id: key.id) {
+            readingPage = await model.readingPage(for: key)
         }
         .task {
             for await event in await model.downloads.events() {
                 applyDownloadEvent(event)
             }
         }
+    }
+
+    @ViewBuilder
+    private func actionSection(_ detail: GalleryDetail) -> some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                NavigationLink(value: AppRoute.reader(key, page: 0)) {
+                    Label(readingActionTitle, systemImage: downloadJob == nil ? "book" : "internaldrive")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundStyle(AppTheme.onAccent)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("start-reading-action")
+                #if os(macOS)
+                Button {
+                    openWindow(value: AppRoute.reader(key, page: 0))
+                } label: {
+                    Label("新窗口阅读", systemImage: "rectangle.split.2x1")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("new-window-reader-action")
+                #endif
+                if let downloadJob {
+                    Label(downloadStatusTitle(downloadJob), systemImage: downloadStatusIcon(downloadJob))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("download-status")
+                } else {
+                    Button {
+                        isEnqueueing = true
+                        Task {
+                            defer { isEnqueueing = false }
+                            await model.enqueue(detail)
+                            downloadJob = await model.downloadJob(for: key)
+                        }
+                    } label: {
+                        Label("加入下载", systemImage: "arrow.down.circle")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isEnqueueing)
+                    .accessibilityIdentifier("enqueue-download-action")
+                }
+            }
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
+                alignment: .leading,
+                spacing: 10
+            ) {
+                Button {
+                    isUpdatingFavorite = true
+                    Task {
+                        defer { isUpdatingFavorite = false }
+                        await model.toggleFavorite(for: key, remoteDetail: detail)
+                        isFavorite = await model.favoriteState(for: key)
+                    }
+                } label: {
+                    Label(favoriteTitle, systemImage: isFavorite ? "heart.fill" : "heart")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isUpdatingFavorite)
+                .accessibilityIdentifier("favorite-action")
+
+                if detail.apiUID != nil, detail.apiKey != nil {
+                    Menu {
+                        ForEach(1...5, id: \.self) { value in
+                            Button("评分 \(value)") {
+                                isRating = true
+                                Task {
+                                    defer { isRating = false }
+                                    await model.rate(detail, value: Double(value))
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("评分", systemImage: "star")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isRating)
+                    .accessibilityIdentifier("rate-action")
+                }
+
+                if let externalURL = detail.externalURL {
+                    ShareLink(item: externalURL) {
+                        Label("分享", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("share-action")
+                }
+
+                if let similarQuery = similarSearchQuery(for: detail) {
+                    NavigationLink(value: AppRoute.search(similarQuery)) {
+                        Label("相似画廊", systemImage: "rectangle.on.rectangle.angled")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("similar-gallery-action")
+                }
+            }
+        }
+    }
+
+    private var favoriteTitle: String {
+        if isFavorite {
+            return detail?.favoriteName ?? "取消收藏"
+        }
+        return "收藏"
+    }
+
+    /// Mirrors the reference client's `showSimilarGalleryList`: title keyword,
+    /// then the first artist tag, then the uploader.
+    private func similarSearchQuery(for detail: GalleryDetail) -> String? {
+        if let keyword = SearchQueryComposer.extractTitleKeyword(from: detail.summary.title) {
+            return SearchQueryComposer.exactKeyword(keyword)
+        }
+        if let artist = detail.tags.first(where: { $0.lowercased().hasPrefix("artist:") }) {
+            return SearchQueryComposer.searchSyntax(for: artist)
+        }
+        if let uploader = detail.summary.uploader {
+            return SearchQueryComposer.uploaderSyntax(uploader)
+        }
+        return nil
     }
 
     private func loadDetail() async {
@@ -263,21 +346,87 @@ struct GalleryDetailView: View {
     }
 }
 
+/// Language | Pages | File Size on the first row and Favorite count | Posted
+/// on the second, mirroring the reference detail info table.
+private struct GalleryInfoCard: View {
+    let detail: GalleryDetail
+    let readingPage: Int?
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 0) {
+                infoCell("语言", detail.language ?? "—", alignment: .leading)
+                columnDivider()
+                infoCell("页数", pagesText, alignment: .center)
+                columnDivider()
+                infoCell("大小", detail.fileSize ?? "—", alignment: .trailing)
+            }
+            Divider()
+            HStack(spacing: 0) {
+                infoCell("收藏次数", detail.favoriteCount.map { "\($0)" } ?? "—", alignment: .leading)
+                columnDivider()
+                infoCell("发布于", postedText, alignment: .trailing)
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("语言 \(detail.language ?? "未知")，\(pagesText)，大小 \(detail.fileSize ?? "未知")，收藏 \(detail.favoriteCount.map { "\($0)" } ?? "未知") 次，\(postedText)")
+    }
+
+    private func infoCell(_ label: String, _ value: String, alignment: Alignment) -> some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: alignment)
+    }
+
+    private func columnDivider() -> some View {
+        Divider().frame(height: 30)
+    }
+
+    private var pagesText: String {
+        guard let pageCount = detail.summary.pageCount, pageCount > 0 else { return "—" }
+        if let readingPage, readingPage >= 0 {
+            return "\(min(readingPage + 1, pageCount))/\(pageCount) 页"
+        }
+        return "\(pageCount) 页"
+    }
+
+    private var postedText: String {
+        guard let postedAt = detail.summary.postedAt else { return "—" }
+        return postedAt.formatted(date: .numeric, time: .omitted)
+    }
+}
+
 private struct GalleryCommentsSection: View {
     let comments: [GalleryComment]
     @Binding var commentText: String
     let canSubmit: Bool
     let isSubmitting: Bool
     let submit: () -> Void
+    @State private var showingAllComments = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("评论").font(.headline)
-            ForEach(comments) { comment in
+            ForEach(visibleComments) { comment in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(comment.author).font(.subheadline.bold())
                         Spacer()
+                        if let postedAt = comment.postedAt {
+                            Text(postedAt, format: .relative(presentation: .named))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         if comment.score != 0 { Text("评分 \(comment.score)").font(.caption).foregroundStyle(.secondary) }
                     }
                     Text(comment.body)
@@ -288,6 +437,13 @@ private struct GalleryCommentsSection: View {
                 }
                 .padding(10)
                 .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+            }
+            if comments.count > 2 {
+                Button(showingAllComments ? "收起评论" : "更多评论（共 \(comments.count) 条）") {
+                    showingAllComments.toggle()
+                }
+                .font(.subheadline)
+                .accessibilityIdentifier("more-comments-action")
             }
             TextField(canSubmit ? "写评论" : "登录后发表评论", text: $commentText, axis: .vertical)
                 .lineLimit(3...6)
@@ -304,6 +460,10 @@ private struct GalleryCommentsSection: View {
                 .buttonStyle(.bordered)
                 .disabled(isSubmitting || canSubmit == false || commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
+    }
+
+    private var visibleComments: [GalleryComment] {
+        showingAllComments ? comments : Array(comments.prefix(2))
     }
 }
 
@@ -331,30 +491,31 @@ private struct GalleryDetailHeader: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text(summary.preferredTitle)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(summary.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle))
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(5)
                     .fixedSize(horizontal: false, vertical: true)
-                if let subtitle = summary.alternateTitle {
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.78))
-                        .lineLimit(2)
+                if let uploader = summary.uploader {
+                    NavigationLink(value: AppRoute.search(SearchQueryComposer.uploaderSyntax(uploader))) {
+                        Label(uploader, systemImage: "person")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineLimit(1)
+                    }
+                    .accessibilityLabel("上传者 \(uploader)，点击查看其画廊")
                 }
                 if let category = summary.category {
-                    Text(category.uppercased())
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(.white.opacity(0.18), in: Capsule())
+                    CategoryBadge(name: category)
                 }
                 HStack(spacing: 12) {
                     Label("\(pageCount) 页", systemImage: "doc.text")
                     if let rating = summary.rating {
                         Label(String(format: "%.1f", rating), systemImage: "star.fill")
+                    }
+                    if let ratingCount = summary.ratingCount {
+                        Text("\(ratingCount) 人评分")
                     }
                 }
                 .font(.caption)
@@ -367,7 +528,7 @@ private struct GalleryDetailHeader: View {
         .padding(.horizontal)
         .padding(.top, 8)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(summary.preferredTitle)，\(pageCount) 页")
+        .accessibilityLabel("\(summary.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle))，\(pageCount) 页")
         .task(id: summary.thumbnailURL) {
             guard let thumbnailURL = summary.thumbnailURL else { return }
             do {
@@ -385,28 +546,197 @@ private struct GalleryDetailHeader: View {
     }
 }
 
-private struct FlowTags: View {
+/// Tags grouped by namespace with a translated group header, mirroring the
+/// reference detail scene's `bindTags`: the group header uses the accent
+/// color, tags use the primary color, white text, 22 pt tall chips.
+private struct GroupedTags: View {
     @Environment(AppModel.self) private var model
     let tags: [String]
 
+    private var groups: [TagGroup] {
+        var order: [String] = []
+        var grouped: [String: [String]] = [:]
+        for tag in tags {
+            let namespace: String
+            if let separator = tag.firstIndex(of: ":") {
+                namespace = String(tag[..<separator])
+            } else {
+                namespace = "misc"
+            }
+            if grouped[namespace] == nil { order.append(namespace) }
+            grouped[namespace, default: []].append(tag)
+        }
+        return order.map { TagGroup(namespace: $0, tags: grouped[$0] ?? []) }
+    }
+
     var body: some View {
-        TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 4) {
-            ForEach(tags, id: \.self) { tag in
-                NavigationLink(value: AppRoute.search(SearchQueryComposer.searchSyntax(for: tag))) {
-                    Text(model.localizedTag(tag))
-                        .font(.caption)
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(groups) { group in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(groupTitle(group))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
                         .lineLimit(1)
                         .padding(.horizontal, 8)
-                        .frame(minHeight: 44, alignment: .leading)
+                        .frame(height: 22)
+                        .background(AppTheme.tagGroupBackground, in: RoundedRectangle(cornerRadius: 6))
+                    TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                        ForEach(group.tags, id: \.self) { tag in
+                            NavigationLink(value: AppRoute.search(SearchQueryComposer.searchSyntax(for: tag))) {
+                                Text(model.displayTag(tag))
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .background(AppTheme.tagBackground, in: Capsule())
+                            .contentShape(Capsule())
+                            .accessibilityIdentifier("tag-search-\(tag)")
+                            .accessibilityLabel("搜索标签 \(model.displayTag(tag))")
+                            .accessibilityHint("在浏览页显示这个标签的结果")
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .background(.quaternary, in: Capsule())
-                .contentShape(Capsule())
-                .accessibilityIdentifier("tag-search-\(tag)")
-                .accessibilityLabel("搜索标签 \(model.localizedTag(tag))")
-                .accessibilityHint("在浏览页显示这个标签的结果")
             }
         }
+        .accessibilityIdentifier("detail-tag-groups")
+    }
+
+    private func groupTitle(_ group: TagGroup) -> String {
+        let key = "n:\(group.namespace)"
+        let translated = model.localizedTag(key)
+        return translated == key ? group.namespace : translated
+    }
+}
+
+private struct TagGroup: Identifiable {
+    let namespace: String
+    let tags: [String]
+
+    var id: String { namespace }
+}
+
+/// Preview thumbnail grid with page numbers, mirroring the reference detail
+/// scene's `bindPreviews`: only the first 27 previews render initially and a
+/// "more previews" action reveals the rest.
+private struct GalleryPreviewGrid: View {
+    let key: GalleryKey
+    let pages: [GalleryPageDescriptor]
+    @State private var showingAll = false
+
+    private static let initialPreviewCount = 27
+    private let columns = [GridItem(.adaptive(minimum: 100, maximum: 130), spacing: 8)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(visiblePages) { page in
+                    NavigationLink(value: AppRoute.reader(key, page: page.index)) {
+                        VStack(spacing: 2) {
+                            Color.clear
+                                .aspectRatio(page.previewClip?.clampedAspect ?? 0.667, contentMode: .fit)
+                                .overlay {
+                                    GalleryPreviewThumbnail(descriptor: page)
+                                }
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            Text("\(page.index + 1)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("预览第 \(page.index + 1) 页")
+                }
+            }
+            if pages.count > Self.initialPreviewCount {
+                Button(showingAll ? "收起预览" : "更多预览（共 \(pages.count)）") {
+                    showingAll.toggle()
+                }
+                .font(.subheadline)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("more-previews-action")
+            }
+        }
+        .accessibilityIdentifier("detail-previews-grid")
+    }
+
+    private var visiblePages: [GalleryPageDescriptor] {
+        showingAll ? pages : Array(pages.prefix(Self.initialPreviewCount))
+    }
+}
+
+private struct GalleryPreviewThumbnail: View {
+    @Environment(AppModel.self) private var model
+    let descriptor: GalleryPageDescriptor
+    @State private var image: Image?
+
+    var body: some View {
+        Group {
+            if let image {
+                image
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(.quaternary.opacity(0.5))
+                    .overlay {
+                        Image(systemName: "photo")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+            }
+        }
+        .task(id: descriptor.previewURL) {
+            image = nil
+            guard let url = descriptor.previewURL else { return }
+            do {
+                let page = GalleryPageImage(galleryKey: descriptor.galleryKey, index: descriptor.index, imageURL: url)
+                let data = try await model.imageData(for: page)
+                image = Self.decodedPreview(from: data, clip: descriptor.previewClip)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// Loads the large preview image and crops the site's visible window,
+    /// mirroring the reference client's clipped `LoadImageView` rendering.
+    static func decodedPreview(from data: Data, clip: GalleryPreviewClip?) -> Image? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        if let clip, clip.width > 0, clip.height > 0 {
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            let pixelWidth = properties?[kCGImagePropertyPixelWidth] as? Int ?? 0
+            let pixelHeight = properties?[kCGImagePropertyPixelHeight] as? Int ?? 0
+            if pixelWidth > 0, pixelHeight > 0 {
+                var crop = clip.cropRect
+                let maxDimension: CGFloat = 2400
+                let scale = min(1, maxDimension / max(crop.width, crop.height))
+                if scale < 1 {
+                    crop = CGRect(
+                        x: crop.minX * scale,
+                        y: crop.minY * scale,
+                        width: crop.width * scale,
+                        height: crop.height * scale
+                    )
+                }
+                crop = crop.intersection(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
+                if crop.width >= 1, crop.height >= 1,
+                   let full = CGImageSourceCreateImageAtIndex(source, 0, nil),
+                   let cropped = full.cropping(to: crop.integral) {
+                    return Image(decorative: cropped, scale: 1, orientation: .up)
+                }
+            }
+        }
+        guard let full = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return Image(decorative: full, scale: 1, orientation: .up)
     }
 }
 

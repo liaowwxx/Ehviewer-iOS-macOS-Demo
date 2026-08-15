@@ -5,6 +5,7 @@ import EHDomain
 public struct PersistedDownload: Hashable, Sendable {
     public let key: GalleryKey
     public let title: String
+    public let japaneseTitle: String?
     public let pages: [GalleryPageDescriptor]
     public let totalPageCount: Int
     public let createdAt: Date
@@ -18,6 +19,7 @@ public struct PersistedDownload: Hashable, Sendable {
     public init(
         key: GalleryKey,
         title: String,
+        japaneseTitle: String? = nil,
         pages: [GalleryPageDescriptor],
         totalPageCount: Int? = nil,
         createdAt: Date = Date(),
@@ -30,6 +32,7 @@ public struct PersistedDownload: Hashable, Sendable {
     ) {
         self.key = key
         self.title = title
+        self.japaneseTitle = japaneseTitle
         self.pages = pages
         self.totalPageCount = totalPageCount ?? pages.count
         self.createdAt = createdAt
@@ -42,13 +45,36 @@ public struct PersistedDownload: Hashable, Sendable {
     }
 }
 
-public struct FilterRuleSnapshot: Hashable, Sendable {
+public struct FilterRuleSnapshot: Hashable, Sendable, Codable {
     public let pattern: String
     public var isEnabled: Bool
+    public var mode: GalleryFilterMode
 
-    public init(pattern: String, isEnabled: Bool) {
+    public init(pattern: String, isEnabled: Bool, mode: GalleryFilterMode = .title) {
         self.pattern = pattern
         self.isEnabled = isEnabled
+        self.mode = mode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pattern
+        case isEnabled
+        case mode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pattern = try container.decode(String.self, forKey: .pattern)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        // Older migration exports predate rule modes.
+        mode = try container.decodeIfPresent(GalleryFilterMode.self, forKey: .mode) ?? .title
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(pattern, forKey: .pattern)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(mode, forKey: .mode)
     }
 }
 
@@ -178,6 +204,7 @@ public actor PersistenceStore {
     public func upsertDownload(
         key: GalleryKey,
         title: String,
+        japaneseTitle: String? = nil,
         pages: [GalleryPageDescriptor],
         completedPageIndexes: Set<Int>,
         stateRaw: String,
@@ -192,10 +219,11 @@ public actor PersistenceStore {
         if let existing = try modelContext.fetch(descriptor).first {
             record = existing
         } else {
-            record = DownloadJobRecord(key: key, title: title, totalPages: pages.count)
+            record = DownloadJobRecord(key: key, title: title, japaneseTitle: japaneseTitle, totalPages: pages.count)
             modelContext.insert(record)
         }
         record.title = title
+        record.japaneseTitle = japaneseTitle
         record.totalPages = pages.count
         record.completedPages = completedPageIndexes.count
         record.stateRaw = stateRaw
@@ -252,6 +280,7 @@ public actor PersistenceStore {
             return PersistedDownload(
                 key: key,
                 title: record.title,
+                japaneseTitle: record.japaneseTitle,
                 pages: pages,
                 totalPageCount: record.totalPages,
                 createdAt: record.createdAt,
@@ -363,28 +392,34 @@ public actor PersistenceStore {
 
     public func filterRules() throws -> [FilterRuleSnapshot] {
         try modelContext.fetch(FetchDescriptor<FilterRuleRecord>(sortBy: [SortDescriptor(\.pattern)])).map {
-            FilterRuleSnapshot(pattern: $0.pattern, isEnabled: $0.isEnabled)
+            FilterRuleSnapshot(
+                pattern: $0.pattern,
+                isEnabled: $0.isEnabled,
+                mode: GalleryFilterMode(rawValue: $0.modeRaw) ?? .title
+            )
         }
     }
 
-    public func setFilterRule(pattern: String, isEnabled: Bool) throws {
+    public func setFilterRule(pattern: String, isEnabled: Bool, mode: GalleryFilterMode = .title) throws {
+        let normalized = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.isEmpty == false else { return }
         var descriptor = FetchDescriptor<FilterRuleRecord>(predicate: #Predicate {
-            $0.pattern == pattern
+            $0.pattern == normalized && $0.modeRaw == mode.rawValue
         })
         descriptor.fetchLimit = 1
         if let record = try modelContext.fetch(descriptor).first {
             record.isEnabled = isEnabled
         } else {
-            modelContext.insert(FilterRuleRecord(pattern: pattern, isEnabled: isEnabled))
+            modelContext.insert(FilterRuleRecord(pattern: normalized, isEnabled: isEnabled, mode: mode))
         }
         try modelContext.save()
     }
 
-    public func deleteFilterRule(pattern: String) throws {
+    public func deleteFilterRule(pattern: String, mode: GalleryFilterMode = .title) throws {
         let normalized = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalized.isEmpty == false else { return }
         let records = try modelContext.fetch(FetchDescriptor<FilterRuleRecord>(predicate: #Predicate {
-            $0.pattern == normalized
+            $0.pattern == normalized && $0.modeRaw == mode.rawValue
         }))
         for record in records { modelContext.delete(record) }
         if records.isEmpty == false { try modelContext.save() }
@@ -416,6 +451,27 @@ public actor PersistenceStore {
         return Dictionary(uniqueKeysWithValues: records.map { ($0.tag, $0.localizedText) })
     }
 
+    /// Bulk import of the reference tag database: inserts missing keys for a
+    /// locale in a single save, leaving existing translations untouched.
+    public func saveTagTranslations(_ entries: [(tag: String, localizedText: String)], locale: String) throws {
+        let normalizedLocale = locale.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedLocale.isEmpty == false else { return }
+        let existing = Set(try modelContext.fetch(
+            FetchDescriptor<TagTranslationRecord>(predicate: #Predicate { $0.locale == normalizedLocale })
+        ).map(\.tag))
+        var insertedCount = 0
+        for (rawTag, text) in entries {
+            let tag = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard tag.isEmpty == false, existing.contains(tag) == false else { continue }
+            modelContext.insert(
+                TagTranslationRecord(tag: tag, locale: normalizedLocale, localizedText: text)
+            )
+            insertedCount += 1
+        }
+        guard insertedCount > 0 else { return }
+        try modelContext.save()
+    }
+
     public func exportSnapshot() throws -> MigrationSnapshot {
         let galleries = try modelContext.fetch(FetchDescriptor<GalleryRecord>()).map {
             MigrationGallery(
@@ -429,6 +485,7 @@ public actor PersistenceStore {
             MigrationDownload(
                 key: record.key,
                 title: record.title,
+                japaneseTitle: record.japaneseTitle,
                 stateRaw: record.stateRaw,
                 label: record.label,
                 errorMessage: record.errorMessage,
@@ -451,7 +508,11 @@ public actor PersistenceStore {
             MigrationQuickSearch(query: $0.query, lastUsedAt: $0.lastUsedAt)
         }
         let filterRules = try modelContext.fetch(FetchDescriptor<FilterRuleRecord>()).map {
-            MigrationFilterRule(pattern: $0.pattern, isEnabled: $0.isEnabled)
+            MigrationFilterRule(
+                pattern: $0.pattern,
+                isEnabled: $0.isEnabled,
+                mode: GalleryFilterMode(rawValue: $0.modeRaw) ?? .title
+            )
         }
         let tagTranslations = try modelContext.fetch(FetchDescriptor<TagTranslationRecord>()).map {
             MigrationTagTranslation(
@@ -520,13 +581,14 @@ public actor PersistenceStore {
                 record = existing
                 localUpdatedAt = existing.updatedAt
             } else {
-                record = DownloadJobRecord(key: key, title: item.title, totalPages: item.pages.count)
+                record = DownloadJobRecord(key: key, title: item.title, japaneseTitle: item.japaneseTitle, totalPages: item.pages.count)
                 modelContext.insert(record)
                 localUpdatedAt = nil
             }
             let importedMetadataIsNewer = localUpdatedAt.map { item.updatedAt >= $0 } ?? true
             if importedMetadataIsNewer {
                 record.title = item.title
+                record.japaneseTitle = item.japaneseTitle
                 record.stateRaw = item.stateRaw
                 record.errorMessage = item.errorMessage
             }
@@ -571,12 +633,16 @@ public actor PersistenceStore {
         }
 
         for item in snapshot.filterRules {
-            var descriptor = FetchDescriptor<FilterRuleRecord>(predicate: #Predicate { $0.pattern == item.pattern })
+            var descriptor = FetchDescriptor<FilterRuleRecord>(predicate: #Predicate {
+                $0.pattern == item.pattern && $0.modeRaw == item.mode.rawValue
+            })
             descriptor.fetchLimit = 1
             if let existing = try modelContext.fetch(descriptor).first {
                 existing.isEnabled = existing.isEnabled || item.isEnabled
             } else {
-                modelContext.insert(FilterRuleRecord(pattern: item.pattern, isEnabled: item.isEnabled))
+                modelContext.insert(
+                    FilterRuleRecord(pattern: item.pattern, isEnabled: item.isEnabled, mode: item.mode)
+                )
             }
         }
 
@@ -609,7 +675,7 @@ private extension GalleryRecord {
         GallerySummary(
             key: key,
             title: title,
-            secondaryTitle: secondaryTitle,
+            japaneseTitle: japaneseTitle,
             thumbnailURL: thumbnailURL,
             category: category,
             pageCount: pageCount,
@@ -617,6 +683,7 @@ private extension GalleryRecord {
             rating: rating,
             ratingCount: ratingCount,
             favoriteCategory: favoriteCategory,
+            uploader: uploader,
             tags: tags
         )
     }

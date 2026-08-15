@@ -24,7 +24,7 @@ struct DownloadsView: View {
             .filter { statusFilter.matches($0.state) }
             .filter {
                 searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || $0.title.localizedCaseInsensitiveContains(searchText)
+                    || $0.containsTitle(searchText)
                     || ($0.label?.localizedCaseInsensitiveContains(searchText) == true)
             }
             .sorted(by: sortOrder.areInIncreasingOrder)
@@ -299,6 +299,7 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
 }
 
 private struct DownloadCard: View {
+    @Environment(AppModel.self) private var model
     let job: DownloadJob
     let toggle: () -> Void
     let cancel: () -> Void
@@ -367,7 +368,7 @@ private struct DownloadCard: View {
     }
 
     private var displayTitle: String {
-        job.title
+        job.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
     }
 
     private var statusTitle: String {

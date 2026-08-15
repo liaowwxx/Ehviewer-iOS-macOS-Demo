@@ -9,7 +9,7 @@ public final class GalleryRecord {
     public var gid: Int64
     public var token: String
     public var title: String
-    public var secondaryTitle: String?
+    public var japaneseTitle: String?
     public var thumbnailURLString: String?
     public var category: String?
     public var pageCount: Int?
@@ -17,6 +17,7 @@ public final class GalleryRecord {
     public var rating: Double?
     public var ratingCount: Int?
     public var favoriteCategory: Int?
+    public var uploader: String?
     public var lastReadAt: Date?
     public var lastReadPage: Int
     public var isFavorite: Bool
@@ -26,7 +27,7 @@ public final class GalleryRecord {
         gid = snapshot.key.gid
         token = snapshot.key.token
         title = snapshot.title
-        secondaryTitle = snapshot.secondaryTitle
+        japaneseTitle = snapshot.japaneseTitle
         thumbnailURLString = snapshot.thumbnailURL?.absoluteString
         category = snapshot.category
         pageCount = snapshot.pageCount
@@ -34,6 +35,7 @@ public final class GalleryRecord {
         rating = snapshot.rating
         ratingCount = snapshot.ratingCount
         favoriteCategory = snapshot.favoriteCategory
+        uploader = snapshot.uploader
         self.lastReadPage = lastReadPage
         self.lastReadAt = lastReadAt
         self.isFavorite = isFavorite
@@ -45,7 +47,7 @@ public final class GalleryRecord {
 
     public func update(from snapshot: GallerySummary) {
         title = snapshot.title
-        secondaryTitle = snapshot.secondaryTitle
+        japaneseTitle = snapshot.japaneseTitle
         thumbnailURLString = snapshot.thumbnailURL?.absoluteString
         category = snapshot.category
         pageCount = snapshot.pageCount
@@ -53,6 +55,7 @@ public final class GalleryRecord {
         rating = snapshot.rating
         ratingCount = snapshot.ratingCount
         favoriteCategory = snapshot.favoriteCategory
+        uploader = snapshot.uploader
         tags = snapshot.tags
     }
 }
@@ -64,6 +67,7 @@ public final class DownloadJobRecord {
     public var gid: Int64
     public var token: String
     public var title: String
+    public var japaneseTitle: String?
     public var totalPages: Int
     public var completedPages: Int
     public var stateRaw: String
@@ -75,10 +79,11 @@ public final class DownloadJobRecord {
     @Relationship(deleteRule: .cascade, inverse: \DownloadPageRecord.job)
     public var pages: [DownloadPageRecord] = []
 
-    public init(key: GalleryKey, title: String, totalPages: Int) {
+    public init(key: GalleryKey, title: String, japaneseTitle: String? = nil, totalPages: Int) {
         gid = key.gid
         token = key.token
         self.title = title
+        self.japaneseTitle = japaneseTitle
         self.totalPages = totalPages
         completedPages = 0
         stateRaw = "queued"
@@ -140,10 +145,12 @@ public final class FilterRuleRecord {
     #Index<FilterRuleRecord>([\.pattern])
     public var pattern: String
     public var isEnabled: Bool
+    public var modeRaw: String
 
-    public init(pattern: String, isEnabled: Bool = true) {
+    public init(pattern: String, isEnabled: Bool = true, mode: GalleryFilterMode = .title) {
         self.pattern = pattern
         self.isEnabled = isEnabled
+        modeRaw = mode.rawValue
     }
 }
 

@@ -22,10 +22,8 @@ struct LibraryView: View {
                 ForEach(items) { gallery in
                     NavigationLink(value: AppRoute.gallery(gallery.key)) {
                         VStack(alignment: .leading) {
-                            Text(gallery.preferredTitle).font(.headline)
-                            if let alternateTitle = gallery.alternateTitle {
-                                Text(alternateTitle).font(.caption).foregroundStyle(.secondary)
-                            }
+                            Text(gallery.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle))
+                                .font(.headline)
                             if selectedMode == .history {
                                 Text(progressText(for: gallery))
                                     .font(.caption)

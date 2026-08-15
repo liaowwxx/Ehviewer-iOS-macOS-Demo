@@ -14,8 +14,8 @@ struct NetworkingTests {
 
         let decoded = try TagSuggestionProvider.decodeDatabase(data)
 
-        #expect(decoded.first == SearchTagSuggestion(english: "artist:test artist", localizedText: "画师测试"))
-        #expect(decoded.last == SearchTagSuggestion(english: "female:sample", localizedText: nil))
+        #expect(decoded.first == SearchTagSuggestion(english: "artist:test artist", localizedText: "画师测试", rawKey: "a:test artist"))
+        #expect(decoded.last == SearchTagSuggestion(english: "female:sample", localizedText: nil, rawKey: "f:sample"))
     }
 
     @Test("Tag suggestions use a cached original-project database before networking")
@@ -33,12 +33,12 @@ struct NetworkingTests {
         try data.write(to: cacheURL, options: .atomic)
 
         let provider = TagSuggestionProvider(
-            sourceURL: URL(string: "https://example.invalid/tags")!,
+            sourceURLs: [URL(string: "https://example.invalid/tags")!],
             cacheURL: cacheURL
         )
         let suggestions = try await provider.suggestions(for: "blue archive")
 
-        #expect(suggestions == [SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案")])
+        #expect(suggestions == [SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案", rawKey: "g:blue archive")])
     }
 
     @Test("HTML list parser extracts gallery keys and cursor")
@@ -51,8 +51,8 @@ struct NetworkingTests {
         #expect(page.cursor?.nextPageURL?.absoluteString == "https://e-hentai.org/?page=1")
     }
 
-    @Test("Gallery list parser prefers the Japanese title in a paired result title")
-    func listParserPrefersJapaneseTitle() throws {
+    @Test("Gallery list parser keeps the site's full title string like the reference client")
+    func listParserKeepsFullTitle() throws {
         let html = """
         <html><body><table class="itg"><tr class="gtr0">
         <td><a href="https://e-hentai.org/g/102/gamma/"><div class="glink">English title | 日本語タイトル</div></a></td>
@@ -60,10 +60,10 @@ struct NetworkingTests {
         """
         let page = try GalleryHTMLParser().parseList(data: Data(html.utf8), query: GalleryListQuery())
 
-        #expect(page.items.first?.title == "English title")
-        #expect(page.items.first?.secondaryTitle == "日本語タイトル")
-        #expect(page.items.first?.preferredTitle == "日本語タイトル")
-        #expect(page.items.first?.alternateTitle == "English title")
+        #expect(page.items.first?.title == "English title | 日本語タイトル")
+        #expect(page.items.first?.japaneseTitle == nil)
+        #expect(page.items.first?.displayTitle(showJapaneseTitle: false) == "English title | 日本語タイトル")
+        #expect(page.items.first?.displayTitle(showJapaneseTitle: true) == "English title | 日本語タイトル")
     }
 
     @Test("Gallery list parser does not include result tags in a fallback title")
@@ -110,7 +110,12 @@ struct NetworkingTests {
         #expect(page.items.first?.key == GalleryKey(gid: 1_366_222, token: "7e7a4305a4"))
         #expect(page.items.first?.pageCount == 26)
         #expect(page.items.first?.rating == 4)
-        #expect(page.items.first?.tags == ["language:english"])
+        // The current site only embeds a few summary tags in list rows; the
+        // full tag list arrives through the gdata API during filtering.
+        #expect(page.items.first?.tags == ["language:english", "female:valentine"])
+        #expect(page.items.first?.uploader == "valentines")
+        #expect(page.items.first?.postedAt != nil)
+        #expect(page.items.first?.simpleLanguage == "EN")
         #expect(page.items.first?.thumbnailURL?.absoluteString == "https://ehgt.org/t/7e/7a/430636-250.jpg")
     }
 
@@ -125,13 +130,92 @@ struct NetworkingTests {
         )
 
         #expect(detail.summary.title == "Valentines 2019")
-        #expect(detail.summary.secondaryTitle == "バレンタイン 2019")
+        #expect(detail.summary.japaneseTitle == "バレンタイン 2019")
+        #expect(detail.summary.displayTitle(showJapaneseTitle: false) == "Valentines 2019")
+        #expect(detail.summary.displayTitle(showJapaneseTitle: true) == "バレンタイン 2019")
         #expect(detail.summary.category == "Manga")
+        #expect(detail.summary.uploader == "valentines")
         #expect(detail.summary.pageCount == 838)
         #expect(detail.summary.rating == 4.46)
-        #expect(detail.tags == ["artist:sample", "language:english"])
+        #expect(detail.summary.postedAt != nil)
+        #expect(detail.language == "English")
+        #expect(detail.fileSize == "128 MB")
+        #expect(detail.favoriteCount == 1234)
+        #expect(detail.tags == [
+            "parody:blue archive",
+            "artist:sample",
+            "language:english",
+            "male:furry",
+            "other:full color",
+            "other:artbook",
+        ])
         #expect(detail.pages.map(\.index) == [0, 1])
         #expect(detail.pages.first?.previewURL?.absoluteString == "https://ehgt.org/7e/7a/430636/1366222-1.jpg")
+    }
+
+    @Test("Gallery detail parses clipped high-resolution previews like the reference client")
+    func detailClippedPreviews() throws {
+        let fixtureURL = try #require(Bundle.module.url(forResource: "detail-preview-clip", withExtension: "html"))
+        let key = GalleryKey(gid: 1_366_222, token: "sample-token")
+        let detail = try GalleryHTMLParser().parseDetail(
+            data: Data(contentsOf: fixtureURL),
+            key: key,
+            site: .eHentai
+        )
+
+        #expect(detail.pages.count == 3)
+        let first = try #require(detail.pages.first)
+        #expect(first.index == 0)
+        #expect(first.previewURL?.absoluteString == "https://ehgt.org/7e/7a/430636/1366222-01-full.jpg")
+        #expect(first.previewClip == GalleryPreviewClip(xOffset: 100, width: 250, height: 156))
+        #expect(first.previewClip?.cropRect == CGRect(x: 100, y: 0, width: 250, height: 156))
+
+        let second = try #require(detail.pages[safe: 1])
+        #expect(second.index == 1)
+        #expect(second.previewClip == GalleryPreviewClip(xOffset: 50, width: 160, height: 240))
+
+        let third = try #require(detail.pages[safe: 2])
+        #expect(third.index == 2)
+        #expect(third.previewClip == GalleryPreviewClip(xOffset: 20, width: 200, height: 300))
+    }
+
+    @Test("Gallery preview parsing covers the reference label and legacy formats")
+    func detailPreviewFormatVariants() throws {
+        let key = GalleryKey(gid: 1_366_222, token: "sample-token")
+
+        let labeledHTML = """
+        <div id="gdt"><a href="https://e-hentai.org/s/a/1-1"><div><div title="Page 1: 1000x1500 width:200 height:300 (https://ehgt.org/x.jpg) -20px"></div></div></a></div>
+        """
+        let labeled = try GalleryHTMLParser().parsePreviewPage(
+            data: Data(labeledHTML.utf8),
+            key: key,
+            site: .eHentai
+        )
+        #expect(labeled.pages.first?.previewClip == GalleryPreviewClip(xOffset: 20, width: 200, height: 300))
+        #expect(labeled.pages.first?.previewURL?.absoluteString == "https://ehgt.org/x.jpg")
+
+        let offsetlessHTML = """
+        <div id="gdt"><a href="https://e-hentai.org/s/c/1-1"><div title="Page 1: 800x1200 width:160 height:240 (https://ehgt.org/z.jpg)"></div></a></div>
+        """
+        let offsetless = try GalleryHTMLParser().parsePreviewPage(
+            data: Data(offsetlessHTML.utf8),
+            key: key,
+            site: .eHentai
+        )
+        #expect(offsetless.pages.first?.previewClip == GalleryPreviewClip(xOffset: 0, width: 160, height: 240))
+        #expect(offsetless.pages.first?.previewURL?.absoluteString == "https://ehgt.org/z.jpg")
+
+        let legacyHTML = """
+        <div id="gdt"><div class="gdtm" style="height:156px"><div style="width:250px;height:156px;background:transparent url(https://ehgt.org/y.jpg) -100px 0 no-repeat"><a href="https://e-hentai.org/s/b/1-1"><img alt="01" src="https://ehgt.org/t.jpg" /></a></div></div></div>
+        """
+        let legacy = try GalleryHTMLParser().parsePreviewPage(
+            data: Data(legacyHTML.utf8),
+            key: key,
+            site: .eHentai
+        )
+        #expect(legacy.pages.first?.index == 0)
+        #expect(legacy.pages.first?.previewURL?.absoluteString == "https://ehgt.org/y.jpg")
+        #expect(legacy.pages.first?.previewClip == GalleryPreviewClip(xOffset: 100, width: 250, height: 156))
     }
 
     @Test("Gallery detail follows preview pagination beyond the first 20 pages")
@@ -232,7 +316,8 @@ struct NetworkingTests {
         let summaries = try await client.gallerySummaries(for: keys, site: .eHentai)
 
         #expect(summaries.count == 2)
-        #expect(summaries.first?.preferredTitle == "日本語タイトル")
+        #expect(summaries.first?.displayTitle(showJapaneseTitle: false) == "English title")
+        #expect(summaries.first?.displayTitle(showJapaneseTitle: true) == "日本語タイトル")
         #expect(summaries.first?.pageCount == 12)
         #expect(summaries.first?.thumbnailURL?.absoluteString == "https://e-hentai.org/t/sample.jpg")
 
@@ -545,6 +630,12 @@ struct NetworkingTests {
         #expect(quota.used == 4_672)
         #expect(quota.total == 5_000)
         #expect(quota.resetCost == 9_344)
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 

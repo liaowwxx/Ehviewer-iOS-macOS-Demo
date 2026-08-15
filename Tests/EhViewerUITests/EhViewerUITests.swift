@@ -55,6 +55,28 @@ final class EhViewerUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["搜索结果"].waitForExistence(timeout: 5))
     }
 
+    func testSettingsTogglesJapaneseTitlePreference() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestUseGuestMode", "YES"]
+        app.launch()
+
+        let settings = app.buttons["settings-tab"]
+        if settings.waitForExistence(timeout: 5) {
+            settings.tap()
+        } else if app.buttons["settings-sidebar"].waitForExistence(timeout: 5) {
+            app.buttons["settings-sidebar"].tap()
+        } else if app.tabBars.firstMatch.exists {
+            app.tabBars.buttons.element(boundBy: min(3, app.tabBars.buttons.count - 1)).tap()
+        }
+
+        let toggle = app.switches["show-japanese-title-toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        let wasOn = (toggle.value as? String) == "1"
+        toggle.tap()
+        let isOn = (toggle.value as? String) == "1"
+        XCTAssertNotEqual(wasOn, isOn)
+    }
+
     func testGalleryDeepLinkPushesDetailOnIPhone() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestUseGuestMode", "YES"]
