@@ -84,110 +84,31 @@ struct PersistenceTests {
         #expect(try await store.tagTranslations(locale: "ja")["language:english"] == "言語：英語")
     }
 
-    @Test("Migration snapshots round-trip library, downloads and preferences")
-    func migrationRoundTrip() async throws {
-        let sourceContainer = try ModelContainerFactory.make(inMemory: true)
-        let source = PersistenceStore(modelContainer: sourceContainer)
-        let key = GalleryKey(gid: 9, token: "migration")
-        let summary = GallerySummary(
-            key: key,
-            title: "迁移样本",
-            thumbnailURL: URL(string: "https://example.invalid/cover.jpg"),
-            pageCount: 2,
-            tags: ["language:chinese"]
-        )
-        let pages = (0..<2).map { index in
-            GalleryPageDescriptor(
-                galleryKey: key,
-                index: index,
-                pageURL: URL(string: "https://example.invalid/page/\(index)")!
-            )
-        }
+    @Test("Gallery sync only inserts missing summaries and preserves local state")
+    func gallerySyncInsertOnly() async throws {
+        let container = try ModelContainerFactory.make(inMemory: true)
+        let store = PersistenceStore(modelContainer: container)
+        let existingKey = GalleryKey(gid: 90, token: "existing")
+        let existing = GallerySummary(key: existingKey, title: "Local title", tags: ["local:tag"])
+        let missing = GallerySummary(key: GalleryKey(gid: 91, token: "missing"), title: "Imported title")
+        try await store.upsert([existing])
+        try await store.updateReadingProgress(for: existingKey, page: 3)
+        try await store.setFavorite(for: existingKey, isFavorite: true)
 
-        try await source.upsert([summary])
-        try await source.updateReadingProgress(for: key, page: 1)
-        try await source.setFavorite(for: key, isFavorite: true)
-        try await source.upsertDownload(
-            key: key,
-            title: summary.title,
-            pages: pages,
-            completedPageIndexes: [0],
-            stateRaw: "paused",
-            errorMessage: "暂停"
-        )
-        try await source.recordQuickSearch("migration")
-        try await source.setFilterRule(pattern: "spoiler", isEnabled: false)
-        try await source.saveTagTranslation(tag: "language:chinese", locale: "zh-Hans", localizedText: "语言：中文")
+        let outcome = try await store.insertMissingGallerySyncSummaries([
+            GallerySummary(key: existingKey, title: "Must not overwrite"),
+            missing,
+            missing
+        ])
 
-        let snapshot = try await source.exportSnapshot()
-        let destinationContainer = try ModelContainerFactory.make(inMemory: true)
-        let destination = PersistenceStore(modelContainer: destinationContainer)
-        try await destination.importSnapshot(snapshot)
-
-        #expect(try await destination.readingPage(for: key) == 1)
-        #expect(try await destination.isFavorite(for: key) == true)
-        #expect(try await destination.downloadJobs().first?.completedPageIndexes == [0])
-        #expect(try await destination.quickSearches() == ["migration"])
-        #expect(try await destination.filterRules().first?.isEnabled == false)
-        #expect(try await destination.tagTranslations(locale: "zh-Hans")["language:chinese"] == "语言：中文")
-    }
-
-    @Test("Migration import merges overlapping records without removing local data")
-    func migrationImportMergesLocalData() async throws {
-        let sourceContainer = try ModelContainerFactory.make(inMemory: true)
-        let source = PersistenceStore(modelContainer: sourceContainer)
-        let key = GalleryKey(gid: 90, token: "merge")
-        let sourcePages = (0..<2).map { index in
-            GalleryPageDescriptor(
-                galleryKey: key,
-                index: index,
-                pageURL: URL(string: "https://example.invalid/imported/\(index)")!
-            )
-        }
-        let summary = GallerySummary(key: key, title: "Imported", pageCount: 2)
-        try await source.upsert([summary])
-        try await source.updateReadingProgress(for: key, page: 1)
-        try await source.setFavorite(for: key, isFavorite: true)
-        try await source.upsertDownload(
-            key: key,
-            title: "Imported",
-            pages: sourcePages,
-            completedPageIndexes: [1],
-            stateRaw: "paused",
-            errorMessage: "缺少页面"
-        )
-        try await source.setFilterRule(pattern: "spoiler", isEnabled: false)
-        let snapshot = try await source.exportSnapshot()
-
-        let destinationContainer = try ModelContainerFactory.make(inMemory: true)
-        let destination = PersistenceStore(modelContainer: destinationContainer)
-        let localOnly = GallerySummary(key: GalleryKey(gid: 91, token: "local"), title: "Local only")
-        try await destination.upsert([localOnly, summary])
-        try await destination.updateReadingProgress(for: key, page: 3)
-        try await destination.setFavorite(for: key, isFavorite: false)
-        let localPage = GalleryPageDescriptor(
-            galleryKey: key,
-            index: 0,
-            pageURL: URL(string: "https://example.invalid/local/0")!
-        )
-        try await destination.upsertDownload(
-            key: key,
-            title: "Local",
-            pages: [localPage],
-            completedPageIndexes: [0],
-            stateRaw: "paused",
-            errorMessage: nil
-        )
-        try await destination.setFilterRule(pattern: "spoiler", isEnabled: true)
-        try await destination.importSnapshot(snapshot)
-
-        #expect(try await destination.gallerySummary(for: localOnly.key)?.title == localOnly.title)
-        #expect(try await destination.readingPage(for: key) == 3)
-        #expect(try await destination.isFavorite(for: key) == true)
-        let merged = try #require(try await destination.downloadJobs().first)
-        #expect(merged.pages.map(\.index) == [0, 1])
-        #expect(merged.pages.first?.pageURL.absoluteString == localPage.pageURL.absoluteString)
-        #expect(merged.completedPageIndexes == [0, 1])
-        #expect(try await destination.filterRules().first?.isEnabled == true)
+        #expect(outcome.sourceCount == 3)
+        #expect(outcome.duplicateInFileCount == 1)
+        #expect(outcome.existingCount == 1)
+        #expect(outcome.insertedCount == 1)
+        #expect(try await store.gallerySummary(for: existingKey)?.title == "Local title")
+        #expect(try await store.readingPage(for: existingKey) == 3)
+        #expect(try await store.isFavorite(for: existingKey) == true)
+        #expect(try await store.gallerySummary(for: missing.key)?.title == "Imported title")
+        #expect(try await store.gallerySyncSummaries(for: [existingKey, missing.key]).map(\.key) == [existingKey, missing.key])
     }
 }

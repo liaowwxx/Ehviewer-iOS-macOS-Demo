@@ -65,7 +65,6 @@ struct ReaderSettingsMenu: View {
                 Toggle("显示电量", isOn: $model.readingSettings.showBattery)
 #endif
                 Toggle("显示页码", isOn: $model.readingSettings.showPageInterval)
-                Toggle("进入阅读器时全屏", isOn: $model.readingSettings.fullscreen)
             }
 
 #if os(iOS)

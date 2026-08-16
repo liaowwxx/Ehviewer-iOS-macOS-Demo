@@ -490,201 +490,61 @@ public actor PersistenceStore {
         try modelContext.save()
     }
 
-    public func exportSnapshot() throws -> MigrationSnapshot {
-        let galleries = try modelContext.fetch(FetchDescriptor<GalleryRecord>()).map {
-            MigrationGallery(
-                summary: $0.summary,
-                lastReadPage: $0.lastReadPage,
-                lastReadAt: $0.lastReadAt,
-                isFavorite: $0.isFavorite
-            )
-        }
-        let downloads = try modelContext.fetch(FetchDescriptor<DownloadJobRecord>()).map { record in
-            MigrationDownload(
-                key: record.key,
-                title: record.title,
-                japaneseTitle: record.japaneseTitle,
-                stateRaw: record.stateRaw,
-                label: record.label,
-                errorMessage: record.errorMessage,
-                createdAt: record.createdAt,
-                updatedAt: record.updatedAt,
-                pages: record.pages.map {
-                    MigrationPage(
-                        pageIndex: $0.pageIndex,
-                        fileName: $0.fileName,
-                        bytes: $0.bytes,
-                        directURLString: $0.directURLString,
-                        previewURLString: $0.previewURLString,
-                        stateRaw: $0.stateRaw,
-                        retryCount: $0.retryCount
-                    )
-                }.sorted { $0.pageIndex < $1.pageIndex }
-            )
-        }
-        let quickSearches = try modelContext.fetch(FetchDescriptor<QuickSearchRecord>()).map {
-            MigrationQuickSearch(query: $0.query, lastUsedAt: $0.lastUsedAt)
-        }
-        let filterRules = try modelContext.fetch(FetchDescriptor<FilterRuleRecord>()).map {
-            MigrationFilterRule(
-                pattern: $0.pattern,
-                isEnabled: $0.isEnabled,
-                mode: GalleryFilterMode(rawValue: $0.modeRaw) ?? .title
-            )
-        }
-        let tagTranslations = try modelContext.fetch(FetchDescriptor<TagTranslationRecord>()).map {
-            MigrationTagTranslation(
-                tag: $0.tag,
-                locale: $0.locale,
-                localizedText: $0.localizedText,
-                updatedAt: $0.updatedAt
-            )
-        }
-        return MigrationSnapshot(
-            galleries: galleries,
-            downloads: downloads,
-            quickSearches: quickSearches,
-            filterRules: filterRules,
-            tagTranslations: tagTranslations
-        )
+    public func gallerySyncSummaries(for keys: Set<GalleryKey>) throws -> [GallerySummary] {
+        guard keys.isEmpty == false else { return [] }
+        return try modelContext.fetch(FetchDescriptor<GalleryRecord>())
+            .map(\.summary)
+            .filter { keys.contains($0.key) }
+            .sorted { $0.key.id < $1.key.id }
     }
 
-    public func importSnapshot(_ snapshot: MigrationSnapshot) throws {
-        guard snapshot.schemaVersion == MigrationSnapshot.currentVersion else {
-            throw MigrationError.unsupportedVersion(snapshot.schemaVersion)
+    /// Inserts only galleries that do not already exist locally. Existing
+    /// records are intentionally untouched, including their metadata and all
+    /// local state.
+    public func insertMissingGallerySyncSummaries(
+        _ summaries: [GallerySummary]
+    ) throws -> GallerySyncImportOutcome {
+        var uniqueSummaries: [GallerySummary] = []
+        var incomingKeys = Set<GalleryKey>()
+        uniqueSummaries.reserveCapacity(summaries.count)
+        for summary in summaries where incomingKeys.insert(summary.key).inserted {
+            uniqueSummaries.append(summary)
         }
 
-        for item in snapshot.galleries {
-            let key = item.summary.key
-            var descriptor = FetchDescriptor<GalleryRecord>(predicate: #Predicate {
-                $0.gid == key.gid && $0.token == key.token
-            })
-            descriptor.fetchLimit = 1
-            if let existing = try modelContext.fetch(descriptor).first {
-                existing.update(from: item.summary)
-                let shouldUseImportedProgress: Bool
-                if let importedDate = item.lastReadAt {
-                    shouldUseImportedProgress = existing.lastReadAt.map { importedDate > $0 } ?? true
-                } else {
-                    shouldUseImportedProgress = existing.lastReadAt == nil && item.lastReadPage > existing.lastReadPage
-                }
-                if shouldUseImportedProgress {
-                    existing.lastReadPage = item.lastReadPage
-                    existing.lastReadAt = item.lastReadAt
-                } else if existing.lastReadAt == nil && item.lastReadPage > existing.lastReadPage {
-                    existing.lastReadPage = item.lastReadPage
-                }
-                existing.isFavorite = existing.isFavorite || item.isFavorite
-            } else {
-                modelContext.insert(
-                    GalleryRecord(
-                        snapshot: item.summary,
-                        lastReadPage: item.lastReadPage,
-                        lastReadAt: item.lastReadAt,
-                        isFavorite: item.isFavorite
-                    )
-                )
-            }
+        let existingKeys = Set(try modelContext.fetch(FetchDescriptor<GalleryRecord>()).map(\.key))
+        let missing = uniqueSummaries.filter { existingKeys.contains($0.key) == false }
+        for summary in missing {
+            modelContext.insert(GalleryRecord(snapshot: summary))
+        }
+        if missing.isEmpty == false {
+            try modelContext.save()
         }
 
-        for item in snapshot.downloads {
-            let key = item.key
-            var descriptor = FetchDescriptor<DownloadJobRecord>(predicate: #Predicate {
-                $0.gid == key.gid && $0.token == key.token
-            })
-            descriptor.fetchLimit = 1
-            let record: DownloadJobRecord
-            let localUpdatedAt: Date?
-            if let existing = try modelContext.fetch(descriptor).first {
-                record = existing
-                localUpdatedAt = existing.updatedAt
-            } else {
-                record = DownloadJobRecord(key: key, title: item.title, japaneseTitle: item.japaneseTitle, totalPages: item.pages.count)
-                modelContext.insert(record)
-                localUpdatedAt = nil
-            }
-            let importedMetadataIsNewer = localUpdatedAt.map { item.updatedAt >= $0 } ?? true
-            if importedMetadataIsNewer {
-                record.title = item.title
-                record.japaneseTitle = item.japaneseTitle
-                record.stateRaw = item.stateRaw
-                record.errorMessage = item.errorMessage
-            }
-            record.totalPages = max(record.totalPages, item.pages.count)
-            if record.label == nil { record.label = item.label }
-            record.createdAt = min(record.createdAt, item.createdAt)
-            record.updatedAt = max(record.updatedAt, item.updatedAt)
-            for itemPage in item.pages {
-                let page: DownloadPageRecord
-                if let existing = record.pages.first(where: { $0.pageIndex == itemPage.pageIndex }) {
-                    page = existing
-                } else {
-                    page = DownloadPageRecord(pageIndex: itemPage.pageIndex, fileName: itemPage.fileName)
-                    page.job = record
-                    record.pages.append(page)
-                    modelContext.insert(page)
-                }
-                if page.fileName.isEmpty { page.fileName = itemPage.fileName }
-                page.bytes = max(page.bytes, itemPage.bytes)
-                if page.directURLString == nil { page.directURLString = itemPage.directURLString }
-                if page.previewURLString == nil { page.previewURLString = itemPage.previewURLString }
-                let hadLocalCompletedFile = page.stateRaw == "completed"
-                page.stateRaw = hadLocalCompletedFile || itemPage.stateRaw == "completed"
-                    ? "completed"
-                    : (importedMetadataIsNewer ? itemPage.stateRaw : page.stateRaw)
-                page.retryCount = max(page.retryCount, itemPage.retryCount)
-                page.backgroundTaskIdentifier = nil
-            }
-            record.completedPages = record.pages.filter { $0.stateRaw == "completed" }.count
-        }
+        return GallerySyncImportOutcome(
+            sourceCount: summaries.count,
+            duplicateInFileCount: summaries.count - uniqueSummaries.count,
+            existingCount: uniqueSummaries.count - missing.count,
+            insertedCount: missing.count
+        )
+    }
+}
 
-        for item in snapshot.quickSearches {
-            var descriptor = FetchDescriptor<QuickSearchRecord>(predicate: #Predicate { $0.query == item.query })
-            descriptor.fetchLimit = 1
-            if let existing = try modelContext.fetch(descriptor).first {
-                existing.lastUsedAt = max(existing.lastUsedAt, item.lastUsedAt)
-            } else {
-                let record = QuickSearchRecord(query: item.query)
-                record.lastUsedAt = item.lastUsedAt
-                modelContext.insert(record)
-            }
-        }
+public struct GallerySyncImportOutcome: Sendable, Hashable {
+    public let sourceCount: Int
+    public let duplicateInFileCount: Int
+    public let existingCount: Int
+    public let insertedCount: Int
 
-        for item in snapshot.filterRules {
-            var descriptor = FetchDescriptor<FilterRuleRecord>(predicate: #Predicate {
-                $0.pattern == item.pattern && $0.modeRaw == item.mode.rawValue
-            })
-            descriptor.fetchLimit = 1
-            if let existing = try modelContext.fetch(descriptor).first {
-                existing.isEnabled = existing.isEnabled || item.isEnabled
-            } else {
-                modelContext.insert(
-                    FilterRuleRecord(pattern: item.pattern, isEnabled: item.isEnabled, mode: item.mode)
-                )
-            }
-        }
-
-        for item in snapshot.tagTranslations {
-            var descriptor = FetchDescriptor<TagTranslationRecord>(predicate: #Predicate {
-                $0.tag == item.tag && $0.locale == item.locale
-            })
-            descriptor.fetchLimit = 1
-            if let existing = try modelContext.fetch(descriptor).first {
-                if existing.updatedAt < item.updatedAt {
-                    existing.localizedText = item.localizedText
-                    existing.updatedAt = item.updatedAt
-                }
-            } else {
-                let record = TagTranslationRecord(
-                    tag: item.tag,
-                    locale: item.locale,
-                    localizedText: item.localizedText
-                )
-                record.updatedAt = item.updatedAt
-                modelContext.insert(record)
-            }
-        }
-        try modelContext.save()
+    public init(
+        sourceCount: Int,
+        duplicateInFileCount: Int,
+        existingCount: Int,
+        insertedCount: Int
+    ) {
+        self.sourceCount = sourceCount
+        self.duplicateInFileCount = duplicateInFileCount
+        self.existingCount = existingCount
+        self.insertedCount = insertedCount
     }
 }
 

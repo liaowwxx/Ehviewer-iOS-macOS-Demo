@@ -24,16 +24,21 @@ import EHDownloads
 
 struct DownloadsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var jobs: [DownloadJob] = []
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
-    @State private var showingDownloadRestoreImporter = false
     @State private var searchText = ""
     @State private var showingResetProgressConfirmation = false
     @State private var jobPendingRemoval: DownloadJob?
     @State private var removalErrorMessage: String?
-    @State private var showingDownloadRestoreResult = false
-    @State private var downloadRestoreMessage = ""
+    @State private var isSelectionMode = false
+    @State private var selectedKeys: Set<GalleryKey> = []
+    @State private var showingDownloadShareSheet = false
+    @State private var showingDownloadExporter = false
+    @State private var downloadExportDocument: ArchiveExportDocument?
+    @State private var downloadExportFilename = ""
+    @State private var downloadExportError: String?
 
     private var visibleJobs: [DownloadJob] {
         jobs
@@ -58,70 +63,96 @@ struct DownloadsView: View {
             } else if visibleJobs.isEmpty {
                 ContentUnavailableView("没有匹配的下载", systemImage: "line.3.horizontal.decrease.circle", description: Text("调整搜索或筛选条件"))
             } else {
-                List(visibleJobs) { job in
-                    DownloadCard(job: job) {
-                        Task {
-                            if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
-                            else { await model.downloads.resume(job.key) }
-                        }
-                    } cancel: {
-                        Task { await model.downloads.cancel(job.key) }
-                    } remove: {
-                        jobPendingRemoval = job
-                    } label: {
-                        labelInput = job.label ?? ""
-                        editingJob = job
-                    }
-                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                if model.downloadLayoutMode == .grid {
+                    downloadsGrid
+                } else {
+                    downloadsList
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(.secondary.opacity(0.08))
             }
         }
         .navigationTitle("downloads_title")
         .searchable(text: $searchText, prompt: "搜索下载标题或标签")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu("下载管理", systemImage: "ellipsis.circle") {
-                    Button("开始全部", systemImage: "play.fill") {
-                        Task { await model.downloads.startAll() }
-                    }
-                    .disabled(canStartAll == false)
-                    Button("暂停全部", systemImage: "pause.fill") {
-                        Task { await model.downloads.stopAll() }
-                    }
-                    .disabled(canStopAll == false)
-                    Divider()
-                    Picker("筛选状态", selection: $model.downloadStatusFilter) {
-                        ForEach(DownloadStatusFilter.allCases) { filter in
-                            Text(filter.title).tag(filter)
-                        }
-                    }
-                    .onChange(of: model.downloadStatusFilter) { _, _ in
-                        model.persistDownloadPreferences()
-                    }
-                    Picker("排序", selection: $model.downloadSortOrder) {
-                        ForEach(DownloadSortOrder.allCases) { order in
-                            Text(order.title).tag(order)
-                        }
-                    }
-                    .onChange(of: model.downloadSortOrder) { _, _ in
-                        model.persistDownloadPreferences()
-                    }
-                    Divider()
-                    Button("恢复下载项", systemImage: "arrow.counterclockwise.circle") {
-                        showingDownloadRestoreImporter = true
-                    }
-                    .disabled(model.isRestoringDownloads)
-                    Divider()
-                    Button("重置阅读进度", systemImage: "arrow.counterclockwise", role: .destructive) {
-                        showingResetProgressConfirmation = true
-                    }
+            if isSelectionMode {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") { exitSelectionMode() }
                 }
-                .accessibilityIdentifier("download-management-menu")
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button(selectedKeys.count == visibleJobs.count && visibleJobs.isEmpty == false ? String(localized: "取消全选") : String(localized: "全选")) {
+                        toggleSelectAll()
+                    }
+#if os(iOS)
+                    Button {
+                        Task { await shareSelectedDownloads() }
+                    } label: {
+                        Label(String(localized: "分享(\(selectedKeys.count))"), systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(selectedKeys.isEmpty || model.isMigrating)
+#endif
+                    Button {
+                        Task { await saveSelectedDownloadsToFiles() }
+                    } label: {
+                        Label("保存到文件", systemImage: "folder")
+                    }
+                    .disabled(selectedKeys.isEmpty || model.isMigrating)
+                }
+            } else {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
+                        model.persistDownloadPreferences()
+                    } label: {
+                        Label(
+                            model.downloadLayoutMode == .list
+                                ? String(localized: "切换到卡片")
+                                : String(localized: "切换到列表"),
+                            systemImage: model.downloadLayoutMode == .list
+                                ? "square.grid.2x2"
+                                : "list.bullet"
+                        )
+                    }
+                    .accessibilityIdentifier("downloads-layout-toggle")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("选择") {
+                        enterSelectionMode()
+                    }
+                    .disabled(visibleJobs.isEmpty)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu("下载管理", systemImage: "ellipsis.circle") {
+                        Button("开始全部", systemImage: "play.fill") {
+                            Task { await model.startAllDownloads() }
+                        }
+                        .disabled(canStartAll == false)
+                        Button("暂停全部", systemImage: "pause.fill") {
+                            Task { await model.downloads.stopAll() }
+                        }
+                        .disabled(canStopAll == false)
+                        Divider()
+                        Picker("筛选状态", selection: $model.downloadStatusFilter) {
+                            ForEach(DownloadStatusFilter.allCases) { filter in
+                                Text(filter.title).tag(filter)
+                            }
+                        }
+                        .onChange(of: model.downloadStatusFilter) { _, _ in
+                            model.persistDownloadPreferences()
+                        }
+                        Picker("排序", selection: $model.downloadSortOrder) {
+                            ForEach(DownloadSortOrder.allCases) { order in
+                                Text(order.title).tag(order)
+                            }
+                        }
+                        .onChange(of: model.downloadSortOrder) { _, _ in
+                            model.persistDownloadPreferences()
+                        }
+                        Divider()
+                        Button("重置阅读进度", systemImage: "arrow.counterclockwise", role: .destructive) {
+                            showingResetProgressConfirmation = true
+                        }
+                    }
+                    .accessibilityIdentifier("download-management-menu")
+                }
             }
         }
         .confirmationDialog("重置所有下载内容的阅读进度？", isPresented: $showingResetProgressConfirmation, titleVisibility: .visible) {
@@ -159,12 +190,6 @@ struct DownloadsView: View {
         } message: {
             Text(removalErrorMessage ?? String(localized: "请稍后重试。"))
         }
-        .fileImporter(
-            isPresented: $showingDownloadRestoreImporter,
-            allowedContentTypes: LocalArchiveView.supportedContentTypes,
-            allowsMultipleSelection: false,
-            onCompletion: handleDownloadRestoreSelection
-        )
         .task(id: model.isLoadingDownloads) { jobs = await model.downloads.snapshot() }
         .task {
             for await event in await model.downloads.events() {
@@ -191,31 +216,34 @@ struct DownloadsView: View {
             }
             .presentationDetents([.medium])
         }
-        .alert("恢复下载项", isPresented: $showingDownloadRestoreResult) {
-        } message: {
-            Text(downloadRestoreMessage)
-        }
-        .overlay {
-            if model.isRestoringDownloads {
-                ProgressView(model.downloadRestoreStatus)
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    .accessibilityLabel(model.downloadRestoreStatus)
+        .sheet(isPresented: $showingDownloadShareSheet) {
+#if os(iOS)
+            if let url = model.pendingSharedFileURL {
+                ShareSheet(items: [url])
             }
+#endif
         }
-    }
-
-    private func handleDownloadRestoreSelection(_ result: Result<[URL], any Error>) {
-        guard case let .success(urls) = result, let url = urls.first else {
+        .fileExporter(
+            isPresented: $showingDownloadExporter,
+            document: downloadExportDocument,
+            contentTypes: [.ehViewerDownloadArchive],
+            defaultFilename: downloadExportFilename
+        ) { result in
+            if let sourceURL = downloadExportDocument?.sourceURL {
+                model.discardPendingSharedFile(sourceURL)
+            }
+            downloadExportDocument = nil
             if case let .failure(error) = result {
-                downloadRestoreMessage = error.localizedDescription
-                showingDownloadRestoreResult = true
+                downloadExportError = error.localizedDescription
             }
-            return
         }
-        Task {
-            downloadRestoreMessage = await model.restoreDownloads(from: url)
-            showingDownloadRestoreResult = true
+        .alert("下载包导出失败", isPresented: Binding(
+            get: { downloadExportError != nil },
+            set: { if $0 == false { downloadExportError = nil } }
+        )) {
+            Button("好", role: .cancel) { downloadExportError = nil }
+        } message: {
+            Text(downloadExportError ?? String(localized: "请稍后重试。"))
         }
     }
 
@@ -232,6 +260,133 @@ struct DownloadsView: View {
         case .removed(let key):
             jobs.removeAll { $0.key == key }
         }
+    }
+
+    private func enterSelectionMode(selecting key: GalleryKey? = nil) {
+        isSelectionMode = true
+        if let key {
+            selectedKeys.insert(key)
+        }
+    }
+
+    private func exitSelectionMode() {
+        isSelectionMode = false
+        selectedKeys.removeAll()
+    }
+
+    private func toggleSelection(_ key: GalleryKey) {
+        if selectedKeys.contains(key) {
+            selectedKeys.remove(key)
+        } else {
+            selectedKeys.insert(key)
+        }
+    }
+
+    private func toggleSelectAll() {
+        if selectedKeys.count == visibleJobs.count {
+            selectedKeys.removeAll()
+        } else {
+            selectedKeys.formUnion(visibleJobs.map(\.key))
+        }
+    }
+
+    private func shareSelectedDownloads() async {
+        guard await prepareSelectedDownloadsForExport() else { return }
+        showingDownloadShareSheet = true
+    }
+
+    private func saveSelectedDownloadsToFiles() async {
+        guard await prepareSelectedDownloadsForExport() else { return }
+        showingDownloadExporter = true
+    }
+
+    private func prepareSelectedDownloadsForExport() async -> Bool {
+        guard selectedKeys.isEmpty == false else {
+            downloadExportError = String(localized: "请先选择要分享的下载项。")
+            return false
+        }
+        guard let url = await model.exportDownloadArchive(keys: selectedKeys) else {
+            downloadExportError = model.errorMessage ?? String(localized: "下载包导出失败，请稍后重试。")
+            return false
+        }
+        downloadExportFilename = url.lastPathComponent
+        downloadExportDocument = ArchiveExportDocument(sourceURL: url)
+        return true
+    }
+
+    private var downloadsList: some View {
+        List(visibleJobs) { job in
+            DownloadCard(
+                job: job,
+                isSelectionMode: isSelectionMode,
+                isSelected: selectedKeys.contains(job.key),
+                select: { toggleSelection(job.key) },
+                requestSelection: { enterSelectionMode(selecting: job.key) }
+            ) {
+                Task {
+                    if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
+                    else { await model.resumeDownload(job.key) }
+                }
+            } cancel: {
+                Task { await model.downloads.cancel(job.key) }
+            } remove: {
+                jobPendingRemoval = job
+            } label: {
+                labelInput = job.label ?? ""
+                editingJob = job
+            }
+            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(.secondary.opacity(0.08))
+    }
+
+    private var downloadsGrid: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: gridColumns,
+                spacing: gridSpacing
+            ) {
+                ForEach(visibleJobs) { job in
+                    DownloadGridCard(
+                        job: job,
+                        isSelectionMode: isSelectionMode,
+                        isSelected: selectedKeys.contains(job.key),
+                        select: { toggleSelection(job.key) },
+                        requestSelection: { enterSelectionMode(selecting: job.key) }
+                    ) {
+                        Task {
+                            if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
+                            else { await model.resumeDownload(job.key) }
+                        }
+                    } cancel: {
+                        Task { await model.downloads.cancel(job.key) }
+                    } remove: {
+                        jobPendingRemoval = job
+                    } label: {
+                        labelInput = job.label ?? ""
+                        editingJob = job
+                    }
+                }
+            }
+            .padding(gridSpacing)
+        }
+        .background(.secondary.opacity(0.08))
+    }
+
+    /// iPadOS 与桌面端使用更大的卡片，紧凑设备保持适中尺寸。
+    private var gridColumns: [GridItem] {
+        if horizontalSizeClass == .regular {
+            return [GridItem(.adaptive(minimum: 140, maximum: 190), spacing: 16)]
+        }
+        return [GridItem(.adaptive(minimum: 104, maximum: 140), spacing: 12)]
+    }
+
+    private var gridSpacing: CGFloat {
+        horizontalSizeClass == .regular ? 16 : 12
     }
 
     private var canStartAll: Bool {
@@ -321,73 +476,131 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
     }
 }
 
+enum DownloadsLayoutMode: String, CaseIterable, Identifiable {
+    case list
+    case grid
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .list: String(localized: "列表")
+        case .grid: String(localized: "卡片")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .list: "list.bullet"
+        case .grid: "square.grid.2x2"
+        }
+    }
+}
+
 private struct DownloadCard: View {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
+    let isSelectionMode: Bool
+    let isSelected: Bool
+    let select: () -> Void
+    let requestSelection: () -> Void
     let toggle: () -> Void
     let cancel: () -> Void
     let remove: () -> Void
     let label: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            NavigationLink {
-                ReaderView(downloaded: job, initialPage: 0)
-            } label: {
-                HStack(alignment: .top, spacing: 12) {
-                    DownloadCover(job: job, title: displayTitle)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(displayTitle)
-                            .font(.headline)
-                            .lineLimit(2)
-                        if let label = job.label, label.isEmpty == false {
-                            Label(label, systemImage: "tag")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        ProgressView(value: job.progress)
-                        HStack {
-                            Text(statusTitle)
-                            Spacer()
-                            Text("\(job.completedPageIndexes.count)/\(job.pages.count) 页")
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        if let errorMessage = job.errorMessage {
-                            Text(errorMessage)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .lineLimit(2)
-                        }
+        Group {
+            if isSelectionMode {
+                Button(action: select) {
+                    HStack(alignment: .top, spacing: 10) {
+                        selectionIndicator
+                        cardContent
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("打开《\(displayTitle)》")
-            .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+                .buttonStyle(.plain)
+                .accessibilityLabel(isSelected ? String(localized: "取消选择《\(displayTitle)》") : String(localized: "选择《\(displayTitle)》"))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    NavigationLink {
+                        ReaderView(downloaded: job, initialPage: 0)
+                    } label: {
+                        cardContent
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("打开《\(displayTitle)》")
+                    .accessibilityHint("使用阅读器打开，优先读取已下载页面")
 
-            Menu("下载操作", systemImage: "ellipsis.circle") {
-                NavigationLink(value: AppRoute.gallery(job.key)) {
-                    Label("查看详情", systemImage: "info.circle")
+                    Menu("下载操作", systemImage: "ellipsis.circle") {
+                        NavigationLink(value: AppRoute.gallery(job.key)) {
+                            Label("查看详情", systemImage: "info.circle")
+                        }
+                        if canToggle {
+                            Button(job.state == .running || job.state == .queued ? String(localized: "暂停") : String(localized: "继续"), systemImage: job.state == .running ? "pause" : "play", action: toggle)
+                        }
+                        if job.state != .completed && job.state != .cancelled {
+                            Button("取消下载", systemImage: "xmark.circle", role: .destructive, action: cancel)
+                        }
+                        Button("设置标签", systemImage: "tag", action: label)
+                        Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
+                    }
+                    .labelStyle(.iconOnly)
+                    .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
+                    .accessibilityLabel("《\(displayTitle)》下载操作")
                 }
-                if canToggle {
-                    Button(job.state == .running || job.state == .queued ? String(localized: "暂停") : String(localized: "继续"), systemImage: job.state == .running ? "pause" : "play", action: toggle)
-                }
-                if job.state != .completed && job.state != .cancelled {
-                    Button("取消下载", systemImage: "xmark.circle", role: .destructive, action: cancel)
-                }
-                Button("设置标签", systemImage: "tag", action: label)
-                Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
             }
-            .labelStyle(.iconOnly)
-            .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
-            .accessibilityLabel("《\(displayTitle)》下载操作")
         }
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .contextMenu {
+            if isSelectionMode == false {
+                Button("选择", systemImage: "checkmark.circle", action: requestSelection)
+            }
+        }
+    }
+
+    private var cardContent: some View {
+        HStack(alignment: .top, spacing: 12) {
+            DownloadCover(job: job, title: displayTitle)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(displayTitle)
+                    .font(.headline)
+                    .lineLimit(2)
+                if let label = job.label, label.isEmpty == false {
+                    Label(label, systemImage: "tag")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ProgressView(value: job.progress)
+                HStack {
+                    Text(statusTitle)
+                    Spacer()
+                    Text("\(job.completedPageIndexes.count)/\(job.pages.count) 页")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                if let errorMessage = job.errorMessage {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private var selectionIndicator: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.title2)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .frame(minWidth: 28, minHeight: 44, alignment: .top)
+            .accessibilityLabel(isSelected ? String(localized: "已选择") : String(localized: "未选择"))
     }
 
     private var displayTitle: String {
@@ -413,11 +626,120 @@ private struct DownloadCard: View {
     }
 }
 
+private struct DownloadGridCard: View {
+    @Environment(AppModel.self) private var model
+    let job: DownloadJob
+    let isSelectionMode: Bool
+    let isSelected: Bool
+    let select: () -> Void
+    let requestSelection: () -> Void
+    let toggle: () -> Void
+    let cancel: () -> Void
+    let remove: () -> Void
+    let label: () -> Void
+
+    var body: some View {
+        Group {
+            if isSelectionMode {
+                Button(action: select) {
+                    coverContent
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isSelected ? String(localized: "取消选择《\(displayTitle)》") : String(localized: "选择《\(displayTitle)》"))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            } else {
+                NavigationLink {
+                    ReaderView(downloaded: job, initialPage: 0)
+                } label: {
+                    coverContent
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button("选择", systemImage: "checkmark.circle", action: requestSelection)
+                    NavigationLink(value: AppRoute.gallery(job.key)) {
+                        Label("查看详情", systemImage: "info.circle")
+                    }
+                    if canToggle {
+                        Button(job.state == .running || job.state == .queued ? String(localized: "暂停") : String(localized: "继续"), systemImage: job.state == .running ? "pause" : "play", action: toggle)
+                    }
+                    if job.state != .completed && job.state != .cancelled {
+                        Button("取消下载", systemImage: "xmark.circle", role: .destructive, action: cancel)
+                    }
+                    Button("设置标签", systemImage: "tag", action: label)
+                    Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
+                }
+                .accessibilityLabel("打开《\(displayTitle)》")
+                .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+            }
+        }
+    }
+
+    private var coverContent: some View {
+        Color.clear
+            .aspectRatio(3.0 / 4.0, contentMode: .fit)
+            .overlay {
+                DownloadCover(job: job, title: displayTitle, size: nil, cornerRadius: 14)
+            }
+            .overlay(alignment: .bottom) {
+                if showsProgress {
+                    VStack(spacing: 3) {
+                        ProgressView(value: job.progress)
+                            .progressViewStyle(.linear)
+                            .tint(.white)
+                        Text("\(Int((job.progress * 100).rounded()))%")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(.black.opacity(0.45))
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if isSelectionMode {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title2)
+                        .foregroundStyle(isSelected ? Color.white : Color.secondary)
+                        .padding(8)
+                        .background(.black.opacity(0.45), in: Circle())
+                        .padding(8)
+                        .accessibilityLabel(isSelected ? String(localized: "已选择") : String(localized: "未选择"))
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .contentShape(Rectangle())
+    }
+
+    private var displayTitle: String {
+        job.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
+    }
+
+    private var showsProgress: Bool {
+        job.state != .completed && job.state != .cancelled
+    }
+
+    private var canToggle: Bool {
+        job.state != .completed && job.state != .cancelled
+    }
+}
+
 private struct DownloadCover: View {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
     let title: String
+    var size: CGSize? = CGSize(width: 72, height: 96)
+    var cornerRadius: CGFloat = 10
     @State private var image: Image?
+
+    /// 解码后的封面缓存：滚动来回时直接命中，避免重复解码。
+    @MainActor
+    private static let imageCache: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>()
+        cache.countLimit = 400
+        cache.totalCostLimit = 80_000_000
+        return cache
+    }()
 
     var body: some View {
         Group {
@@ -425,23 +747,29 @@ private struct DownloadCover: View {
                 image
                     .resizable()
                     .scaledToFill()
+                    .transition(.opacity)
             } else {
                 Image(systemName: "photo")
                     .font(.title2)
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 72, height: 96)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .frame(width: size?.width, height: size?.height)
+        .frame(maxWidth: size == nil ? .infinity : nil, maxHeight: size == nil ? .infinity : nil)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: cornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .accessibilityLabel("《\(title)》封面")
-        .task(id: coverTaskID) {
+        .task(id: coverTaskID, priority: .utility) {
             image = nil
+            if let cached = Self.cachedCoverImage(for: coverTaskID) {
+                image = cached
+                return
+            }
             if let coverPageIndex {
                 do {
                     let data = try await model.downloadFiles.data(for: job.key, pageIndex: coverPageIndex)
-                    if let decoded = decodedImage(from: data, maxPixelSize: 320) {
-                        image = decoded
+                    if let decoded = await Self.decodeCoverImage(data, key: coverTaskID, maxPixelSize: 320) {
+                        withAnimation(.easeOut(duration: 0.25)) { image = decoded }
                         return
                     }
                 } catch is CancellationError {
@@ -455,12 +783,47 @@ private struct DownloadCover: View {
             do {
                 let preview = GalleryPageImage(galleryKey: job.key, index: 0, imageURL: previewURL)
                 let data = try await model.imageData(for: preview)
-                image = decodedImage(from: data, maxPixelSize: 320)
+                if let decoded = await Self.decodeCoverImage(data, key: coverTaskID, maxPixelSize: 320) {
+                    withAnimation(.easeOut(duration: 0.25)) { image = decoded }
+                }
             } catch is CancellationError {
                 return
             } catch {
                 return
             }
+        }
+    }
+
+    @MainActor
+    private static func cachedCoverImage(for key: String) -> Image? {
+        guard let cgImage = imageCache.object(forKey: key as NSString) else { return nil }
+        return Image(decorative: cgImage, scale: 1, orientation: .up)
+    }
+
+    /// 在后台解码并写入缓存；返回可在主线程直接使用的 `Image`。
+    @MainActor
+    private static func decodeCoverImage(_ data: Data, key: String, maxPixelSize: Int) async -> Image? {
+        guard let cgImage = await decodeImage(from: data, maxPixelSize: maxPixelSize) else { return nil }
+        imageCache.setObject(cgImage, forKey: key as NSString, cost: cgImage.width * cgImage.height)
+        return Image(decorative: cgImage, scale: 1, orientation: .up)
+    }
+
+    /// 封面解码放到后台执行（utility 优先级），主线程只做轻量包装，
+    /// 大量封面时也不会阻塞滚动。
+    private static func decodeImage(from data: Data, maxPixelSize: Int) async -> CGImage? {
+        let decoding = Task.detached(priority: .utility) { () -> CGImage? in
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+                  ] as CFDictionary) else { return nil }
+            return cgImage
+        }
+        return await withTaskCancellationHandler {
+            await decoding.value
+        } onCancel: {
+            decoding.cancel()
         }
     }
 
@@ -475,14 +838,4 @@ private struct DownloadCover: View {
     private var coverTaskID: String {
         "\(job.key.id)|\(coverPageIndex.map(String.init) ?? "remote")|\(previewURL?.absoluteString ?? "none")"
     }
-}
-
-private func decodedImage(from data: Data, maxPixelSize: Int) -> Image? {
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-          let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-              kCGImageSourceCreateThumbnailFromImageAlways: true,
-              kCGImageSourceCreateThumbnailWithTransform: true,
-              kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
-          ] as CFDictionary) else { return nil }
-    return Image(decorative: cgImage, scale: 1, orientation: .up)
 }

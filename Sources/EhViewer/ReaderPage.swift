@@ -40,6 +40,7 @@ struct ReaderPage: View {
         Group {
             if let media {
                 ReaderMediaView(content: media, pageScaling: pageScaling, fitsViewport: fitsViewport)
+                    .transition(.opacity)
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.quaternary)
@@ -137,8 +138,10 @@ struct ReaderPage: View {
             try Task.checkCancellation()
             let decodedMedia = try ReaderMediaView.Content.decode(data)
             aspectRatio = decodedMedia.aspectRatio
-            media = decodedMedia
-            failed = false
+            withAnimation(.easeOut(duration: 0.25)) {
+                media = decodedMedia
+                failed = false
+            }
         } catch is CancellationError {
             return
         } catch {

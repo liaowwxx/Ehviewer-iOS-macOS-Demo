@@ -277,8 +277,10 @@ struct AppModelTests {
         )
         #expect(first.downloadSortOrder == .titleAscending)
         #expect(first.downloadStatusFilter == .all)
+        #expect(first.downloadLayoutMode == .list)
         first.downloadSortOrder = .progress
         first.downloadStatusFilter = .completed
+        first.downloadLayoutMode = .grid
         first.persistDownloadPreferences()
 
         let second = AppModel(
@@ -289,6 +291,7 @@ struct AppModelTests {
         )
         #expect(second.downloadSortOrder == .progress)
         #expect(second.downloadStatusFilter == .completed)
+        #expect(second.downloadLayoutMode == .grid)
     }
 
     @Test("Rapid tag suggestion refresh follows the input and keeps the latest query")
@@ -691,6 +694,345 @@ struct AppModelTests {
 
         #expect(job?.pages.first?.pageURL == pageURL)
         #expect(job?.pages.first?.requiresPageResolution == true)
+    }
+
+    @Test("Incoming AirDrop archives are staged, gallery sync is separated, and JSON backups are ignored")
+    func incomingArchiveURLsAreStagedByExtension() async throws {
+        let suiteName = "EhViewerIncomingURLTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("incoming-\(UUID().uuidString).EHARCHIVE")
+        try Data("not a zip".utf8).write(to: archiveURL)
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+        model.handleIncomingURL(archiveURL)
+        await waitForPendingIncomingArchive(model)
+        #expect(model.pendingIncomingArchive?.stagedURL.pathExtension.lowercased() == "eharchive")
+        model.discardIncomingArchive()
+        #expect(model.pendingIncomingArchive == nil)
+
+        let gallerySyncURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("incoming-\(UUID().uuidString).ehgallery")
+        try GallerySyncArchive.export(
+            GallerySyncSnapshot(galleries: [
+                GallerySummary(key: GalleryKey(gid: 99, token: "sync"), title: "Sync")
+            ]),
+            to: gallerySyncURL
+        )
+        defer { try? FileManager.default.removeItem(at: gallerySyncURL) }
+        model.handleIncomingURL(gallerySyncURL)
+        await waitForPendingIncomingGallerySync(model)
+        #expect(model.pendingIncomingGallerySync?.stagedURL.pathExtension.lowercased() == "ehgallery")
+        #expect(model.pendingIncomingArchive == nil)
+        await model.confirmIncomingGallerySync()
+        #expect(model.pendingIncomingGallerySync == nil)
+        let syncedJob = try #require(await model.downloadJob(for: GalleryKey(gid: 99, token: "sync")))
+        #expect(syncedJob.state == .paused)
+        #expect(syncedJob.pages.isEmpty)
+
+        let zipURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("incoming-\(UUID().uuidString).zip")
+        try Data("not a zip".utf8).write(to: zipURL)
+        defer { try? FileManager.default.removeItem(at: zipURL) }
+        model.handleIncomingURL(zipURL)
+        await waitForPendingIncomingArchive(model)
+        #expect(model.pendingIncomingArchive?.stagedURL.pathExtension.lowercased() == "zip")
+        model.discardIncomingArchive()
+        #expect(model.pendingIncomingArchive == nil)
+
+        let legacyBackupURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("incoming-\(UUID().uuidString).ehbackup")
+        try Data("{}".utf8).write(to: legacyBackupURL)
+        defer { try? FileManager.default.removeItem(at: legacyBackupURL) }
+        model.handleIncomingURL(legacyBackupURL)
+        #expect(model.pendingIncomingArchive == nil)
+    }
+
+    @Test("Custom download archives and legacy ZIP files are accepted")
+    func downloadArchiveImportTypesIncludeLegacyZip() {
+        #expect(BackupFileFormat.downloadImportTypes == [.ehViewerDownloadArchive, .zip])
+        #expect(BackupFileFormat.gallerySyncImportTypes == [.ehViewerGallerySync])
+    }
+
+    @Test("Gallery sync export contains only galleries in the download list")
+    func gallerySyncExportUsesDownloadList() async throws {
+        let suiteName = "EhViewerGallerySyncExportTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        let cachedOnly = GallerySummary(key: GalleryKey(gid: 100, token: "cached"), title: "Cached only")
+        let downloaded = GallerySummary(key: GalleryKey(gid: 101, token: "download"), title: "Downloaded")
+        try await model.persistence.upsert([cachedOnly, downloaded])
+        var job = DownloadJob(key: downloaded.key, title: downloaded.title, pages: [])
+        job.state = .paused
+        await model.downloads.restore([job])
+
+        let archiveURL = try #require(await model.exportGallerySync())
+        defer { model.discardPendingSharedFile(archiveURL) }
+        let snapshot = try GallerySyncArchive.read(from: archiveURL)
+        #expect(snapshot.galleries.map(\.key) == [downloaded.key])
+    }
+
+    @Test("Selected download export only contains the requested gallery keys")
+    func selectedDownloadArchiveExportContainsOnlyRequestedKeys() async throws {
+        let suiteName = "EhViewerSelectedDownloadExportTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let fileRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-selected-export-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: fileRoot) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            downloadFiles: DownloadFileStore(root: fileRoot, minimumFreeBytes: 1)
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        let imageData = try #require(Self.onePixelPNG)
+        let firstKey = GalleryKey(gid: 71, token: "selected-a")
+        let secondKey = GalleryKey(gid: 72, token: "selected-b")
+        let firstPage = GalleryPageDescriptor(
+            galleryKey: firstKey,
+            index: 0,
+            pageURL: try #require(URL(string: "https://example.invalid/selected-a-1.jpg"))
+        )
+        let secondPage = GalleryPageDescriptor(
+            galleryKey: secondKey,
+            index: 0,
+            pageURL: try #require(URL(string: "https://example.invalid/selected-b-1.jpg"))
+        )
+        try await model.persistence.upsertDownload(
+            key: firstKey,
+            title: "Selected A",
+            pages: [firstPage],
+            completedPageIndexes: [],
+            stateRaw: DownloadState.paused.rawValue,
+            errorMessage: nil
+        )
+        try await model.persistence.upsertDownload(
+            key: secondKey,
+            title: "Selected B",
+            pages: [secondPage],
+            completedPageIndexes: [],
+            stateRaw: DownloadState.paused.rawValue,
+            errorMessage: nil
+        )
+        _ = try await model.downloadFiles.write(imageData, for: firstKey, pageIndex: 0)
+        _ = try await model.downloadFiles.write(imageData, for: secondKey, pageIndex: 0)
+
+        let archiveURL = try #require(await model.exportDownloadArchive(keys: [firstKey]))
+        defer { model.discardPendingSharedFile(archiveURL) }
+
+        let inspection = try await LegacyDownloadArchive.inspect(archiveURL)
+        #expect(inspection.candidates.map(\.key) == [firstKey])
+        #expect(inspection.candidates.count == 1)
+    }
+
+    @Test("Re-importing a download archive skips duplicate items and pages")
+    func downloadArchiveReimportSkipsDuplicatePages() async throws {
+        let suiteName = "EhViewerDownloadReimportTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let destinationRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-reimport-destination-\(UUID().uuidString)")
+        let sourceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-reimport-source-\(UUID().uuidString)")
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-reimport-\(UUID().uuidString).eharchive")
+        defer {
+            try? FileManager.default.removeItem(at: destinationRoot)
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: archiveURL)
+        }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            downloadFiles: DownloadFileStore(root: destinationRoot, minimumFreeBytes: 1)
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        let imageData = try #require(Self.onePixelPNG)
+        let key = GalleryKey(gid: 73, token: "reimport")
+        let sourceStore = DownloadFileStore(root: sourceRoot, minimumFreeBytes: 1)
+        for pageIndex in 0..<3 {
+            _ = try await sourceStore.write(imageData, for: key, pageIndex: pageIndex)
+        }
+        let item = DownloadArchiveExportItem(
+            key: key,
+            title: "Reimport gallery",
+            totalPageCount: 3,
+            pageTokens: [:]
+        )
+        _ = try await DownloadArchiveExporter.export(items: [item], files: sourceStore, to: archiveURL)
+
+        let firstOutcome = await model.restoreDownloads(from: archiveURL)
+        #expect(firstOutcome.candidateCount == 1)
+        #expect(firstOutcome.importedItemCount == 1)
+        #expect(firstOutcome.mergedItemCount == 0)
+        #expect(firstOutcome.skippedDuplicateItemCount == 0)
+        #expect(firstOutcome.importedPageCount == 3)
+        #expect(firstOutcome.skippedDuplicatePageCount == 0)
+        #expect(await model.downloads.snapshot().count == 1)
+
+        let secondOutcome = await model.restoreDownloads(from: archiveURL)
+        #expect(secondOutcome.candidateCount == 1)
+        #expect(secondOutcome.importedItemCount == 0)
+        #expect(secondOutcome.mergedItemCount == 0)
+        #expect(secondOutcome.skippedDuplicateItemCount == 1)
+        #expect(secondOutcome.importedPageCount == 0)
+        #expect(secondOutcome.skippedDuplicatePageCount == 3)
+        #expect(secondOutcome.failedPageCount == 0)
+        #expect(await model.downloads.snapshot().count == 1)
+    }
+
+    @Test("Partial archive import only writes pages missing from the local store")
+    func partialArchiveImportWritesOnlyMissingPages() async throws {
+        let suiteName = "EhViewerPartialArchiveImportTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let destinationRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-partial-import-destination-\(UUID().uuidString)")
+        let sourceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-partial-import-source-\(UUID().uuidString)")
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-partial-import-\(UUID().uuidString).eharchive")
+        defer {
+            try? FileManager.default.removeItem(at: destinationRoot)
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: archiveURL)
+        }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            downloadFiles: DownloadFileStore(root: destinationRoot, minimumFreeBytes: 1)
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        let imageData = try #require(Self.onePixelPNG)
+        let key = GalleryKey(gid: 74, token: "partial")
+        let pageURL = try #require(URL(string: "https://example.invalid/partial-1.jpg"))
+        var localJob = DownloadJob(
+            key: key,
+            title: "Partial local",
+            pages: [GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: pageURL)]
+        )
+        localJob.state = .paused
+        await model.downloads.restore([localJob])
+        _ = try await model.downloadFiles.write(imageData, for: key, pageIndex: 0)
+
+        let sourceStore = DownloadFileStore(root: sourceRoot, minimumFreeBytes: 1)
+        for pageIndex in 0..<3 {
+            _ = try await sourceStore.write(imageData, for: key, pageIndex: pageIndex)
+        }
+        _ = try await DownloadArchiveExporter.export(
+            items: [DownloadArchiveExportItem(key: key, title: "Partial archive", totalPageCount: 3, pageTokens: [:])],
+            files: sourceStore,
+            to: archiveURL
+        )
+
+        let outcome = await model.restoreDownloads(from: archiveURL)
+        #expect(outcome.mergedItemCount == 1)
+        #expect(outcome.importedPageCount == 2)
+        #expect(outcome.skippedDuplicatePageCount == 1)
+        #expect(await model.downloads.snapshot().count == 1)
+        #expect(await model.downloadFiles.readablePageIndexes(for: key, pageIndexes: [0, 1, 2]) == [0, 1, 2])
+    }
+
+    @Test("Corrupt local pages are repaired by archive import")
+    func corruptLocalPageIsRepairedByArchiveImport() async throws {
+        let suiteName = "EhViewerCorruptPageRepairTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let destinationRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-corrupt-import-destination-\(UUID().uuidString)")
+        let sourceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-corrupt-import-source-\(UUID().uuidString)")
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-corrupt-import-\(UUID().uuidString).eharchive")
+        defer {
+            try? FileManager.default.removeItem(at: destinationRoot)
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: archiveURL)
+        }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            downloadFiles: DownloadFileStore(root: destinationRoot, minimumFreeBytes: 1)
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        let imageData = try #require(Self.onePixelPNG)
+        let key = GalleryKey(gid: 75, token: "corrupt")
+        let pageURL = try #require(URL(string: "https://example.invalid/corrupt-1.jpg"))
+        var localJob = DownloadJob(
+            key: key,
+            title: "Corrupt local",
+            pages: [GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: pageURL)]
+        )
+        localJob.state = .paused
+        await model.downloads.restore([localJob])
+        _ = try await model.downloadFiles.write(imageData, for: key, pageIndex: 0)
+        let finalURL = await model.downloadFiles.finalURL(for: key, pageIndex: 0)
+        try Data("broken image payload".utf8).write(to: finalURL)
+
+        let sourceStore = DownloadFileStore(root: sourceRoot, minimumFreeBytes: 1)
+        _ = try await sourceStore.write(imageData, for: key, pageIndex: 0)
+        _ = try await DownloadArchiveExporter.export(
+            items: [DownloadArchiveExportItem(key: key, title: "Repair archive", totalPageCount: 1, pageTokens: [:])],
+            files: sourceStore,
+            to: archiveURL
+        )
+
+        let outcome = await model.restoreDownloads(from: archiveURL)
+        #expect(outcome.mergedItemCount == 1)
+        #expect(outcome.importedPageCount == 1)
+        #expect(outcome.skippedDuplicatePageCount == 0)
+        #expect(try await model.downloadFiles.data(for: key, pageIndex: 0) == imageData)
+    }
+
+    private func waitForPendingIncomingArchive(_ model: AppModel) async {
+        for _ in 0..<500 where model.pendingIncomingArchive == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    private func waitForPendingIncomingGallerySync(_ model: AppModel) async {
+        for _ in 0..<500 where model.pendingIncomingGallerySync == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    private func waitUntilDownloadsLoaded(_ model: AppModel) async {
+        for _ in 0..<200 where model.isLoadingDownloads {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    private static var onePixelPNG: Data? {
+        Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
     }
 }
 

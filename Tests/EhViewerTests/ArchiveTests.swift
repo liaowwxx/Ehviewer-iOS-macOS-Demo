@@ -4,6 +4,56 @@ import EHDomain
 import EHDownloads
 
 struct ArchiveTests {
+    @Test("Gallery sync archives round-trip metadata only and reject unsafe containers")
+    func gallerySyncArchiveRoundTrip() throws {
+        let key = GalleryKey(gid: 777, token: "gallery-sync")
+        let summary = GallerySummary(
+            key: key,
+            title: "同步画廊",
+            thumbnailURL: URL(string: "https://example.invalid/cover.jpg"),
+            category: "Doujinshi",
+            pageCount: 12,
+            rating: 4.5,
+            tags: ["language:chinese"]
+        )
+        let snapshot = GallerySyncSnapshot(
+            exportedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            galleries: [summary]
+        )
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-gallery-sync-\(UUID().uuidString).ehgallery")
+        let invalidURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-gallery-sync-invalid-\(UUID().uuidString).ehgallery")
+        defer {
+            try? FileManager.default.removeItem(at: archiveURL)
+            try? FileManager.default.removeItem(at: invalidURL)
+        }
+
+        try GallerySyncArchive.export(snapshot, to: archiveURL)
+        let decoded = try GallerySyncArchive.read(from: archiveURL)
+        #expect(decoded.schemaVersion == GallerySyncSnapshot.currentVersion)
+        #expect(decoded.galleries == [summary])
+
+        try makeStoredZip(entries: [
+            (GallerySyncArchive.payloadEntryName, Data("{}".utf8)),
+            ("unexpected", Data("not allowed".utf8))
+        ]).write(to: invalidURL, options: .atomic)
+        do {
+            _ = try GallerySyncArchive.read(from: invalidURL)
+            Issue.record("A gallery sync archive with an extra entry must be rejected")
+        } catch {
+            #expect(error is GallerySyncArchiveError)
+        }
+
+        try Data("{}".utf8).write(to: invalidURL, options: .atomic)
+        do {
+            _ = try GallerySyncArchive.read(from: invalidURL)
+            Issue.record("A raw JSON file must not be accepted as an .ehgallery archive")
+        } catch {
+            #expect(error is GallerySyncArchiveError)
+        }
+    }
+
     @Test("Local archive reader lists and extracts a ZIP entry")
     func zipRoundTrip() throws {
         let payload = Data("archive fixture".utf8)

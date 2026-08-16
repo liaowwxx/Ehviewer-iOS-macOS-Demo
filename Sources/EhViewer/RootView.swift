@@ -22,7 +22,7 @@ import EHDomain
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var presentedError: PresentedError?
+    @State private var presentedRootAlert: RootAlert?
     @State private var compactSelection: AppRoute = .browse
     @State private var compactBrowsePath: [AppRoute] = []
     @State private var compactDownloadsPath: [AppRoute] = []
@@ -48,22 +48,123 @@ struct RootView: View {
             }
         }
         .accessibilityIdentifier("ehviewer-root")
-        .onChange(of: model.errorMessage) { _, newMessage in
-            presentedError = newMessage.map(PresentedError.init)
+        .onAppear { refreshRootAlert() }
+        .onChange(of: model.errorMessage) { _, _ in refreshRootAlert() }
+        .onChange(of: model.pendingIncomingArchive) { _, _ in refreshRootAlert() }
+        .onChange(of: model.pendingIncomingGallerySync) { _, _ in refreshRootAlert() }
+        .onChange(of: model.importResultMessage) { _, _ in refreshRootAlert() }
+        .alert(item: $presentedRootAlert) { alert in
+            switch alert {
+            case .error(let message):
+                Alert(
+                    title: Text("发生错误"),
+                    message: Text(message),
+                    dismissButton: .default(Text("好")) { model.errorMessage = nil }
+                )
+            case .incomingArchive(let pending):
+                Alert(
+                    title: Text("收到 EhViewer 下载包"),
+                    message: Text("将导入下载包，并自动跳过已有页面。"),
+                    primaryButton: .default(Text("导入")) {
+                        Task { await model.confirmIncomingArchive(pending) }
+                    },
+                    secondaryButton: .cancel(Text("取消")) {
+                        model.discardIncomingArchive()
+                    }
+                )
+            case .incomingGallerySync(let pending):
+                Alert(
+                    title: Text("收到 EhViewer 画廊同步包"),
+                    message: Text("将只添加本机缺失的画廊，不会修改已有画廊、阅读进度、收藏、下载或设置。"),
+                    primaryButton: .default(Text("导入")) {
+                        Task { await model.confirmIncomingGallerySync(pending) }
+                    },
+                    secondaryButton: .cancel(Text("取消")) {
+                        model.discardIncomingGallerySync()
+                    }
+                )
+            case .importResult(let message):
+                Alert(
+                    title: Text("导入结果"),
+                    message: Text(message),
+                    dismissButton: .default(Text("好")) { model.importResultMessage = nil }
+                )
+            }
         }
-        .alert(item: $presentedError) { error in
-            Alert(
-                title: Text("发生错误"),
-                message: Text(error.message),
-                dismissButton: .default(Text("好")) { model.errorMessage = nil }
-            )
+        .overlay {
+            if let progress = model.migrationProgress {
+                MigrationProgressOverlay(progress: progress)
+            }
+            if model.isRestoringDownloads {
+                DownloadRestoreProgressOverlay(status: model.downloadRestoreStatus)
+            }
+        }
+    }
+
+    private func refreshRootAlert() {
+        if let message = model.importResultMessage {
+            presentedRootAlert = .importResult(message)
+        } else if let message = model.errorMessage {
+            presentedRootAlert = .error(message)
+        } else if let pending = model.pendingIncomingGallerySync {
+            presentedRootAlert = .incomingGallerySync(pending)
+        } else if let pending = model.pendingIncomingArchive {
+            presentedRootAlert = .incomingArchive(pending)
+        } else {
+            presentedRootAlert = nil
+        }
+    }
+
+}
+
+private enum RootAlert: Identifiable {
+    case error(String)
+    case incomingArchive(PendingIncomingArchive)
+    case incomingGallerySync(PendingIncomingGallerySync)
+    case importResult(String)
+
+    var id: String {
+        switch self {
+        case .error(let message): "error-\(message)"
+        case .incomingArchive(let pending): "incoming-\(pending.id)"
+        case .incomingGallerySync(let pending): "incoming-gallery-sync-\(pending.id)"
+        case .importResult(let message): "import-result-\(message)"
         }
     }
 }
 
-private struct PresentedError: Identifiable {
-    let id = UUID()
-    let message: String
+private struct MigrationProgressOverlay: View {
+    let progress: MigrationProgress
+
+    var body: some View {
+        VStack(spacing: 10) {
+            if let fraction = progress.fraction {
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+            } else {
+                ProgressView()
+            }
+            Text(progress.status)
+                .font(.callout)
+                .multilineTextAlignment(.center)
+        }
+        .padding()
+        .frame(maxWidth: 280)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(progress.status)
+    }
+}
+
+private struct DownloadRestoreProgressOverlay: View {
+    let status: String
+
+    var body: some View {
+        ProgressView(status.isEmpty ? String(localized: "正在恢复下载项…") : status)
+            .padding()
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .accessibilityLabel(status)
+    }
 }
 
 private struct RootNavigationStack<Content: View>: View {

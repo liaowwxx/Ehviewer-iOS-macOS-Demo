@@ -17,7 +17,6 @@
  */
 
 import SwiftUI
-import UniformTypeIdentifiers
 import EHDomain
 
 struct SettingsView: View {
@@ -25,13 +24,18 @@ struct SettingsView: View {
     @State private var showingCookieSheet = false
     @State private var showingWebLogin = false
     @State private var showingPasswordLogin = false
-    @State private var showingMigrationExporter = false
-    @State private var showingMigrationImporter = false
-    @State private var migrationExportDocument: MigrationExportDocument?
-    @State private var migrationExportContentTypes: [UTType] = [.json]
-    @State private var migrationExportFilename = "ehviewer-migration.json"
-    @State private var showingMigrationResult = false
-    @State private var migrationMessage = ""
+    @State private var showingArchiveExporter = false
+    @State private var showingArchiveShareSheet = false
+    @State private var archiveExportDocument: ArchiveExportDocument?
+    @State private var archiveExportFilename = "EhViewer-Downloads.eharchive"
+    @State private var showingGallerySyncExporter = false
+    @State private var showingGallerySyncShareSheet = false
+    @State private var showingGallerySyncImporter = false
+    @State private var gallerySyncExportDocument: GallerySyncExportDocument?
+    @State private var gallerySyncExportFilename = "EhViewer-Galleries.ehgallery"
+    @State private var showingDownloadRestoreImporter = false
+    @State private var showingDownloadRestoreResult = false
+    @State private var downloadRestoreMessage = ""
 
     var body: some View {
         @Bindable var model = model
@@ -92,42 +96,46 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             FilterRulesSection()
-            Section("数据迁移") {
-                Button("导出 JSON", systemImage: "doc.badge.gearshape") {
+            Section("数据迁移/备份") {
+                Text("导入")
+                    .font(.subheadline.weight(.semibold))
+                Button("导入画廊同步包（.ehgallery）", systemImage: "square.and.arrow.down") {
+                    showingGallerySyncImporter = true
+                }
+                .disabled(model.isMigrating)
+                Button("恢复下载归档（.eharchive / .zip）", systemImage: "arrow.counterclockwise.circle") {
+                    showingDownloadRestoreImporter = true
+                }
+                .disabled(model.isRestoringDownloads)
+                Text("分享")
+                    .font(.subheadline.weight(.semibold))
+                Button("分享画廊同步包（.ehgallery）", systemImage: "square.and.arrow.up") {
                     Task {
-                        guard let data = await model.exportMigrationData() else {
-                            migrationMessage = model.errorMessage ?? String(localized: "JSON 导出失败，请稍后重试。")
-                            showingMigrationResult = true
-                            return
-                        }
-                        migrationExportContentTypes = [.json]
-                        migrationExportFilename = "ehviewer-migration.json"
-                        migrationExportDocument = MigrationExportDocument(data: data)
-                        showingMigrationExporter = true
+                        guard let url = await model.exportGallerySync() else { return }
+#if os(iOS)
+                        showingGallerySyncShareSheet = true
+#else
+                        gallerySyncExportFilename = url.lastPathComponent
+                        gallerySyncExportDocument = GallerySyncExportDocument(sourceURL: url)
+                        showingGallerySyncExporter = true
+#endif
                     }
                 }
                 .disabled(model.isMigrating)
-                Button("导出下载压缩包", systemImage: "archivebox") {
+                Button("分享下载归档（.eharchive）", systemImage: "square.and.arrow.up") {
                     Task {
-                        guard let url = await model.exportDownloadArchive() else {
-                            migrationMessage = model.errorMessage ?? String(localized: "下载压缩包导出失败，请稍后重试。")
-                            showingMigrationResult = true
-                            return
-                        }
-                        migrationExportContentTypes = [.zip]
-                        migrationExportFilename = "ehviewer-downloads.zip"
-                        migrationExportDocument = MigrationExportDocument(sourceURL: url)
-                        showingMigrationExporter = true
+                        guard let url = await model.exportDownloadArchive() else { return }
+#if os(iOS)
+                        archiveExportDocument = ArchiveExportDocument(sourceURL: url)
+                        showingArchiveShareSheet = true
+#else
+                        archiveExportFilename = url.lastPathComponent
+                        archiveExportDocument = ArchiveExportDocument(sourceURL: url)
+                        showingArchiveExporter = true
+#endif
                     }
                 }
                 .disabled(model.isMigrating)
-                Button("导入数据", systemImage: "square.and.arrow.down") {
-                    showingMigrationImporter = true
-                }
-                .disabled(model.isMigrating)
-                Text("JSON 包含收藏、阅读进度、下载任务、搜索记录、过滤规则和阅读设置；下载压缩包包含本地已下载文件。导入会与本地数据合并。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -136,72 +144,83 @@ struct SettingsView: View {
         .sheet(isPresented: $showingCookieSheet) { CookieLoginSheet() }
         .sheet(isPresented: $showingWebLogin) { WebLoginSheet() }
         .sheet(isPresented: $showingPasswordLogin) { PasswordLoginSheet() }
-        .fileExporter(
-            isPresented: $showingMigrationExporter,
-            document: migrationExportDocument,
-            contentTypes: migrationExportContentTypes,
-            defaultFilename: migrationExportFilename
-        ) { result in
-            if let sourceURL = migrationExportDocument?.sourceURL {
-                try? FileManager.default.removeItem(at: sourceURL)
+        .sheet(isPresented: $showingArchiveShareSheet) {
+#if os(iOS)
+            if let url = model.pendingSharedFileURL {
+                ShareSheet(items: [url])
             }
-            migrationExportDocument = nil
+#endif
+        }
+        .sheet(isPresented: $showingGallerySyncShareSheet) {
+#if os(iOS)
+            if let url = model.pendingSharedFileURL {
+                ShareSheet(items: [url])
+            }
+#endif
+        }
+        .fileExporter(
+            isPresented: $showingArchiveExporter,
+            document: archiveExportDocument,
+            contentTypes: [.ehViewerDownloadArchive],
+            defaultFilename: archiveExportFilename
+        ) { result in
+            if let sourceURL = archiveExportDocument?.sourceURL {
+                model.discardPendingSharedFile(sourceURL)
+            }
+            archiveExportDocument = nil
             if case let .failure(error) = result {
-                migrationMessage = error.localizedDescription
-                showingMigrationResult = true
+                model.errorMessage = error.localizedDescription
+            }
+        }
+        .fileExporter(
+            isPresented: $showingGallerySyncExporter,
+            document: gallerySyncExportDocument,
+            contentTypes: [.ehViewerGallerySync],
+            defaultFilename: gallerySyncExportFilename
+        ) { result in
+            if let sourceURL = gallerySyncExportDocument?.sourceURL {
+                model.discardPendingSharedFile(sourceURL)
+            }
+            gallerySyncExportDocument = nil
+            if case let .failure(error) = result {
+                model.errorMessage = error.localizedDescription
             }
         }
         .fileImporter(
-            isPresented: $showingMigrationImporter,
-            allowedContentTypes: MigrationDocument.readableContentTypes,
+            isPresented: $showingGallerySyncImporter,
+            allowedContentTypes: BackupFileFormat.gallerySyncImportTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    model.stageGallerySyncImport(from: url)
+                }
+            case .failure(let error):
+                model.errorMessage = error.localizedDescription
+            }
+        }
+        .fileImporter(
+            isPresented: $showingDownloadRestoreImporter,
+            allowedContentTypes: BackupFileFormat.downloadImportTypes,
             allowsMultipleSelection: false
         ) { result in
             guard case let .success(urls) = result, let url = urls.first else {
                 if case let .failure(error) = result {
-                    migrationMessage = error.localizedDescription
-                    showingMigrationResult = true
+                    downloadRestoreMessage = error.localizedDescription
+                    showingDownloadRestoreResult = true
                 }
                 return
             }
             Task {
-                do {
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    let data = try await Task.detached(priority: .userInitiated) {
-                        try Data(contentsOf: url, options: .mappedIfSafe)
-                    }.value
-                    let imported = await model.importMigrationData(data)
-                    migrationMessage = imported ? String(localized: "数据已导入，并已与本地数据合并。") : String(localized: "数据导入失败，请检查迁移文件。")
-                } catch {
-                    migrationMessage = error.localizedDescription
-                }
-                showingMigrationResult = true
+                downloadRestoreMessage = await model.restoreDownloads(from: url).message
+                showingDownloadRestoreResult = true
             }
         }
-        .alert("数据迁移", isPresented: $showingMigrationResult) {
+        .alert("恢复下载项", isPresented: $showingDownloadRestoreResult) {
             Button("好", role: .cancel) {}
         } message: {
-            Text(migrationMessage)
-        }
-        .overlay {
-            if let progress = model.migrationProgress {
-                VStack(spacing: 10) {
-                    if let fraction = progress.fraction {
-                        ProgressView(value: fraction)
-                            .progressViewStyle(.linear)
-                    } else {
-                        ProgressView()
-                    }
-                    Text(progress.status)
-                        .font(.callout)
-                        .multilineTextAlignment(.center)
-                }
-                .padding()
-                .frame(maxWidth: 280)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(progress.status)
-            }
+            Text(downloadRestoreMessage)
         }
         .task { await model.loadFilterRules() }
     }

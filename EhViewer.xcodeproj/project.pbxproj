@@ -56,6 +56,7 @@
 		EHB0000000000000000003A /* ReaderSettingsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003A /* ReaderSettingsMenu.swift */; };
 		EHB00000000000000000045 /* GalleryCategoryBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000045 /* GalleryCategoryBadge.swift */; };
 		EHB00000000000000000046 /* TagFlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000046 /* TagFlowLayout.swift */; };
+		EHB00000000000000000047 /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000047 /* ShareSheet.swift */; };
 		EHB0000000000000000003B /* BrowsePageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003B /* BrowsePageModel.swift */; };
 		EHB0000000000000000003C /* HomeBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003C /* HomeBrowseView.swift */; };
 		EHB00000000000000000040 /* ReaderPageWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000040 /* ReaderPageWindow.swift */; };
@@ -145,6 +146,8 @@
 		EHF0000000000000000003A /* ReaderSettingsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsMenu.swift; sourceTree = "<group>"; };
 		EHF00000000000000000045 /* GalleryCategoryBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCategoryBadge.swift; sourceTree = "<group>"; };
 		EHF00000000000000000046 /* TagFlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagFlowLayout.swift; sourceTree = "<group>"; };
+		EHF00000000000000000047 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
+		EHF00000000000000000048 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		EHF0000000000000000003B /* BrowsePageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsePageModel.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003C /* HomeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBrowseView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000040 /* ReaderPageWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPageWindow.swift; sourceTree = "<group>"; };
@@ -245,6 +248,8 @@
 				EHF00000000000000000042 /* ReaderThumbnailStrip.swift */,
 				EHF00000000000000000043 /* ReaderThumbnailView.swift */,
 				EHF00000000000000000044 /* ReaderThumbnailLoader.swift */,
+				EHF00000000000000000047 /* ShareSheet.swift */,
+				EHF00000000000000000048 /* Info.plist */,
 			);
 			path = Sources/EhViewer;
 			sourceTree = "<group>";
@@ -455,6 +460,7 @@
 				EHB00000000000000000042 /* ReaderThumbnailStrip.swift in Sources */,
 				EHB00000000000000000043 /* ReaderThumbnailView.swift in Sources */,
 				EHB00000000000000000044 /* ReaderThumbnailLoader.swift in Sources */,
+				EHB00000000000000000047 /* ShareSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -523,7 +529,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/EhViewer/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = EhViewer;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Viewer;\n    CFBundleURLSchemes =     (\n        ehviewer\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
@@ -551,7 +558,8 @@
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sources/EhViewer/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = EhViewer;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Viewer;\n    CFBundleURLSchemes =     (\n        ehviewer\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";

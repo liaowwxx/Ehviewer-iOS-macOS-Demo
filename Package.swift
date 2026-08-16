@@ -49,6 +49,7 @@ let package = Package(
             name: "EhViewerPreview",
             dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads"],
             path: "Sources/EhViewer",
+            exclude: ["Info.plist"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

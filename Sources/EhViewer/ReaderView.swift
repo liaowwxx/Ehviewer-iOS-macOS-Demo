@@ -34,7 +34,9 @@ struct ReaderView: View {
     @State private var source: ReaderContentSource
     @State private var detail: GalleryDetail?
     @State private var position: ReaderPositionState
-    @State private var isFullscreen = false
+    /// 视频播放器式控件显隐：点击页面切换，无操作一段时间后自动隐藏。
+    @State private var isShowingControls = true
+    @State private var controlsInteractionToken = UUID()
     @State private var zoomResetToken = UUID()
     @State private var detailError: String?
     @State private var detailLoadToken = UUID()
@@ -62,42 +64,8 @@ struct ReaderView: View {
     }
 
     var body: some View {
-        Group {
-            if let detail {
-                if readingMode == .verticalPaged {
-                    ReaderVerticalPagedView(
-                        descriptors: detail.pages,
-                        resolution: .preview,
-                        resetToken: zoomResetToken,
-                        pageScaling: model.readingSettings.pageScaling,
-                        source: source,
-                        position: $position
-                    )
-                } else {
-                    ReaderPagedView(
-                        descriptors: detail.pages,
-                        resolution: .preview,
-                        resetToken: zoomResetToken,
-                        readingDirection: model.readingSettings.readingDirection,
-                        pageScaling: model.readingSettings.pageScaling,
-                        source: source,
-                        position: $position
-                    )
-                }
-            } else if let detailError {
-                VStack(spacing: 12) {
-                    ContentUnavailableView("阅读器加载失败", systemImage: "exclamationmark.triangle", description: Text(detailError))
-                    Button("重试", systemImage: "arrow.clockwise") {
-                        detailLoadToken = UUID()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                .padding()
-            } else {
-                ProgressView("准备阅读器…")
-            }
-        }
-        .task(id: position.page) {
+        readerContent
+            .task(id: position.page) {
             guard source == .remote, let detail else { return }
             await model.prefetch(
                 prefetchDescriptors(in: detail.pages, around: position.page),
@@ -114,7 +82,10 @@ struct ReaderView: View {
             requestPage(position.page + horizontalPageDelta(forLeftDirection: false), pageCount: detail.pages.count)
             return .handled
         }
-        .navigationTitle("阅读 · \(position.page + 1)")
+        .navigationTitle(readerNavigationTitle)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 ReaderSettingsMenu()
@@ -125,6 +96,14 @@ struct ReaderView: View {
                         Label("分享", systemImage: "square.and.arrow.up")
                     }
                 }
+            }
+        }
+        .task(id: controlsInteractionToken) {
+            guard isShowingControls else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard Task.isCancelled == false else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                isShowingControls = false
             }
         }
         .task(id: "\(key.id)-\(source)-\(detailLoadToken)") {
@@ -142,6 +121,8 @@ struct ReaderView: View {
         }
         .onChange(of: position.page) { _, _ in
             scheduleProgressSave()
+            // 翻页/拖动进度条视为交互：仅在控件已显示时重置自动隐藏计时。
+            controlsInteractionToken = UUID()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { saveProgressImmediately() }
@@ -177,10 +158,10 @@ struct ReaderView: View {
         }
         #endif
         #if os(iOS)
-        .toolbar(isFullscreen ? .hidden : .visible, for: .navigationBar)
+        .toolbar(isShowingControls ? .visible : .hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let detail {
+            if isShowingControls, let detail {
                 ReaderProgressControl(
                     page: position.page,
                     pageCount: detail.pages.count,
@@ -191,34 +172,84 @@ struct ReaderView: View {
                     },
                     onSeekEnded: saveProgressImmediately
                 )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         #elseif os(macOS)
-        .toolbar(isFullscreen ? .hidden : .visible)
+        .toolbar(isShowingControls ? .visible : .hidden)
         #endif
-        .overlay(alignment: .topTrailing) {
-            if isFullscreen {
-                Button("退出全屏", systemImage: "xmark.circle.fill") { isFullscreen = false }
-                    .labelStyle(.iconOnly)
-                    .font(.title2)
-                    .padding()
-                    .accessibilityLabel("退出全屏")
-            }
-        }
         .overlay(alignment: .topLeading) {
-            if let detail, model.readingSettings.showClock || model.readingSettings.showProgress || model.readingSettings.showBattery || model.readingSettings.showPageInterval {
+            if isShowingControls, let detail, showsStatusOverlay {
                 ReaderStatusOverlay(
                     settings: model.readingSettings,
                     page: position.page,
                     pageCount: detail.pages.count
                 )
                 .padding()
+                .transition(.opacity)
             }
         }
     }
 
+    private var showsStatusOverlay: Bool {
+        model.readingSettings.showClock || model.readingSettings.showProgress || model.readingSettings.showBattery || model.readingSettings.showPageInterval
+    }
+
+    /// 阅读内容：分页/连续两种模式，或加载中/失败状态。
+    private var readerContent: some View {
+        Group {
+            if let detail {
+                if readingMode == .verticalPaged {
+                    ReaderVerticalPagedView(
+                        descriptors: detail.pages,
+                        resolution: .preview,
+                        resetToken: zoomResetToken,
+                        pageScaling: model.readingSettings.pageScaling,
+                        source: source,
+                        position: $position
+                    )
+                    .onTapGesture(perform: toggleControls)
+                } else {
+                    ReaderPagedView(
+                        descriptors: detail.pages,
+                        resolution: .preview,
+                        resetToken: zoomResetToken,
+                        readingDirection: model.readingSettings.readingDirection,
+                        pageScaling: model.readingSettings.pageScaling,
+                        source: source,
+                        position: $position
+                    )
+                    .onTapGesture(perform: toggleControls)
+                }
+            } else if let detailError {
+                VStack(spacing: 12) {
+                    ContentUnavailableView("阅读器加载失败", systemImage: "exclamationmark.triangle", description: Text(detailError))
+                    Button("重试", systemImage: "arrow.clockwise") {
+                        detailLoadToken = UUID()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+            } else {
+                ProgressView("准备阅读器…")
+            }
+        }
+    }
+
+    private var readerNavigationTitle: String {
+        guard let detail else { return String(localized: "阅读") }
+        return detail.summary.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
+    }
+
     private func resetZoom() {
         zoomResetToken = UUID()
+    }
+
+    private func toggleControls() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            isShowingControls.toggle()
+        }
+        controlsInteractionToken = UUID()
     }
 
     private func loadDetail() async {
@@ -248,7 +279,6 @@ struct ReaderView: View {
             case .last: loadedDetail.pages.count - 1
             }
             position.prepare(page: startPage, pageCount: loadedDetail.pages.count)
-            isFullscreen = model.readingSettings.fullscreen
             detail = loadedDetail
         } catch is CancellationError {
             return

@@ -19,28 +19,68 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct MigrationDocument: FileDocument {
-    static let readableContentTypes: [UTType] = [.json]
-    static let writableContentTypes: [UTType] = [.json]
+extension UTType {
+    static let ehViewerDownloadArchive = UTType(
+        exportedAs: "com.liao.ehviewer.downloadarchive",
+        conformingTo: .zip
+    )
 
+    static let ehViewerGallerySync = UTType(
+        exportedAs: "com.liao.ehviewer.gallerysync",
+        conformingTo: .zip
+    )
+}
+
+enum BackupFileFormat {
+    static let downloadArchiveExtension = "eharchive"
+    static let gallerySyncExtension = "ehgallery"
+    static let legacyZipExtension = "zip"
+
+    static var downloadImportTypes: [UTType] { [.ehViewerDownloadArchive, .zip] }
+    static var gallerySyncImportTypes: [UTType] { [.ehViewerGallerySync] }
+
+    static func isDownloadArchiveURL(_ url: URL) -> Bool {
+        [downloadArchiveExtension, legacyZipExtension].contains(url.pathExtension.lowercased())
+    }
+
+    static func isGallerySyncURL(_ url: URL) -> Bool {
+        url.pathExtension.caseInsensitiveCompare(gallerySyncExtension) == .orderedSame
+    }
+}
+
+struct ArchiveExportDocument: FileDocument {
+    static let readableContentTypes: [UTType] = [.ehViewerDownloadArchive]
+    static let writableContentTypes: [UTType] = [.ehViewerDownloadArchive]
+
+    let sourceURL: URL?
     let data: Data
 
-    init(data: Data = Data()) {
+    init(data: Data) {
+        sourceURL = nil
         self.data = data
     }
 
+    init(sourceURL: URL) {
+        self.sourceURL = sourceURL
+        data = Data()
+    }
+
     init(configuration: ReadConfiguration) throws {
+        sourceURL = nil
         data = configuration.file.regularFileContents ?? Data()
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: data)
+        if let sourceURL {
+            return try FileWrapper(url: sourceURL, options: [])
+        }
+        return FileWrapper(regularFileWithContents: data)
     }
 }
 
-struct MigrationExportDocument: FileDocument {
-    static let readableContentTypes: [UTType] = [.json, .zip]
-    static let writableContentTypes: [UTType] = [.json, .zip]
+struct GallerySyncExportDocument: FileDocument {
+    static let readableContentTypes: [UTType] = [.ehViewerGallerySync]
+    static let writableContentTypes: [UTType] = [.ehViewerGallerySync]
 
     let sourceURL: URL?
     let data: Data
