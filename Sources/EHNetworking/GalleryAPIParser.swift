@@ -24,13 +24,13 @@ public struct GalleryAPIParser: Sendable {
 
     public func parse(data: Data, site: SiteMode) throws -> [GallerySummary] {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw EHError.parsingFailed("画廊 API 响应不是 JSON")
+            throw EHError.parsingFailed(String(localized: "画廊 API 响应不是 JSON"))
         }
         if let error = object["error"] as? String, error.isEmpty == false {
             throw EHError.parsingFailed(error)
         }
         guard let metadata = object["gmetadata"] as? [[String: Any]] else {
-            throw EHError.parsingFailed("画廊 API 响应缺少 gmetadata")
+            throw EHError.parsingFailed(String(localized: "画廊 API 响应缺少 gmetadata"))
         }
 
         return metadata.compactMap { item in

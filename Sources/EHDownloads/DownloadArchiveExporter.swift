@@ -90,7 +90,7 @@ public enum DownloadArchiveExporter {
         await progress?(currentProgress)
 
         guard let writer = eh_archive_writer_open(archiveURL.path) else {
-            throw EHError.storageFailed("无法创建下载压缩包")
+            throw EHError.storageFailed(String(localized: "无法创建下载压缩包"))
         }
         defer { eh_archive_writer_close(writer) }
 
@@ -128,10 +128,10 @@ public enum DownloadArchiveExporter {
                 await progress?(currentProgress)
             }
             guard fileBytes == item.entry.byteCount else {
-                throw EHError.storageFailed("下载文件在导出过程中发生变化")
+                throw EHError.storageFailed(String(localized: "下载文件在导出过程中发生变化"))
             }
             guard eh_archive_writer_end_file(writer) == 0 else {
-                throw writerError(writer, operation: "结束文件")
+                throw writerError(writer, operation: String(localized: "结束文件"))
             }
             completedBytes += item.entry.byteCount
             completedFiles += 1
@@ -236,20 +236,20 @@ public enum DownloadArchiveExporter {
         let written = data.withUnsafeBytes { bytes in
             eh_archive_writer_write(writer, bytes.baseAddress, bytes.count)
         }
-        guard written == Int64(data.count) else { throw writerError(writer, operation: "写入数据") }
+        guard written == Int64(data.count) else { throw writerError(writer, operation: String(localized: "写入数据")) }
         if path != nil, eh_archive_writer_end_file(writer) != 0 {
-            throw writerError(writer, operation: "结束文件")
+            throw writerError(writer, operation: String(localized: "结束文件"))
         }
     }
 
     private static func beginFile(_ path: String, size: Int64, writer: OpaquePointer) throws {
         guard eh_archive_writer_begin_file(writer, path, UInt64(size)) == 0 else {
-            throw writerError(writer, operation: "创建条目 \(path)")
+            throw writerError(writer, operation: String(localized: "创建条目 \(path)"))
         }
     }
 
     private static func writerError(_ writer: OpaquePointer, operation: String) -> EHError {
         let detail = eh_archive_writer_error(writer).map { String(cString: $0) }.flatMap { $0.isEmpty ? nil : $0 }
-        return .storageFailed(detail.map { "\(operation)：\($0)" } ?? "\(operation)失败")
+        return .storageFailed(detail.map { String(localized: "\(operation)：\($0)") } ?? String(localized: "\(operation)失败"))
     }
 }

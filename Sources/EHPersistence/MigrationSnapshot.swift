@@ -25,7 +25,7 @@ public enum MigrationError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .unsupportedVersion(let version):
-            "不支持的数据迁移版本：\(version)"
+            String(localized: "不支持的数据迁移版本：\(version)")
         }
     }
 }

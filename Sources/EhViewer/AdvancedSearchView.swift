@@ -56,7 +56,7 @@ struct AdvancedSearchView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("advanced-search-category-\(category.id)")
-                        .accessibilityValue(draft.categories.contains(category) ? "已选择" : "未选择")
+                        .accessibilityValue(draft.categories.contains(category) ? String(localized: "已选择") : String(localized: "未选择"))
                     }
                     HStack {
                         Button("全选") {

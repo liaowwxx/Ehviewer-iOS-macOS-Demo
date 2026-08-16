@@ -99,10 +99,10 @@ public actor TagSuggestionProvider {
     }
 
     public static func decodeDatabase(_ data: Data) throws -> [SearchTagSuggestion] {
-        guard data.count >= 4 else { throw EHError.parsingFailed("标签数据库文件不完整") }
+        guard data.count >= 4 else { throw EHError.parsingFailed(String(localized: "标签数据库文件不完整")) }
         let declaredLength = data.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
         guard declaredLength == data.count - 4 else {
-            throw EHError.parsingFailed("标签数据库长度校验失败")
+            throw EHError.parsingFailed(String(localized: "标签数据库长度校验失败"))
         }
         let payload = String(decoding: data.dropFirst(4), as: UTF8.self)
         return payload.split(separator: "\n").compactMap { substring in
@@ -171,7 +171,7 @@ public actor TagSuggestionProvider {
         if let cachedData, let decoded = try? Self.decodeDatabase(cachedData) {
             return decoded
         }
-        throw lastError ?? EHError.networkFailed("标签数据库下载失败")
+        throw lastError ?? EHError.networkFailed(String(localized: "标签数据库下载失败"))
     }
 
     private static func isCacheFresh(at cacheURL: URL) -> Bool {

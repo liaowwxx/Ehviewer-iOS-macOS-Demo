@@ -355,9 +355,9 @@ private struct GalleryCard: View {
 
     private var accessibilityTitle: String {
         if let pageCount = gallery.pageCount {
-            return "\(displayTitle)，\(pageCount) 页"
+            return String(localized: "\(displayTitle)，\(pageCount) 页")
         }
-        return "\(displayTitle)，页数未知"
+        return String(localized: "\(displayTitle)，页数未知")
     }
 }
 

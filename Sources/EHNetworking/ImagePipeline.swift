@@ -174,6 +174,6 @@ private enum EHNetworkingError: LocalizedError {
     case httpStatus(Int)
 
     var errorDescription: String? {
-        switch self { case .httpStatus(let status): "图片请求失败：HTTP \(status)" }
+        switch self { case .httpStatus(let status): String(localized: "图片请求失败：HTTP \(status)") }
     }
 }

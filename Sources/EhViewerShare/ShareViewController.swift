@@ -33,7 +33,7 @@ final class ShareViewController: UIViewController {
     private func forwardSharedURL() async {
         guard let extensionItem = extensionContext?.inputItems.first as? NSExtensionItem,
               let provider = extensionItem.attachments?.first else {
-            showFailure("没有找到可分享的链接。")
+            showFailure(String(localized: "没有找到可分享的链接。"))
             return
         }
 
@@ -43,16 +43,16 @@ final class ShareViewController: UIViewController {
         }
         guard let sharedURL,
               var components = URLComponents(string: "ehviewer://open") else {
-            showFailure("无法识别分享内容，请分享画廊网页或 URL。")
+            showFailure(String(localized: "无法识别分享内容，请分享画廊网页或 URL。"))
             return
         }
         components.queryItems = [URLQueryItem(name: "url", value: sharedURL.absoluteString)]
         guard let callbackURL = components.url else {
-            showFailure("无法生成应用打开链接。")
+            showFailure(String(localized: "无法生成应用打开链接。"))
             return
         }
         guard await extensionContext?.open(callbackURL) == true else {
-            showFailure("EhViewer 未能打开该链接，请确认主应用可用。")
+            showFailure(String(localized: "EhViewer 未能打开该链接，请确认主应用可用。"))
             return
         }
         complete()
@@ -96,8 +96,8 @@ final class ShareViewController: UIViewController {
 
     @MainActor
     private func showFailure(_ message: String) {
-        let alert = UIAlertController(title: "无法分享", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+        let alert = UIAlertController(title: String(localized: "无法分享"), message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: String(localized: "取消"), style: .cancel) { [weak self] _ in
             self?.extensionContext?.cancelRequest(withError: NSError(
                 domain: "EhViewerShare",
                 code: 1,

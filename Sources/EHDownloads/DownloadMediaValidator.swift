@@ -68,7 +68,7 @@ public enum DownloadMediaValidator {
 
     public static func validate(_ data: Data) throws {
         guard kind(of: data) != nil else {
-            throw EHError.parsingFailed("下载结果不是有效图片或视频")
+            throw EHError.parsingFailed(String(localized: "下载结果不是有效图片或视频"))
         }
     }
 

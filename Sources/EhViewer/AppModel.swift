@@ -184,7 +184,7 @@ final class AppModel {
                         }
                     }
                 }
-                throw lastValidationError ?? EHError.parsingFailed("下载结果不是有效图片或视频")
+                throw lastValidationError ?? EHError.parsingFailed(String(localized: "下载结果不是有效图片或视频"))
             },
             fileStore: fileStore,
             persistence: { job in
@@ -467,13 +467,13 @@ final class AppModel {
         }
         #if os(iOS)
         guard let mediaKind = DownloadMediaValidator.kind(of: data) else {
-            throw EHError.parsingFailed("媒体数据无效")
+            throw EHError.parsingFailed(String(localized: "媒体数据无效"))
         }
         try await PhotoLibrarySaver.save(data, kind: mediaKind)
         #else
         guard let downloadsDirectory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw EHError.storageFailed("找不到可写入的下载目录")
+            throw EHError.storageFailed(String(localized: "找不到可写入的下载目录"))
         }
         try FileManager.default.createDirectory(at: downloadsDirectory, withIntermediateDirectories: true)
         let fileExtension = DownloadMediaValidator.kind(of: data) == .video
@@ -756,9 +756,9 @@ final class AppModel {
         from archiveURL: URL,
         progress: ((Int, Int) -> Void)? = nil
     ) async -> String {
-        guard isRestoringDownloads == false else { return "已有恢复任务正在进行。" }
+        guard isRestoringDownloads == false else { return String(localized: "已有恢复任务正在进行。") }
         isRestoringDownloads = true
-        downloadRestoreStatus = "正在检查备份压缩包…"
+        downloadRestoreStatus = String(localized: "正在检查备份压缩包…")
         let restoreSite = site
         defer {
             isRestoringDownloads = false
@@ -769,8 +769,8 @@ final class AppModel {
             let inspection = try await LegacyDownloadArchive.inspect(archiveURL)
             guard inspection.candidates.isEmpty == false else {
                 return inspection.invalidItemCount > 0
-                    ? "没有找到可恢复的下载项；发现 \(inspection.invalidItemCount) 个无效目录。"
-                    : "没有在压缩包的 download 目录中找到可恢复的下载项。"
+                    ? String(localized: "没有找到可恢复的下载项；发现 \(inspection.invalidItemCount) 个无效目录。")
+                    : String(localized: "没有在压缩包的 download 目录中找到可恢复的下载项。")
             }
 
             let existingJobs = Dictionary(uniqueKeysWithValues: await downloads.snapshot().map { ($0.key, $0) })
@@ -785,7 +785,7 @@ final class AppModel {
             let candidates = inspection.candidates
             progress?(0, candidates.count)
 
-            downloadRestoreStatus = "正在获取画廊信息…"
+            downloadRestoreStatus = String(localized: "正在获取画廊信息…")
             let summaries = (try? await api.gallerySummaries(
                 for: candidates.map(\.key),
                 site: restoreSite
@@ -807,7 +807,7 @@ final class AppModel {
                 }
             }
 
-            downloadRestoreStatus = "正在解压下载图片…"
+            downloadRestoreStatus = String(localized: "正在解压下载图片…")
             let extraction = try await LegacyDownloadArchive.extractPages(
                 from: archiveURL,
                 selections: selections
@@ -818,7 +818,7 @@ final class AppModel {
             var failedPageCount = extraction.failedPageCount
             for (offset, page) in extraction.pages.enumerated() {
                 try Task.checkCancellation()
-                downloadRestoreStatus = "正在导入图片 \(offset + 1)/\(extraction.pages.count)…"
+                downloadRestoreStatus = String(localized: "正在导入图片 \(offset + 1)/\(extraction.pages.count)…")
                 do {
                     _ = try await downloadFiles.importFile(
                         at: page.fileURL,
@@ -856,13 +856,13 @@ final class AppModel {
                 var itemError: String?
 
                 if isComplete == false {
-                    downloadRestoreStatus = "正在准备缺失页面 \(offset + 1)/\(candidates.count)…"
+                    downloadRestoreStatus = String(localized: "正在准备缺失页面 \(offset + 1)/\(candidates.count)…")
                     let missingIndexes = expected.subtracting(imported)
                     if missingIndexes.isSubset(of: legacyPages.resumableIndexes) == false {
                         state = .failed
-                        itemError = "已恢复 \(imported.count)/\(expected.count) 页，但部分缺页没有可用的页面 token"
+                        itemError = String(localized: "已恢复 \(imported.count)/\(expected.count) 页，但部分缺页没有可用的页面 token")
                     } else {
-                        itemError = "已恢复 \(imported.count)/\(expected.count) 页，可继续下载缺失页面"
+                        itemError = String(localized: "已恢复 \(imported.count)/\(expected.count) 页，可继续下载缺失页面")
                     }
                 }
 
@@ -885,14 +885,14 @@ final class AppModel {
             }
             await downloads.mergeRestored(restoredJobs)
 
-            var parts = ["已合并恢复 \(restoredJobs.count) 项"]
-            if inspection.invalidItemCount > 0 { parts.append("无效目录 \(inspection.invalidItemCount) 个") }
-            if failedPageCount > 0 { parts.append("图片失败 \(failedPageCount) 页") }
+            var parts = [String(localized: "已合并恢复 \(restoredJobs.count) 项")]
+            if inspection.invalidItemCount > 0 { parts.append(String(localized: "无效目录 \(inspection.invalidItemCount) 个")) }
+            if failedPageCount > 0 { parts.append(String(localized: "图片失败 \(failedPageCount) 页")) }
             return parts.joined(separator: "，") + "。"
         } catch is CancellationError {
-            return "已取消恢复下载项。"
+            return String(localized: "已取消恢复下载项。")
         } catch {
-            return "恢复下载项失败：\(error.localizedDescription)"
+            return String(localized: "恢复下载项失败：\(error.localizedDescription)")
         }
     }
 
@@ -1042,10 +1042,10 @@ final class AppModel {
                 job.errorMessage = nil
             } else if job.state == .completed {
                 job.state = .paused
-                job.errorMessage = "部分下载文件缺失或无效，请继续下载"
+                job.errorMessage = String(localized: "部分下载文件缺失或无效，请继续下载")
             } else if item.inFlightPageIndexes.isEmpty == false {
                 job.state = .paused
-                job.errorMessage = "后台下载任务恢复中"
+                job.errorMessage = String(localized: "后台下载任务恢复中")
             }
             _ = await downloads.reconcilePersisted(job, replacing: baseline)
             progress?(offset + 1, persisted.count)
@@ -1067,7 +1067,7 @@ final class AppModel {
         job.errorMessage = item.errorMessage
         if item.inFlightPageIndexes.isEmpty == false {
             job.state = .paused
-            job.errorMessage = "后台下载任务恢复中"
+            job.errorMessage = String(localized: "后台下载任务恢复中")
         }
         return job
     }
@@ -1171,23 +1171,23 @@ final class AppModel {
     }
 
     func exportMigrationData() async -> Data? {
-        guard beginMigration(status: "正在准备 JSON 数据…") else { return nil }
+        guard beginMigration(status: String(localized: "正在准备 JSON 数据…")) else { return nil }
         defer { finishMigration() }
 
         do {
-            setMigrationProgress(status: "正在读取本地数据…", fraction: 0.1)
+            setMigrationProgress(status: String(localized: "正在读取本地数据…"), fraction: 0.1)
             var snapshot = try await persistence.exportSnapshot()
             snapshot.siteRaw = site.rawValue
-            setMigrationProgress(status: "正在编码阅读设置…", fraction: 0.35)
+            setMigrationProgress(status: String(localized: "正在编码阅读设置…"), fraction: 0.35)
             let settings = readingSettings
             snapshot.readingSettingsData = try await Task.detached(priority: .userInitiated) {
                 try JSONEncoder().encode(settings)
             }.value
-            setMigrationProgress(status: "正在生成 JSON 文件…", fraction: 0.7)
+            setMigrationProgress(status: String(localized: "正在生成 JSON 文件…"), fraction: 0.7)
             let data = try await Task.detached(priority: .userInitiated) {
                 try JSONEncoder().encode(snapshot)
             }.value
-            setMigrationProgress(status: "JSON 数据已准备完成", fraction: 1)
+            setMigrationProgress(status: String(localized: "JSON 数据已准备完成"), fraction: 1)
             return data
         } catch is CancellationError {
             return nil
@@ -1198,11 +1198,11 @@ final class AppModel {
     }
 
     func exportDownloadArchive() async -> URL? {
-        guard beginMigration(status: "正在准备下载压缩包…") else { return nil }
+        guard beginMigration(status: String(localized: "正在准备下载压缩包…")) else { return nil }
         defer { finishMigration() }
 
         do {
-            setMigrationProgress(status: "正在读取下载任务…", fraction: 0.05)
+            setMigrationProgress(status: String(localized: "正在读取下载任务…"), fraction: 0.05)
             let persisted = try await persistence.downloadJobs()
             let items = persisted.map { item in
                 let pageTokens = Dictionary(uniqueKeysWithValues: item.pages.compactMap { page -> (Int, String)? in
@@ -1217,7 +1217,7 @@ final class AppModel {
                     pageTokens: pageTokens
                 )
             }
-            setMigrationProgress(status: "正在创建下载压缩包…", fraction: 0.1)
+            setMigrationProgress(status: String(localized: "正在创建下载压缩包…"), fraction: 0.1)
             let archiveURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("EhViewer-Downloads-\(UUID().uuidString).zip")
             _ = try await DownloadArchiveExporter.export(
@@ -1228,13 +1228,13 @@ final class AppModel {
                 guard let self else { return }
                 let archiveFraction = progress.fraction
                 await self.setMigrationProgress(
-                    status: progress.currentTitle.map { "正在导出《\($0)》…" } ?? "正在导出下载文件…",
+                    status: progress.currentTitle.map { String(localized: "正在导出《\($0)》…") } ?? String(localized: "正在导出下载文件…"),
                     completed: progress.completedFiles,
                     total: progress.totalFiles,
                     fraction: 0.1 + archiveFraction * 0.85
                 )
             }
-            setMigrationProgress(status: "下载压缩包已准备完成", fraction: 1)
+            setMigrationProgress(status: String(localized: "下载压缩包已准备完成"), fraction: 1)
             return archiveURL
         } catch is CancellationError {
             return nil
@@ -1245,15 +1245,15 @@ final class AppModel {
     }
 
     func importMigrationData(_ data: Data) async -> Bool {
-        guard beginMigration(status: "正在准备导入…") else { return false }
+        guard beginMigration(status: String(localized: "正在准备导入…")) else { return false }
         defer { finishMigration() }
 
         do {
-            setMigrationProgress(status: "正在解析迁移数据…", fraction: 0.1)
+            setMigrationProgress(status: String(localized: "正在解析迁移数据…"), fraction: 0.1)
             let snapshot = try await Task.detached(priority: .userInitiated) {
                 try JSONDecoder().decode(MigrationSnapshot.self, from: data)
             }.value
-            setMigrationProgress(status: "正在合并本地数据…", fraction: 0.35)
+            setMigrationProgress(status: String(localized: "正在合并本地数据…"), fraction: 0.35)
             try await persistence.importSnapshot(snapshot)
             if let rawSite = snapshot.siteRaw,
                let importedSite = SiteMode(rawValue: rawSite),
@@ -1266,16 +1266,16 @@ final class AppModel {
                 readingSettings = importedSettings
                 persistReadingSettings()
             }
-            setMigrationProgress(status: "正在刷新搜索与过滤数据…", fraction: 0.58)
+            setMigrationProgress(status: String(localized: "正在刷新搜索与过滤数据…"), fraction: 0.58)
             await loadFilterRules()
             await loadTagTranslations()
             await loadQuickSearches()
-            setMigrationProgress(status: "正在刷新下载内容…", fraction: 0.7)
+            setMigrationProgress(status: String(localized: "正在刷新下载内容…"), fraction: 0.7)
             await restoreDownloads(progress: { [weak self] completed, total in
                 guard let self else { return }
                 let fraction = total > 0 ? 0.7 + 0.22 * Double(completed) / Double(total) : 0.92
                 self.setMigrationProgress(
-                    status: total > 0 ? "正在刷新下载内容 \(completed)/\(total)…" : "正在刷新下载内容…",
+                    status: total > 0 ? String(localized: "正在刷新下载内容 \(completed)/\(total)…") : String(localized: "正在刷新下载内容…"),
                     completed: completed,
                     total: total,
                     fraction: fraction
@@ -1283,7 +1283,7 @@ final class AppModel {
             })
             historyGalleries = (try? await persistence.recent()) ?? historyGalleries
             favoriteGalleries = (try? await persistence.favorites()) ?? favoriteGalleries
-            setMigrationProgress(status: "数据已合并完成", fraction: 1)
+            setMigrationProgress(status: String(localized: "数据已合并完成"), fraction: 1)
             return true
         } catch is CancellationError {
             return false

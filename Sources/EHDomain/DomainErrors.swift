@@ -37,21 +37,21 @@ public enum EHError: LocalizedError, Hashable, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidURL: "无效的站点地址"
-        case .invalidResponse: "服务器响应无效"
-        case .httpStatus(let code): "服务器返回 HTTP \(code)"
-        case .networkFailed(let reason): "网络请求失败：\(reason)"
-        case .notFound: "找不到画廊"
-        case .authenticationRequired: "此操作需要登录"
-        case .rateLimited: "请求过于频繁，请稍后再试"
-        case .bandwidthLimited: "已达到站点流量限制"
-        case .parsingFailed(let reason): "页面解析失败：\(reason)"
-        case .invalidCookie: "Cookie 格式无效"
-        case .exHentaiAccessDenied: "ExHentai 会话无效或无访问权限（igneous 未正确签发）。请重新进行网页登录，并确认账号可访问 ExHentai"
-        case .diskSpaceLow: "磁盘空间不足，下载已暂停"
-        case .storageFailed(let reason): "本地存储失败：\(reason)"
-        case .unsupportedFeature(let feature): "当前版本暂不支持：\(feature)"
-        case .cancelled: "操作已取消"
+        case .invalidURL: String(localized: "无效的站点地址")
+        case .invalidResponse: String(localized: "服务器响应无效")
+        case .httpStatus(let code): String(localized: "服务器返回 HTTP \(code)")
+        case .networkFailed(let reason): String(localized: "网络请求失败：\(reason)")
+        case .notFound: String(localized: "找不到画廊")
+        case .authenticationRequired: String(localized: "此操作需要登录")
+        case .rateLimited: String(localized: "请求过于频繁，请稍后再试")
+        case .bandwidthLimited: String(localized: "已达到站点流量限制")
+        case .parsingFailed(let reason): String(localized: "页面解析失败：\(reason)")
+        case .invalidCookie: String(localized: "Cookie 格式无效")
+        case .exHentaiAccessDenied: String(localized: "ExHentai 会话无效或无访问权限（igneous 未正确签发）。请重新进行网页登录，并确认账号可访问 ExHentai")
+        case .diskSpaceLow: String(localized: "磁盘空间不足，下载已暂停")
+        case .storageFailed(let reason): String(localized: "本地存储失败：\(reason)")
+        case .unsupportedFeature(let feature): String(localized: "当前版本暂不支持：\(feature)")
+        case .cancelled: String(localized: "操作已取消")
         }
     }
 }

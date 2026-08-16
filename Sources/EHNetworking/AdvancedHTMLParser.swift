@@ -87,7 +87,7 @@ public struct AdvancedHTMLParser: Sendable {
                 return ImageQuota(used: used, total: total, resetCost: resetCost)
             }
         }
-        throw EHError.parsingFailed("找不到图片配额")
+        throw EHError.parsingFailed(String(localized: "找不到图片配额"))
     }
 
     private func capture(_ value: String, pattern: String) -> String? {

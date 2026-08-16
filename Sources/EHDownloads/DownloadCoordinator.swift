@@ -257,7 +257,7 @@ public actor DownloadCoordinator {
                 return .failed(error.localizedDescription)
             }
             job.state = .failed
-            job.errorMessage = "删除失败：\(error.localizedDescription)"
+            job.errorMessage = String(localized: "删除失败：\(error.localizedDescription)")
             jobs[key] = job
             await save(job)
             emit(.changed(job))
@@ -470,7 +470,7 @@ public actor DownloadCoordinator {
                 throw error
             }
         }
-        throw EHError.networkFailed("重试次数已用尽")
+        throw EHError.networkFailed(String(localized: "重试次数已用尽"))
     }
 
     private static func shouldRetry(_ error: EHError) -> Bool {

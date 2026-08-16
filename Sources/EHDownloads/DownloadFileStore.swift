@@ -123,7 +123,7 @@ public actor DownloadFileStore {
         guard FileManager.default.fileExists(atPath: sourceURL.path),
               let data = try? Data(contentsOf: sourceURL, options: .mappedIfSafe),
               DownloadMediaValidator.kind(of: data) != nil else {
-            throw EHError.parsingFailed("恢复文件不是有效图片或视频")
+            throw EHError.parsingFailed(String(localized: "恢复文件不是有效图片或视频"))
         }
         if let available = try? root.resourceValues(
             forKeys: [.volumeAvailableCapacityForImportantUsageKey]

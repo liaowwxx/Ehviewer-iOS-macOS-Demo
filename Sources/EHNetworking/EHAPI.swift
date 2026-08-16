@@ -46,11 +46,11 @@ public protocol EHAPI: Sendable {
 
 public extension EHAPI {
     func login(username: String, password: String) async throws -> LoginResult {
-        throw EHError.unsupportedFeature("密码登录")
+        throw EHError.unsupportedFeature(String(localized: "密码登录"))
     }
 
     func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage {
-        throw EHError.parsingFailed("当前 API 未实现页面解析")
+        throw EHError.parsingFailed(String(localized: "当前 API 未实现页面解析"))
     }
 
     func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary] {
@@ -70,39 +70,39 @@ public extension EHAPI {
     }
 
     func imageData(for image: GalleryPageImage, resolution: ImageResolution) async throws -> Data {
-        throw EHError.parsingFailed("当前 API 未实现图片请求")
+        throw EHError.parsingFailed(String(localized: "当前 API 未实现图片请求"))
     }
 
     func favorites(query: GalleryListQuery) async throws -> GalleryListPage {
-        throw EHError.unsupportedFeature("远程收藏")
+        throw EHError.unsupportedFeature(String(localized: "远程收藏"))
     }
 
     func setFavorite(for key: GalleryKey, site: SiteMode, category: Int?, note: String?) async throws {
-        throw EHError.unsupportedFeature("远程收藏")
+        throw EHError.unsupportedFeature(String(localized: "远程收藏"))
     }
 
     func rateGallery(for key: GalleryKey, site: SiteMode, rating: Double, apiUID: Int64, apiKey: String) async throws -> GalleryRating {
-        throw EHError.unsupportedFeature("评分")
+        throw EHError.unsupportedFeature(String(localized: "评分"))
     }
 
     func comments(for key: GalleryKey, site: SiteMode) async throws -> [GalleryComment] {
-        throw EHError.unsupportedFeature("评论")
+        throw EHError.unsupportedFeature(String(localized: "评论"))
     }
 
     func submitComment(for key: GalleryKey, site: SiteMode, body: String, editing commentID: String?) async throws -> [GalleryComment] {
-        throw EHError.unsupportedFeature("评论")
+        throw EHError.unsupportedFeature(String(localized: "评论"))
     }
 
     func voteComment(for key: GalleryKey, site: SiteMode, commentID: String, vote: Int, apiUID: Int64, apiKey: String) async throws -> CommentVoteResult {
-        throw EHError.unsupportedFeature("评论投票")
+        throw EHError.unsupportedFeature(String(localized: "评论投票"))
     }
 
     func watchedTags(site: SiteMode) async throws -> [WatchedTag] {
-        throw EHError.unsupportedFeature("关注标签")
+        throw EHError.unsupportedFeature(String(localized: "关注标签"))
     }
 
     func followTag(_ tag: String, site: SiteMode, hidden: Bool = false) async throws -> [WatchedTag] {
-        throw EHError.unsupportedFeature("关注标签")
+        throw EHError.unsupportedFeature(String(localized: "关注标签"))
     }
 
     func torrents(for key: GalleryKey, site: SiteMode) async throws -> [TorrentDescriptor] {
@@ -110,23 +110,23 @@ public extension EHAPI {
     }
 
     func archiveOptions(for key: GalleryKey, site: SiteMode) async throws -> [ArchiveOption] {
-        throw EHError.unsupportedFeature("站点归档")
+        throw EHError.unsupportedFeature(String(localized: "站点归档"))
     }
 
     func archiveDownloadURL(for key: GalleryKey, site: SiteMode, resolution: String) async throws -> URL {
-        throw EHError.unsupportedFeature("站点归档")
+        throw EHError.unsupportedFeature(String(localized: "站点归档"))
     }
 
     func imageSearch(imageData: Data, fileName: String, site: SiteMode, options: ImageSearchOptions) async throws -> GalleryListPage {
-        throw EHError.unsupportedFeature("图片搜索")
+        throw EHError.unsupportedFeature(String(localized: "图片搜索"))
     }
 
     func imageQuota(site: SiteMode) async throws -> ImageQuota {
-        throw EHError.unsupportedFeature("图片配额")
+        throw EHError.unsupportedFeature(String(localized: "图片配额"))
     }
 
     func resetImageQuota(site: SiteMode) async throws -> ImageQuota {
-        throw EHError.unsupportedFeature("重置图片配额")
+        throw EHError.unsupportedFeature(String(localized: "重置图片配额"))
     }
 }
 
@@ -152,8 +152,8 @@ public struct EHClient: EHAPI, Sendable {
 
     public func login(username: String, password: String) async throws -> LoginResult {
         let username = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard username.isEmpty == false else { throw EHError.parsingFailed("用户名不能为空") }
-        guard password.isEmpty == false else { throw EHError.parsingFailed("密码不能为空") }
+        guard username.isEmpty == false else { throw EHError.parsingFailed(String(localized: "用户名不能为空")) }
+        guard password.isEmpty == false else { throw EHError.parsingFailed(String(localized: "密码不能为空")) }
         try await sessionVault.clear()
         Self.clearTransientAuthenticationCookies()
         defer { Self.clearTransientAuthenticationCookies() }
@@ -179,7 +179,7 @@ public struct EHClient: EHAPI, Sendable {
             let prefix = "You are now logged in as:"
             let displayName = text.replacingOccurrences(of: prefix, with: "", options: [.caseInsensitive])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard displayName.isEmpty == false else { throw EHError.parsingFailed("登录响应缺少用户名") }
+            guard displayName.isEmpty == false else { throw EHError.parsingFailed(String(localized: "登录响应缺少用户名")) }
             var setCookieHeaders = Self.setCookieHeaders(from: response)
             setCookieHeaders.append(contentsOf: Self.transientAuthenticationCookieHeaders())
             guard setCookieHeaders.isEmpty == false else { throw EHError.invalidCookie }
@@ -191,7 +191,7 @@ public struct EHClient: EHAPI, Sendable {
         if let error = try document.select("h4 + p, span.postcolor, .d p").first()?.text(), error.isEmpty == false {
             throw EHError.networkFailed(error)
         }
-        throw EHError.parsingFailed("登录响应无法识别")
+        throw EHError.parsingFailed(String(localized: "登录响应无法识别"))
     }
 
     private static func clearTransientAuthenticationCookies() {
@@ -385,7 +385,7 @@ public struct EHClient: EHAPI, Sendable {
 
     public func setFavorite(for key: GalleryKey, site: SiteMode, category: Int?, note: String? = nil) async throws {
         guard category == nil || (0...9).contains(category!) else {
-            throw EHError.parsingFailed("收藏分类必须为 0 到 9，nil 表示移除")
+            throw EHError.parsingFailed(String(localized: "收藏分类必须为 0 到 9，nil 表示移除"))
         }
         let url = try makeURL(site: site, path: "/gallerypopups.php", query: [
             URLQueryItem(name: "gid", value: String(key.gid)),
@@ -424,7 +424,7 @@ public struct EHClient: EHAPI, Sendable {
 
     public func submitComment(for key: GalleryKey, site: SiteMode, body: String, editing commentID: String? = nil) async throws -> [GalleryComment] {
         guard body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            throw EHError.parsingFailed("评论不能为空")
+            throw EHError.parsingFailed(String(localized: "评论不能为空"))
         }
         var fields = [(String, String)]()
         if let commentID {
@@ -469,7 +469,7 @@ public struct EHClient: EHAPI, Sendable {
 
     public func followTag(_ tag: String, site: SiteMode, hidden: Bool = false) async throws -> [WatchedTag] {
         let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalized.isEmpty == false else { throw EHError.parsingFailed("标签不能为空") }
+        guard normalized.isEmpty == false else { throw EHError.parsingFailed(String(localized: "标签不能为空")) }
         let url = try makeURL(site: site, path: "/mytags", query: [])
         let request = formRequest(url: url, referer: url, fields: [
             ("usertag_action", "add"),
@@ -509,7 +509,7 @@ public struct EHClient: EHAPI, Sendable {
         let (data, response) = try await authorized(request)
         try validate(response)
         guard let downloadURL = try AdvancedHTMLParser().parseArchiveDownloadURL(data: data, site: site) else {
-            throw EHError.parsingFailed("归档服务器未返回下载地址")
+            throw EHError.parsingFailed(String(localized: "归档服务器未返回下载地址"))
         }
         return downloadURL
     }
@@ -798,7 +798,7 @@ public struct EHClient: EHAPI, Sendable {
         let payload = try jsonObject(data)
         if let error = payload["error"] as? String { throw EHError.networkFailed(error) }
         guard let average = payload["rating_avg"] as? NSNumber, let count = payload["rating_cnt"] as? NSNumber else {
-            throw EHError.parsingFailed("评分接口响应缺少 rating_avg/rating_cnt")
+            throw EHError.parsingFailed(String(localized: "评分接口响应缺少 rating_avg/rating_cnt"))
         }
         return GalleryRating(average: average.doubleValue, count: count.intValue)
     }
@@ -809,14 +809,14 @@ public struct EHClient: EHAPI, Sendable {
         guard let id = payload["comment_id"] as? NSNumber,
               let score = payload["comment_score"] as? NSNumber,
               let vote = payload["comment_vote"] as? NSNumber else {
-            throw EHError.parsingFailed("投票接口响应缺少评论字段")
+            throw EHError.parsingFailed(String(localized: "投票接口响应缺少评论字段"))
         }
         return CommentVoteResult(commentID: String(id.int64Value), score: score.intValue, vote: vote.intValue, expectedVote: expectedVote)
     }
 
     private func jsonObject(_ data: Data) throws -> [String: Any] {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw EHError.parsingFailed("接口响应不是 JSON 对象")
+            throw EHError.parsingFailed(String(localized: "接口响应不是 JSON 对象"))
         }
         return object
     }

@@ -28,7 +28,7 @@ enum PhotoLibrarySaver {
             throw NSError(
                 domain: "EhViewer.PhotoLibrarySaver",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "没有照片添加权限，请在系统设置中允许 EhViewer 写入照片。"]
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "没有照片添加权限，请在系统设置中允许 EhViewer 写入照片。")]
             )
         }
 
@@ -58,7 +58,7 @@ enum PhotoLibrarySaver {
                     continuation.resume(throwing: error ?? NSError(
                         domain: "EhViewer.PhotoLibrarySaver",
                         code: 2,
-                        userInfo: [NSLocalizedDescriptionKey: "系统照片未完成保存图片。"]
+                        userInfo: [NSLocalizedDescriptionKey: String(localized: "系统照片未完成保存图片。")]
                     ))
                 }
             }

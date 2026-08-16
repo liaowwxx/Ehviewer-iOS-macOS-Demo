@@ -73,7 +73,7 @@ struct WebLoginSheet: View {
             guard await WebLoginCookieSupport.copyBaseAuthenticationCookies(from: webView) else {
                 isCompleting = false
                 if reportMissingCookies {
-                    model.errorMessage = "网页登录尚未完成，请先在网页中成功登录。"
+                    model.errorMessage = String(localized: "网页登录尚未完成，请先在网页中成功登录。")
                 }
                 return
             }
@@ -92,7 +92,7 @@ struct WebLoginSheet: View {
                        await model.saveCookie(baseHeader) {
                         dismiss()
                     } else {
-                        model.errorMessage = "登录 Cookie 已取得，但 ExHentai 没有签发有效的 igneous。请确认账号具备 ExHentai 权限后重试。"
+                        model.errorMessage = String(localized: "登录 Cookie 已取得，但 ExHentai 没有签发有效的 igneous。请确认账号具备 ExHentai 权限后重试。")
                     }
                 }
             } else if host == "e-hentai.org" {

@@ -40,7 +40,7 @@ public enum LocalArchiveFormat: String, CaseIterable, Codable, Sendable {
         case .zip: "ZIP"
         case .sevenZip: "7z"
         case .rar: "RAR"
-        case .other: "归档"
+        case .other: String(localized: "归档")
         }
     }
 }
@@ -92,7 +92,7 @@ public enum LocalArchiveReader {
             try listEntries(in: url)
         }
         guard entries.contains(where: { !$0.isDirectory }) else {
-            throw EHError.parsingFailed("归档中没有可阅读的文件")
+            throw EHError.parsingFailed(String(localized: "归档中没有可阅读的文件"))
         }
         return LocalArchiveDocument(url: url, format: LocalArchiveFormat(url: url), entries: entries)
     }
@@ -104,12 +104,12 @@ public enum LocalArchiveReader {
     ) throws -> Data {
         guard entry.isDirectory == false else { return Data() }
         guard entry.size <= maxBytes else {
-            throw EHError.storageFailed("归档条目超过 \(maxBytes / 1_024 / 1_024) MiB")
+            throw EHError.storageFailed(String(localized: "归档条目超过 \(maxBytes / 1_024 / 1_024) MiB"))
         }
 
         return try withSecurityScope(for: document.url) {
             guard let reader = eh_archive_open(document.url.path) else {
-                throw EHError.parsingFailed("无法打开 \(document.format.title) 归档")
+                throw EHError.parsingFailed(String(localized: "无法打开 \(document.format.title) 归档"))
             }
             defer { eh_archive_close(reader) }
 
@@ -134,7 +134,7 @@ public enum LocalArchiveReader {
                         guard count > 0 else { throw archiveError(reader) }
                         data.append(buffer, count: Int(count))
                         guard Int64(data.count) <= maxBytes else {
-                            throw EHError.storageFailed("归档条目超过 (maxBytes / 1_024 / 1_024) MiB")
+                            throw EHError.storageFailed(String(localized: "归档条目超过 \(maxBytes / 1_024 / 1_024) MiB"))
                         }
                     }
                     return data
@@ -148,7 +148,7 @@ public enum LocalArchiveReader {
 
     private static func listEntries(in url: URL) throws -> [LocalArchiveEntry] {
         guard let reader = eh_archive_open(url.path) else {
-            throw EHError.parsingFailed("无法打开 \(LocalArchiveFormat(url: url).title) 归档")
+            throw EHError.parsingFailed(String(localized: "无法打开 \(LocalArchiveFormat(url: url).title) 归档"))
         }
         defer { eh_archive_close(reader) }
 
@@ -174,7 +174,7 @@ public enum LocalArchiveReader {
     }
 
     private static func archiveError(_ reader: OpaquePointer) -> EHError {
-        let message = eh_archive_error(reader).map { String(cString: $0) } ?? "读取归档失败"
+        let message = eh_archive_error(reader).map { String(cString: $0) } ?? String(localized: "读取归档失败")
         return .parsingFailed(message)
     }
 

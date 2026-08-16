@@ -28,10 +28,10 @@ enum ReaderPageScaling: String, CaseIterable, Codable, Hashable, Sendable, Ident
 
     var title: String {
         switch self {
-        case .fit: "适应屏幕"
-        case .width: "适应宽度"
-        case .height: "适应高度"
-        case .original: "原始尺寸"
+        case .fit: String(localized: "适应屏幕")
+        case .width: String(localized: "适应宽度")
+        case .height: String(localized: "适应高度")
+        case .original: String(localized: "原始尺寸")
         }
     }
 }
@@ -45,9 +45,9 @@ enum ReaderStartPosition: String, CaseIterable, Codable, Hashable, Sendable, Ide
 
     var title: String {
         switch self {
-        case .lastRead: "上次阅读位置"
-        case .first: "总是从第一页"
-        case .last: "总是从最后一页"
+        case .lastRead: String(localized: "上次阅读位置")
+        case .first: String(localized: "总是从第一页")
+        case .last: String(localized: "总是从最后一页")
         }
     }
 }
@@ -61,9 +61,9 @@ enum ReaderScreenRotation: String, CaseIterable, Codable, Hashable, Sendable, Id
 
     var title: String {
         switch self {
-        case .automatic: "跟随系统"
-        case .portrait: "竖屏"
-        case .landscape: "横屏"
+        case .automatic: String(localized: "跟随系统")
+        case .portrait: String(localized: "竖屏")
+        case .landscape: String(localized: "横屏")
         }
     }
 }

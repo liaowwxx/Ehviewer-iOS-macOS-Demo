@@ -40,7 +40,7 @@ public actor SessionVault {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else {
-            throw EHError.storageFailed("Keychain 读取失败（\(status)）")
+            throw EHError.storageFailed(String(localized: "Keychain 读取失败（\(status)）"))
         }
         return String(data: data, encoding: .utf8)
         #else
@@ -79,10 +79,10 @@ public actor SessionVault {
             item[kSecValueData as String] = data
             let addStatus = SecItemAdd(item as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
-                throw EHError.storageFailed("Keychain 写入失败（\(addStatus)）")
+                throw EHError.storageFailed(String(localized: "Keychain 写入失败（\(addStatus)）"))
             }
         } else if status != errSecSuccess {
-            throw EHError.storageFailed("Keychain 更新失败（\(status)）")
+            throw EHError.storageFailed(String(localized: "Keychain 更新失败（\(status)）"))
         }
         #endif
     }
@@ -148,7 +148,7 @@ public actor SessionVault {
         #if canImport(Security)
         let status = SecItemDelete(baseQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw EHError.storageFailed("Keychain 删除失败（\(status)）")
+            throw EHError.storageFailed(String(localized: "Keychain 删除失败（\(status)）"))
         }
         #endif
     }

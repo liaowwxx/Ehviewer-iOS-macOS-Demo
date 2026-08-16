@@ -94,7 +94,7 @@ struct ReaderPage: View {
         .alert("无法保存媒体", isPresented: $showingSaveError) {
             Button("好", role: .cancel) { saveErrorMessage = nil }
         } message: {
-            Text(saveErrorMessage ?? "请稍后重试。")
+            Text(saveErrorMessage ?? String(localized: "请稍后重试。"))
         }
         .accessibilityLabel("第 \(descriptor.index + 1) 页")
         .accessibilityIdentifier("reader-page-\(descriptor.index)")

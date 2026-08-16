@@ -1,5 +1,7 @@
 # EhViewer iOS / macOS
 
+[English](README.en.md) | 中文
+
 一款面向 iOS / iPadOS / macOS 的 **E-Hentai / ExHentai** 画廊浏览应用，参考项目 [Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehviewer_CN_SXJ)，使用 SwiftUI 原生开发。
 
 > 本应用仅用于个人学习与访问公开内容，请遵守当地法律法规与站点条款。

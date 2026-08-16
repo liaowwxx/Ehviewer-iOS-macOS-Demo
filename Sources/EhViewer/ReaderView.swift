@@ -396,8 +396,8 @@ private struct ReaderStatusOverlay: View {
     #if os(iOS)
     private var batteryText: String {
         let level = UIDevice.current.batteryLevel
-        guard level >= 0 else { return "电量 --" }
-        return "电量 \(Int((level * 100).rounded()))%"
+        guard level >= 0 else { return String(localized: "电量 --") }
+        return String(localized: "电量 \(Int((level * 100).rounded()))%")
     }
     #endif
 }

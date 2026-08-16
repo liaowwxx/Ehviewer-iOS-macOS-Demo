@@ -157,7 +157,7 @@ struct DownloadsView: View {
         )) {
             Button("好", role: .cancel) { removalErrorMessage = nil }
         } message: {
-            Text(removalErrorMessage ?? "请稍后重试。")
+            Text(removalErrorMessage ?? String(localized: "请稍后重试。"))
         }
         .fileImporter(
             isPresented: $showingDownloadRestoreImporter,
@@ -254,11 +254,11 @@ enum DownloadStatusFilter: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .all: "全部"
-        case .active: "进行中"
-        case .paused: "已暂停"
-        case .completed: "已完成"
-        case .failed: "异常"
+        case .all: String(localized: "全部")
+        case .active: String(localized: "进行中")
+        case .paused: String(localized: "已暂停")
+        case .completed: String(localized: "已完成")
+        case .failed: String(localized: "异常")
         }
     }
 
@@ -286,12 +286,12 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .addedNewest: "添加时间（最新）"
-        case .addedOldest: "添加时间（最早）"
-        case .titleAscending: "标题 A-Z"
-        case .titleDescending: "标题 Z-A"
-        case .progress: "完成度"
-        case .status: "状态"
+        case .addedNewest: String(localized: "添加时间（最新）")
+        case .addedOldest: String(localized: "添加时间（最早）")
+        case .titleAscending: String(localized: "标题 A-Z")
+        case .titleDescending: String(localized: "标题 Z-A")
+        case .progress: String(localized: "完成度")
+        case .status: String(localized: "状态")
         }
     }
 
@@ -374,7 +374,7 @@ private struct DownloadCard: View {
                     Label("查看详情", systemImage: "info.circle")
                 }
                 if canToggle {
-                    Button(job.state == .running || job.state == .queued ? "暂停" : "继续", systemImage: job.state == .running ? "pause" : "play", action: toggle)
+                    Button(job.state == .running || job.state == .queued ? String(localized: "暂停") : String(localized: "继续"), systemImage: job.state == .running ? "pause" : "play", action: toggle)
                 }
                 if job.state != .completed && job.state != .cancelled {
                     Button("取消下载", systemImage: "xmark.circle", role: .destructive, action: cancel)
@@ -396,15 +396,15 @@ private struct DownloadCard: View {
 
     private var statusTitle: String {
         switch job.state {
-        case .queued: "等待中"
-        case .running: "下载中"
-        case .paused: "已暂停"
-        case .completed: "已完成"
-        case .failed: "失败"
-        case .authenticationRequired: "需要登录"
-        case .rateLimited: "请求受限"
-        case .bandwidthLimited: "流量受限"
-        case .cancelled: "已取消"
+        case .queued: String(localized: "等待中")
+        case .running: String(localized: "下载中")
+        case .paused: String(localized: "已暂停")
+        case .completed: String(localized: "已完成")
+        case .failed: String(localized: "失败")
+        case .authenticationRequired: String(localized: "需要登录")
+        case .rateLimited: String(localized: "请求受限")
+        case .bandwidthLimited: String(localized: "流量受限")
+        case .cancelled: String(localized: "已取消")
         }
     }
 

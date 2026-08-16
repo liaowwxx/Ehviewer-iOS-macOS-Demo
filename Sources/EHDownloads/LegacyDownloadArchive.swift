@@ -119,7 +119,7 @@ public enum LegacyDownloadArchive {
         defer { if didAccess { archiveURL.stopAccessingSecurityScopedResource() } }
 
         guard let reader = eh_archive_open(archiveURL.path) else {
-            throw EHError.parsingFailed("无法打开备份压缩包")
+            throw EHError.parsingFailed(String(localized: "无法打开备份压缩包"))
         }
         defer { eh_archive_close(reader) }
 
@@ -197,7 +197,7 @@ public enum LegacyDownloadArchive {
             let didAccess = archiveURL.startAccessingSecurityScopedResource()
             defer { if didAccess { archiveURL.stopAccessingSecurityScopedResource() } }
             guard let reader = eh_archive_open(archiveURL.path) else {
-                throw EHError.parsingFailed("无法重新打开备份压缩包")
+                throw EHError.parsingFailed(String(localized: "无法重新打开备份压缩包"))
             }
             defer { eh_archive_close(reader) }
 
@@ -267,7 +267,7 @@ public enum LegacyDownloadArchive {
         volumeURL: URL
     ) throws {
         guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
-            throw EHError.storageFailed("无法创建恢复临时文件")
+            throw EHError.storageFailed(String(localized: "无法创建恢复临时文件"))
         }
         let handle = try FileHandle(forWritingTo: destination)
         defer { try? handle.close() }
@@ -285,7 +285,7 @@ public enum LegacyDownloadArchive {
             totalBytes += count
             bytesSinceCapacityCheck += count
             guard totalBytes <= maximumPageBytes else {
-                throw EHError.storageFailed("归档中的单页图片超过 256 MiB")
+                throw EHError.storageFailed(String(localized: "归档中的单页图片超过 256 MiB"))
             }
             if bytesSinceCapacityCheck >= 16 * 1_024 * 1_024 {
                 bytesSinceCapacityCheck = 0
@@ -364,7 +364,7 @@ public enum LegacyDownloadArchive {
     }
 
     private static func archiveError(_ reader: OpaquePointer) -> EHError {
-        let message = eh_archive_error(reader).map { String(cString: $0) } ?? "读取备份压缩包失败"
+        let message = eh_archive_error(reader).map { String(cString: $0) } ?? String(localized: "读取备份压缩包失败")
         return .parsingFailed(message)
     }
 }

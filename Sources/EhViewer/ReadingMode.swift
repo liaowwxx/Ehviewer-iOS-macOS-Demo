@@ -26,8 +26,8 @@ enum ReadingMode: String, CaseIterable, Identifiable, Codable, Hashable, Sendabl
 
     var title: String {
         switch self {
-        case .paged: "左右翻页"
-        case .verticalPaged: "上下翻页"
+        case .paged: String(localized: "左右翻页")
+        case .verticalPaged: String(localized: "上下翻页")
         }
     }
 }
@@ -40,8 +40,8 @@ enum ReadingDirection: String, CaseIterable, Identifiable, Codable, Hashable, Se
 
     var title: String {
         switch self {
-        case .leftToRight: "从左到右"
-        case .rightToLeft: "从右到左"
+        case .leftToRight: String(localized: "从左到右")
+        case .rightToLeft: String(localized: "从右到左")
         }
     }
 }

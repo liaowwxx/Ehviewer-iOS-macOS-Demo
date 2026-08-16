@@ -531,10 +531,10 @@ public enum GalleryFilterMode: String, Codable, CaseIterable, Hashable, Sendable
 
     public var title: String {
         switch self {
-        case .title: "标题"
-        case .uploader: "上传者"
-        case .tag: "标签"
-        case .tagNamespace: "标签组"
+        case .title: String(localized: "标题")
+        case .uploader: String(localized: "上传者")
+        case .tag: String(localized: "标签")
+        case .tagNamespace: String(localized: "标签组")
         }
     }
 }

@@ -35,12 +35,12 @@ struct BrowseSearchSuggestions: View {
                     if isUpdating {
                         HStack {
                             ProgressView()
-                            Text(query.isEmpty ? "正在读取搜索历史…" : "正在更新“\(query)”的建议…")
+                            Text(query.isEmpty ? String(localized: "正在读取搜索历史…") : String(localized: "正在更新“\(query)”的建议…"))
                         }
                         .foregroundStyle(.secondary)
                     } else {
                         Label(
-                            query.isEmpty ? "暂无搜索历史" : "没有匹配的建议",
+                            query.isEmpty ? String(localized: "暂无搜索历史") : String(localized: "没有匹配的建议"),
                             systemImage: query.isEmpty ? "clock" : "magnifyingglass"
                         )
                         .foregroundStyle(.secondary)
@@ -83,7 +83,7 @@ struct BrowseSearchSuggestions: View {
                                 Image(systemName: "tag")
                             }
                         }
-                        .accessibilityLabel(suggestion.localizedText.map { "\(suggestion.english)，\($0)" } ?? suggestion.english)
+                        .accessibilityLabel(suggestion.localizedText.map { String(localized: "\(suggestion.english)，\($0)") } ?? suggestion.english)
                     }
                 }
             }

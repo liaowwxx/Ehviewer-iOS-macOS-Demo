@@ -47,17 +47,17 @@ struct SettingsView: View {
                 .onChange(of: model.site) { _, _ in model.persistSettings() }
                 HStack {
                     Label(
-                        model.isGuestMode ? "游客模式" : "已登录",
+                        model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录"),
                         systemImage: model.isGuestMode ? "person" : "person.crop.circle.badge.checkmark"
                     )
                     Spacer()
-                    Text(model.isGuestMode ? "公开内容" : "账户会话")
+                    Text(model.isGuestMode ? String(localized: "公开内容") : String(localized: "账户会话"))
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("session-status")
                 .accessibilityLabel("会话状态")
-                .accessibilityValue(model.isGuestMode ? "游客模式" : "已登录")
+                .accessibilityValue(model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录"))
             }
             Section("浏览") {
                 Toggle("显示日文标题", isOn: $model.readingSettings.showJapaneseTitle)
@@ -96,7 +96,7 @@ struct SettingsView: View {
                 Button("导出 JSON", systemImage: "doc.badge.gearshape") {
                     Task {
                         guard let data = await model.exportMigrationData() else {
-                            migrationMessage = model.errorMessage ?? "JSON 导出失败，请稍后重试。"
+                            migrationMessage = model.errorMessage ?? String(localized: "JSON 导出失败，请稍后重试。")
                             showingMigrationResult = true
                             return
                         }
@@ -110,7 +110,7 @@ struct SettingsView: View {
                 Button("导出下载压缩包", systemImage: "archivebox") {
                     Task {
                         guard let url = await model.exportDownloadArchive() else {
-                            migrationMessage = model.errorMessage ?? "下载压缩包导出失败，请稍后重试。"
+                            migrationMessage = model.errorMessage ?? String(localized: "下载压缩包导出失败，请稍后重试。")
                             showingMigrationResult = true
                             return
                         }
@@ -171,7 +171,7 @@ struct SettingsView: View {
                         try Data(contentsOf: url, options: .mappedIfSafe)
                     }.value
                     let imported = await model.importMigrationData(data)
-                    migrationMessage = imported ? "数据已导入，并已与本地数据合并。" : "数据导入失败，请检查迁移文件。"
+                    migrationMessage = imported ? String(localized: "数据已导入，并已与本地数据合并。") : String(localized: "数据导入失败，请检查迁移文件。")
                 } catch {
                     migrationMessage = error.localizedDescription
                 }

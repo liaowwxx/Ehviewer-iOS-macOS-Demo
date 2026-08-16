@@ -35,7 +35,7 @@ public struct GalleryHTMLParser: Sendable {
 
     public func parseList(data: Data, query: GalleryListQuery) throws -> GalleryListPage {
         guard let html = String(data: data, encoding: .utf8) else {
-            throw EHError.parsingFailed("页面不是 UTF-8")
+            throw EHError.parsingFailed(String(localized: "页面不是 UTF-8"))
         }
         do {
             let document = try SwiftSoup.parse(html)
@@ -43,7 +43,7 @@ public struct GalleryHTMLParser: Sendable {
             let summaries = try candidates.compactMap { try parseSummary(from: $0) }
             let nextPageURL = try parseNextPageURL(from: document, html: html, site: query.site)
             if summaries.isEmpty, nextPageURL == nil, isNoHitsPage(document) == false {
-                throw EHError.parsingFailed("站点没有返回可识别的画廊列表")
+                throw EHError.parsingFailed(String(localized: "站点没有返回可识别的画廊列表"))
             }
             return GalleryListPage(
                 items: summaries,
@@ -94,7 +94,7 @@ public struct GalleryHTMLParser: Sendable {
 
     public func parseDetail(data: Data, key: GalleryKey, site: SiteMode) throws -> GalleryDetail {
         guard let html = String(data: data, encoding: .utf8) else {
-            throw EHError.parsingFailed("页面不是 UTF-8")
+            throw EHError.parsingFailed(String(localized: "页面不是 UTF-8"))
         }
         do {
             let document = try SwiftSoup.parse(html)
@@ -153,7 +153,7 @@ public struct GalleryHTMLParser: Sendable {
                 pages: previewPage.pages,
                 tags: tags,
                 comments: comments,
-                descriptionText: category.map { "站点：\(site.displayName) · \($0)" },
+                descriptionText: category.map { String(localized: "站点：\(site.displayName) · \($0)") },
                 externalURL: externalURL,
                 apiUID: api.uid,
                 apiKey: api.key,
@@ -175,7 +175,7 @@ public struct GalleryHTMLParser: Sendable {
 
     public func parsePreviewPage(data: Data, key: GalleryKey, site: SiteMode) throws -> PreviewPage {
         guard let html = String(data: data, encoding: .utf8) else {
-            throw EHError.parsingFailed("页面不是 UTF-8")
+            throw EHError.parsingFailed(String(localized: "页面不是 UTF-8"))
         }
         do {
             return try parsePreviewPage(from: SwiftSoup.parse(html), rawHTML: html, key: key, site: site)

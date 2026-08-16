@@ -277,9 +277,9 @@ struct GalleryDetailView: View {
 
     private var favoriteTitle: String {
         if isFavorite {
-            return detail?.favoriteName ?? "取消收藏"
+            return detail?.favoriteName ?? String(localized: "取消收藏")
         }
-        return "收藏"
+        return String(localized: "收藏")
     }
 
     /// Mirrors the reference client's `showSimilarGalleryList`: title keyword,
@@ -326,17 +326,17 @@ struct GalleryDetailView: View {
     }
 
     private var readingActionTitle: String {
-        guard let downloadJob else { return "开始阅读" }
-        return downloadJob.completedPageIndexes.isEmpty ? "开始阅读（下载中）" : "阅读本地内容"
+        guard let downloadJob else { return String(localized: "开始阅读") }
+        return downloadJob.completedPageIndexes.isEmpty ? String(localized: "开始阅读（下载中）") : String(localized: "阅读本地内容")
     }
 
     private func downloadStatusTitle(_ job: DownloadJob) -> String {
         switch job.state {
-        case .completed: "已下载"
-        case .queued, .running: "下载中 \(job.completedPageIndexes.count)/\(job.pages.count)"
-        case .paused: "下载已暂停 \(job.completedPageIndexes.count)/\(job.pages.count)"
-        case .failed, .authenticationRequired, .rateLimited, .bandwidthLimited: "下载异常，可在下载页重试"
-        case .cancelled: "下载已取消"
+        case .completed: String(localized: "已下载")
+        case .queued, .running: String(localized: "下载中 \(job.completedPageIndexes.count)/\(job.pages.count)")
+        case .paused: String(localized: "下载已暂停 \(job.completedPageIndexes.count)/\(job.pages.count)")
+        case .failed, .authenticationRequired, .rateLimited, .bandwidthLimited: String(localized: "下载异常，可在下载页重试")
+        case .cancelled: String(localized: "下载已取消")
         }
     }
 
@@ -373,24 +373,24 @@ private struct GalleryInfoCard: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 0) {
-                infoCell("语言", detail.language ?? "—", alignment: .leading)
+                infoCell(String(localized: "语言"), detail.language ?? "—", alignment: .leading)
                 columnDivider()
-                infoCell("页数", pagesText, alignment: .center)
+                infoCell(String(localized: "页数"), pagesText, alignment: .center)
                 columnDivider()
-                infoCell("大小", detail.fileSize ?? "—", alignment: .trailing)
+                infoCell(String(localized: "大小"), detail.fileSize ?? "—", alignment: .trailing)
             }
             Divider()
             HStack(spacing: 0) {
-                infoCell("收藏次数", detail.favoriteCount.map { "\($0)" } ?? "—", alignment: .leading)
+                infoCell(String(localized: "收藏次数"), detail.favoriteCount.map { "\($0)" } ?? "—", alignment: .leading)
                 columnDivider()
-                infoCell("发布于", postedText, alignment: .trailing)
+                infoCell(String(localized: "发布于"), postedText, alignment: .trailing)
             }
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 14)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("语言 \(detail.language ?? "未知")，\(pagesText)，大小 \(detail.fileSize ?? "未知")，收藏 \(detail.favoriteCount.map { "\($0)" } ?? "未知") 次，\(postedText)")
+        .accessibilityLabel("语言 \(detail.language ?? String(localized: "未知"))，\(pagesText)，大小 \(detail.fileSize ?? String(localized: "未知"))，收藏 \(detail.favoriteCount.map { "\($0)" } ?? String(localized: "未知")) 次，\(postedText)")
     }
 
     private func infoCell(_ label: String, _ value: String, alignment: Alignment) -> some View {
@@ -413,9 +413,9 @@ private struct GalleryInfoCard: View {
     private var pagesText: String {
         guard let pageCount = detail.summary.pageCount, pageCount > 0 else { return "—" }
         if let readingPage, readingPage >= 0 {
-            return "\(min(readingPage + 1, pageCount))/\(pageCount) 页"
+            return String(localized: "\(min(readingPage + 1, pageCount))/\(pageCount) 页")
         }
-        return "\(pageCount) 页"
+        return String(localized: "\(pageCount) 页")
     }
 
     private var postedText: String {

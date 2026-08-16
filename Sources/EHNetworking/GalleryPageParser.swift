@@ -25,7 +25,7 @@ public struct GalleryPageParser: Sendable {
 
     public func parse(data: Data, descriptor: GalleryPageDescriptor, site: SiteMode) throws -> GalleryPageImage {
         guard let body = String(data: data, encoding: .utf8) else {
-            throw EHError.parsingFailed("页面不是 UTF-8")
+            throw EHError.parsingFailed(String(localized: "页面不是 UTF-8"))
         }
         if body.trimmingCharacters(in: .whitespacesAndNewlines).first == "{" {
             return try parseJSON(body, descriptor: descriptor, site: site)
@@ -36,7 +36,7 @@ public struct GalleryPageParser: Sendable {
     private func parseHTML(_ body: String, descriptor: GalleryPageDescriptor, site: SiteMode) throws -> GalleryPageImage {
         let document = try SwiftSoup.parse(body)
         guard let imageElement = try document.select("#img, #i3 img").first() else {
-            throw EHError.parsingFailed("找不到页面图片")
+            throw EHError.parsingFailed(String(localized: "找不到页面图片"))
         }
         let imageURL = try absoluteURL(try imageElement.attr("src"), site: site)
         let originURL: URL?
@@ -67,7 +67,7 @@ public struct GalleryPageParser: Sendable {
         let payload = try JSONDecoder().decode(PageAPIResponse.self, from: Data(body.utf8))
         let fragment = try SwiftSoup.parse(payload.imageFragment)
         guard let imageElement = try fragment.select("#img, img").first() else {
-            throw EHError.parsingFailed("页面 API 没有返回图片")
+            throw EHError.parsingFailed(String(localized: "页面 API 没有返回图片"))
         }
         let imageURL = try absoluteURL(try imageElement.attr("src"), site: site)
         let originFragment = try SwiftSoup.parse(payload.originFragment ?? "")

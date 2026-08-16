@@ -76,7 +76,7 @@ struct EhViewerApp: App {
                     .onOpenURL { url in model.handleIncomingURL(url) }
             } else {
                 PersistenceRecoveryView(
-                    errorMessage: startupError ?? "未知的本地数据存储错误。",
+                    errorMessage: startupError ?? String(localized: "未知的本地数据存储错误。"),
                     retry: retryStore
                 )
             }

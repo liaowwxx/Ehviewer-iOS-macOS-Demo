@@ -86,10 +86,10 @@ struct LibraryView: View {
     }
 
     private func progressText(for gallery: GallerySummary) -> String {
-        guard let page = readingPages[gallery.key] else { return "未记录进度" }
+        guard let page = readingPages[gallery.key] else { return String(localized: "未记录进度") }
         if let pageCount = gallery.pageCount, pageCount > 0 {
-            return "阅读到 \(min(page + 1, pageCount))/\(pageCount) 页"
+            return String(localized: "阅读到 \(min(page + 1, pageCount))/\(pageCount) 页")
         }
-        return "阅读到第 \(page + 1) 页"
+        return String(localized: "阅读到第 \(page + 1) 页")
     }
 }

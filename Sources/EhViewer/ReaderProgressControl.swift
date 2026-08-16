@@ -122,8 +122,8 @@ struct ReaderProgressControl: View {
     }
 
     private var pageText: String {
-        guard pageCount > 0 else { return "暂无页面" }
-        return "第 \(currentPage + 1)/\(pageCount) 页"
+        guard pageCount > 0 else { return String(localized: "暂无页面") }
+        return String(localized: "第 \(currentPage + 1)/\(pageCount) 页")
     }
 
     private var sliderRange: ClosedRange<Double> {

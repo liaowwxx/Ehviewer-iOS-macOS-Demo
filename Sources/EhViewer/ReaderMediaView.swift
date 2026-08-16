@@ -83,7 +83,7 @@ extension ReaderMediaView {
                 return .image(try ImageSequence(source: source))
             }
             guard DownloadMediaValidator.kind(of: data) == .video else {
-                throw EHError.parsingFailed("媒体数据无效")
+                throw EHError.parsingFailed(String(localized: "媒体数据无效"))
             }
             let movie = AVMovie(data: data, options: nil)
             return .video(VideoPlayback(item: AVPlayerItem(asset: movie)))
@@ -116,7 +116,7 @@ extension ReaderMediaView {
                 return Frame(image: image, duration: Self.frameDuration(source: source, index: index))
             }
             guard let first = frames.first, first.image.height > 0 else {
-                throw EHError.parsingFailed("媒体图片解码失败")
+                throw EHError.parsingFailed(String(localized: "媒体图片解码失败"))
             }
             self.frames = frames
             aspectRatio = CGFloat(first.image.width) / CGFloat(first.image.height)
