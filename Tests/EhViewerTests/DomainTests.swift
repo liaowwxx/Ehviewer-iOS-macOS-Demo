@@ -250,6 +250,29 @@ struct DomainTests {
         #expect(SearchQueryComposer.databaseTagKey(for: "plain") == "plain")
     }
 
+    @Test("Search tag tokens parse, keep multiple tags and can be removed")
+    func searchTagTokens() throws {
+        let query = #"p:"blue archive$" m:"furry$" blue sky"#
+        let tokens = SearchQueryComposer.tagTokens(in: query)
+        #expect(tokens.count == 2)
+        #expect(tokens.first?.namespace == "parody")
+        #expect(tokens.first?.value == "blue archive")
+        #expect(tokens.first?.raw == #"p:"blue archive$""#)
+        #expect(tokens.first?.fullTag == "parody:blue archive")
+        #expect(tokens.last?.namespace == "male")
+        #expect(tokens.last?.value == "furry")
+
+        let afterRemoval = SearchQueryComposer.removing(try #require(tokens.last), from: query)
+        #expect(SearchQueryComposer.tagTokens(in: afterRemoval).map(\.value) == ["blue archive"])
+        #expect(afterRemoval.contains("furry") == false)
+        #expect(afterRemoval.contains("blue sky"))
+        #expect(afterRemoval.trimmingCharacters(in: .whitespacesAndNewlines) == #"p:"blue archive$" blue sky"#)
+
+        #expect(SearchQueryComposer.tagTokens(in: "plain text").isEmpty)
+        #expect(SearchQueryComposer.namespace(forPrefix: "p") == "parody")
+        #expect(SearchQueryComposer.namespace(forPrefix: "cos") == "cosplayer")
+    }
+
     @Test("Filter rules mirror the reference EhFilter matching modes")
     func filterRuleModes() {
         let key = GalleryKey(gid: 1, token: "a")

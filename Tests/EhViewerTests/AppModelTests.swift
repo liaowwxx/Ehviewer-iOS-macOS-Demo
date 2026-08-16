@@ -257,6 +257,38 @@ struct AppModelTests {
         #expect(model.displayTag("misc:unknown") == "unknown")
         #expect(model.localizedTag("n:artist") == "画师")
         #expect(model.localizedTag("n:male") == "男性")
+
+        model.readingSettings.showTagTranslations = false
+        #expect(model.displayTag("male:furry") == "furry")
+        #expect(model.displayTag("other:full color") == "full color")
+    }
+
+    @Test("Download sort and status filters persist across launches")
+    func downloadPreferencesPersist() async throws {
+        let suiteName = "EhViewerDownloadPreferencesTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: OfflineReaderAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        #expect(first.downloadSortOrder == .titleAscending)
+        #expect(first.downloadStatusFilter == .all)
+        first.downloadSortOrder = .progress
+        first.downloadStatusFilter = .completed
+        first.persistDownloadPreferences()
+
+        let second = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: OfflineReaderAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        #expect(second.downloadSortOrder == .progress)
+        #expect(second.downloadStatusFilter == .completed)
     }
 
     @Test("Rapid tag suggestion refresh follows the input and keeps the latest query")

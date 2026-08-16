@@ -11,8 +11,6 @@ struct DownloadsView: View {
     @State private var labelInput = ""
     @State private var showingDownloadRestoreImporter = false
     @State private var searchText = ""
-    @State private var statusFilter: DownloadStatusFilter = .all
-    @State private var sortOrder: DownloadSortOrder = .titleAscending
     @State private var showingResetProgressConfirmation = false
     @State private var jobPendingRemoval: DownloadJob?
     @State private var removalErrorMessage: String?
@@ -21,16 +19,17 @@ struct DownloadsView: View {
 
     private var visibleJobs: [DownloadJob] {
         jobs
-            .filter { statusFilter.matches($0.state) }
+            .filter { model.downloadStatusFilter.matches($0.state) }
             .filter {
                 searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || $0.containsTitle(searchText)
                     || ($0.label?.localizedCaseInsensitiveContains(searchText) == true)
             }
-            .sorted(by: sortOrder.areInIncreasingOrder)
+            .sorted(by: model.downloadSortOrder.areInIncreasingOrder)
     }
 
     var body: some View {
+        @Bindable var model = model
         Group {
             if jobs.isEmpty {
                 if model.isLoadingDownloads {
@@ -78,15 +77,21 @@ struct DownloadsView: View {
                     }
                     .disabled(canStopAll == false)
                     Divider()
-                    Picker("筛选状态", selection: $statusFilter) {
+                    Picker("筛选状态", selection: $model.downloadStatusFilter) {
                         ForEach(DownloadStatusFilter.allCases) { filter in
                             Text(filter.title).tag(filter)
                         }
                     }
-                    Picker("排序", selection: $sortOrder) {
+                    .onChange(of: model.downloadStatusFilter) { _, _ in
+                        model.persistDownloadPreferences()
+                    }
+                    Picker("排序", selection: $model.downloadSortOrder) {
                         ForEach(DownloadSortOrder.allCases) { order in
                             Text(order.title).tag(order)
                         }
+                    }
+                    .onChange(of: model.downloadSortOrder) { _, _ in
+                        model.persistDownloadPreferences()
                     }
                     Divider()
                     Button("恢复下载项", systemImage: "arrow.counterclockwise.circle") {
@@ -220,7 +225,7 @@ struct DownloadsView: View {
     }
 }
 
-private enum DownloadStatusFilter: String, CaseIterable, Identifiable {
+enum DownloadStatusFilter: String, CaseIterable, Identifiable {
     case all
     case active
     case paused

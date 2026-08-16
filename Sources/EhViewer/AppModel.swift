@@ -36,6 +36,8 @@ final class AppModel {
 
     var site: SiteMode
     var readingSettings: ReadingSettings
+    var downloadSortOrder: DownloadSortOrder
+    var downloadStatusFilter: DownloadStatusFilter
     var galleries: [GallerySummary] = []
     var historyGalleries: [GallerySummary] = []
     var favoriteGalleries: [GallerySummary] = []
@@ -81,6 +83,12 @@ final class AppModel {
         let selectedSite = forceGuestModeForUITest ? SiteMode.eHentai : savedSite
         site = selectedSite
         readingSettings = ReadingSettings.load(from: defaults)
+        downloadSortOrder = DownloadSortOrder(
+            rawValue: defaults.string(forKey: "downloadSortOrder") ?? ""
+        ) ?? .titleAscending
+        downloadStatusFilter = DownloadStatusFilter(
+            rawValue: defaults.string(forKey: "downloadStatusFilter") ?? ""
+        ) ?? .all
         if forceGuestModeForUITest {
             isGuestMode = true
         }
@@ -649,7 +657,7 @@ final class AppModel {
 
     /// Detail-page tag display, mirroring the reference client: only the tag
     /// value is shown (never the `misc:`/`artist:` prefix), translated when
-    /// the reference database has an entry for it.
+    /// the reference database has an entry for it and translations are on.
     func displayTag(_ tag: String) -> String {
         let value: String
         if let separator = tag.firstIndex(of: ":") {
@@ -657,6 +665,7 @@ final class AppModel {
         } else {
             value = tag
         }
+        guard readingSettings.showTagTranslations else { return value }
         if let translated = tagTranslations[tag] { return translated }
         let databaseKey = SearchQueryComposer.databaseTagKey(for: tag)
         if databaseKey != tag, let translated = tagTranslations[databaseKey] { return translated }
@@ -1136,6 +1145,11 @@ final class AppModel {
 
     func persistReadingSettings() {
         readingSettings.save(to: defaults)
+    }
+
+    func persistDownloadPreferences() {
+        defaults.set(downloadSortOrder.rawValue, forKey: "downloadSortOrder")
+        defaults.set(downloadStatusFilter.rawValue, forKey: "downloadStatusFilter")
     }
 
     func exportMigrationData() async -> Data? {

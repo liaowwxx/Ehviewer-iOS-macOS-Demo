@@ -47,6 +47,13 @@ struct BrowseView: View {
         @Bindable var pageModel = pageModel
 
         ScrollView {
+            if pageModel.searchText.isEmpty == false {
+                SearchTagChipBar(query: pageModel.searchText) { updatedQuery in
+                    pageModel.searchText = updatedQuery
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+            }
             LazyVStack(spacing: 4) {
                 ForEach(pageModel.galleries) { gallery in
                     galleryLink(gallery)
@@ -198,6 +205,45 @@ struct BrowseView: View {
         }
         .id(gallery.key)
         .buttonStyle(.plain)
+    }
+}
+
+/// Renders the tag tokens of the search query as removable capsules, styled
+/// like the filter-rule candidate bar. Tapping a capsule removes that tag
+/// token from the query, so several tags can be composed and adjusted freely.
+private struct SearchTagChipBar: View {
+    @Environment(AppModel.self) private var model
+    let query: String
+    let onUpdate: (String) -> Void
+
+    var body: some View {
+        let tokens = SearchQueryComposer.tagTokens(in: query)
+        if tokens.isEmpty == false {
+            TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
+                    Button {
+                        onUpdate(SearchQueryComposer.removing(token, from: query))
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "tag")
+                                .font(.caption2)
+                            Text(model.displayTag(token.fullTag))
+                                .lineLimit(1)
+                            Image(systemName: "xmark")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .frame(height: 22)
+                        .foregroundStyle(.white)
+                        .background(AppTheme.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("移除标签 \(token.fullTag)")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

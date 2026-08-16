@@ -47,7 +47,12 @@ struct SettingsView: View {
                         model.persistReadingSettings()
                     }
                     .accessibilityIdentifier("show-japanese-title-toggle")
-                Text("需同时在 EHentai 网站设置中启用 Japanese Title；开启后列表、详情、历史与下载页优先显示日文标题。")
+                Toggle("显示标签翻译", isOn: $model.readingSettings.showTagTranslations)
+                    .onChange(of: model.readingSettings.showTagTranslations) { _, _ in
+                        model.persistReadingSettings()
+                    }
+                    .accessibilityIdentifier("show-tag-translations-toggle")
+                Text("「显示标签翻译」开启时详情页标签显示中文翻译（参考项目默认开启）；关闭时显示英文标签名。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -208,7 +213,11 @@ private struct FilterRulesSection: View {
                             )
                         }
                     }
-                    Toggle(rule.pattern, isOn: $model.filterRules[index].isEnabled)
+                    if rule.mode == .tag {
+                        Toggle(isOn: $model.filterRules[index].isEnabled) {
+                            FilterTagChip(keyword: rule.pattern)
+                        }
+                        .toggleStyle(.switch)
                         .onChange(of: model.filterRules[index].isEnabled) { _, enabled in
                             Task {
                                 await model.setFilterRule(
@@ -218,6 +227,18 @@ private struct FilterRulesSection: View {
                                 )
                             }
                         }
+                    } else {
+                        Toggle(rule.pattern, isOn: $model.filterRules[index].isEnabled)
+                            .onChange(of: model.filterRules[index].isEnabled) { _, enabled in
+                                Task {
+                                    await model.setFilterRule(
+                                        pattern: rule.pattern,
+                                        isEnabled: enabled,
+                                        mode: rule.mode
+                                    )
+                                }
+                            }
+                    }
                     Button("删除规则", systemImage: "trash", role: .destructive) {
                         Task { await model.deleteFilterRule(pattern: rule.pattern, mode: rule.mode) }
                     }
@@ -243,16 +264,26 @@ private struct FilterRulesSection: View {
                 }
                 .disabled(newFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            if newFilterMode == .tag,
+               newFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                HStack(spacing: 6) {
+                    Text("将添加标签")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    FilterTagChip(keyword: newFilter)
+                }
+                .accessibilityIdentifier("filter-keyword-preview")
+            }
             if filterSuggestions.isEmpty == false {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    TagFlowLayout(horizontalSpacing: 8, verticalSpacing: 6) {
                         ForEach(filterSuggestions) { suggestion in
                             Button {
                                 newFilter = filterKeyword(for: suggestion)
                                 newFilterMode = .tag
                             } label: {
                                 Label(
-                                    suggestion.localizedText ?? filterKeyword(for: suggestion),
+                                    candidateLabel(for: suggestion),
                                     systemImage: "tag"
                                 )
                                 .font(.caption)
@@ -265,8 +296,10 @@ private struct FilterRulesSection: View {
                             .accessibilityLabel("按标签 \(suggestion.english) 过滤")
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 2)
                 }
+                .frame(maxHeight: 170)
                 .accessibilityIdentifier("filter-suggestion-bar")
             } else if isUpdatingFilterSuggestions {
                 HStack(spacing: 6) {
@@ -318,5 +351,38 @@ private struct FilterRulesSection: View {
             return String(english[english.index(after: separator)...])
         }
         return english
+    }
+
+    /// Candidate chips follow the tag-translation setting: translated names
+    /// when it is on, the original English tag names when it is off. The
+    /// inserted keyword stays English either way because rules match against
+    /// the original tag names.
+    private func candidateLabel(for suggestion: SearchTagSuggestion) -> String {
+        guard model.readingSettings.showTagTranslations else {
+            return filterKeyword(for: suggestion)
+        }
+        return suggestion.localizedText ?? filterKeyword(for: suggestion)
+    }
+}
+
+/// A filter-rule tag keyword rendered as a capsule chip; the label follows
+/// the tag-translation setting through `displayTag`.
+private struct FilterTagChip: View {
+    @Environment(AppModel.self) private var model
+    let keyword: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "tag")
+                .font(.caption2)
+            Text(model.displayTag(keyword))
+                .lineLimit(1)
+        }
+        .font(.caption)
+        .padding(.horizontal, 10)
+        .frame(height: 22)
+        .foregroundStyle(.white)
+        .background(AppTheme.accent, in: Capsule())
+        .accessibilityLabel("标签 \(model.displayTag(keyword))")
     }
 }

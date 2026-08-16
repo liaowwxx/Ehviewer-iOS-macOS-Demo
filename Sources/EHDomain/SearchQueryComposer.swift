@@ -17,6 +17,75 @@ public enum SearchQueryComposer {
         "reclass": "r:"
     ]
 
+    private static let namespacesByPrefix: [String: String] = [
+        "n": "rows",
+        "a": "artist",
+        "cos": "cosplayer",
+        "c": "character",
+        "f": "female",
+        "g": "group",
+        "l": "language",
+        "m": "male",
+        "x": "mixed",
+        "o": "other",
+        "p": "parody",
+        "r": "reclass",
+    ]
+
+    /// The full namespace name for a search prefix, e.g. `p` → `parody`.
+    public static func namespace(forPrefix prefix: String) -> String? {
+        namespacesByPrefix[prefix.lowercased()]
+    }
+
+    /// One tag token inside a search query, e.g. `p:"blue archive$"`.
+    public struct SearchTagToken: Hashable, Sendable {
+        public let namespace: String
+        public let value: String
+        public let raw: String
+
+        public init(namespace: String, value: String, raw: String) {
+            self.namespace = namespace
+            self.value = value
+            self.raw = raw
+        }
+
+        /// The `namespace:value` form used for translation lookups.
+        public var fullTag: String { "\(namespace):\(value)" }
+    }
+
+    /// Extracts every `<prefix>:"value$"` tag token from the query in order,
+    /// leaving free-text keywords untouched.
+    public static func tagTokens(in query: String) -> [SearchTagToken] {
+        let pattern = #"([a-z]{1,3}):"([^"]*?)\$?""#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+        let range = NSRange(query.startIndex..., in: query)
+        return regex.matches(in: query, range: range).compactMap { match in
+            guard let prefixRange = Range(match.range(at: 1), in: query),
+                  let valueRange = Range(match.range(at: 2), in: query),
+                  let rawRange = Range(match.range(at: 0), in: query),
+                  let namespace = namespace(forPrefix: String(query[prefixRange])) else { return nil }
+            return SearchTagToken(
+                namespace: namespace,
+                value: String(query[valueRange]),
+                raw: String(query[rawRange])
+            )
+        }
+    }
+
+    /// Removes one tag token from the query and collapses leftover spacing.
+    public static func removing(_ token: SearchTagToken, from query: String) -> String {
+        let raw = token.raw
+        let pattern = NSRegularExpression.escapedPattern(for: raw)
+        guard let regex = try? NSRegularExpression(pattern: #"(?:\s+)?"# + pattern),
+              let range = regex.firstMatch(in: query, range: NSRange(query.startIndex..., in: query))?.range,
+              let matchRange = Range(range, in: query) else {
+            return query
+        }
+        return query.replacingCharacters(in: matchRange, with: " ")
+            .replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     public static func normalized(_ query: String) -> String {
         query
             .replacingOccurrences(of: "\r", with: "")

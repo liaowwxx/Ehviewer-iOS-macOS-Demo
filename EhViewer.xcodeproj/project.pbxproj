@@ -55,6 +55,7 @@
 		EHB00000000000000000039 /* PhotoLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000039 /* PhotoLibrarySaver.swift */; };
 		EHB0000000000000000003A /* ReaderSettingsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003A /* ReaderSettingsMenu.swift */; };
 		EHB00000000000000000045 /* GalleryCategoryBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000045 /* GalleryCategoryBadge.swift */; };
+		EHB00000000000000000046 /* TagFlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000046 /* TagFlowLayout.swift */; };
 		EHB0000000000000000003B /* BrowsePageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003B /* BrowsePageModel.swift */; };
 		EHB0000000000000000003C /* HomeBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003C /* HomeBrowseView.swift */; };
 		EHB00000000000000000040 /* ReaderPageWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000040 /* ReaderPageWindow.swift */; };
@@ -143,6 +144,7 @@
 		EHF00000000000000000039 /* PhotoLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibrarySaver.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003A /* ReaderSettingsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsMenu.swift; sourceTree = "<group>"; };
 		EHF00000000000000000045 /* GalleryCategoryBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCategoryBadge.swift; sourceTree = "<group>"; };
+		EHF00000000000000000046 /* TagFlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagFlowLayout.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003B /* BrowsePageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsePageModel.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003C /* HomeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBrowseView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000040 /* ReaderPageWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPageWindow.swift; sourceTree = "<group>"; };
@@ -212,6 +214,7 @@
 				EHF0000000000000000003B /* BrowsePageModel.swift */,
 				EHF0000000000000000003C /* HomeBrowseView.swift */,
 				EHF00000000000000000045 /* GalleryCategoryBadge.swift */,
+				EHF00000000000000000046 /* TagFlowLayout.swift */,
 				EHF00000000000000000024 /* BrowsePaginationFooter.swift */,
 				EHF0000000000000000002F /* CookieLoginSheet.swift */,
 				EHF00000000000000000003 /* DownloadsView.swift */,
@@ -419,6 +422,7 @@
 				EHB00000000000000000002 /* BrowseView.swift in Sources */,
 				EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */,
 				EHB00000000000000000045 /* GalleryCategoryBadge.swift in Sources */,
+				EHB00000000000000000046 /* TagFlowLayout.swift in Sources */,
 				EHB00000000000000000024 /* BrowsePaginationFooter.swift in Sources */,
 				EHB0000000000000000002F /* CookieLoginSheet.swift in Sources */,
 				EHB00000000000000000003 /* DownloadsView.swift in Sources */,
