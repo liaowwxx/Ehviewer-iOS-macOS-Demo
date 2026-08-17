@@ -25,6 +25,7 @@ public protocol EHAPI: Sendable {
     func list(query: GalleryListQuery) async throws -> GalleryListPage
     func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage
     func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail
+    func detailStream(for key: GalleryKey, site: SiteMode) -> AsyncThrowingStream<GalleryDetail, Error>
     func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary]
     func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage
     func imageData(for image: GalleryPageImage, resolution: ImageResolution) async throws -> Data
@@ -51,6 +52,20 @@ public extension EHAPI {
 
     func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage {
         throw EHError.parsingFailed(String(localized: "当前 API 未实现页面解析"))
+    }
+
+    func detailStream(for key: GalleryKey, site: SiteMode) -> AsyncThrowingStream<GalleryDetail, Error> {
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: GalleryDetail.self)
+        let task = Task {
+            do {
+                continuation.yield(try await detail(for: key, site: site))
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
     }
 
     func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary] {
@@ -237,33 +252,76 @@ public struct EHClient: EHAPI, Sendable {
     }
 
     public func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
-        let builder = SiteRequestBuilder(site: site)
-        let request = try builder.galleryRequest(key: key)
-        let (data, response) = try await authorized(request)
-        try validate(response)
-        var detail = try parser.parseDetail(data: data, key: key, site: site)
-        let firstPreviewPage = try parser.parsePreviewPage(data: data, key: key, site: site)
-        let previewPageCount = max(
-            firstPreviewPage.pageCount ?? 1,
-            Self.estimatedPreviewPageCount(
-                totalPageCount: detail.summary.pageCount,
-                firstPreviewPageCount: firstPreviewPage.pages.count
-            )
-        )
-        guard previewPageCount > 1 else { return detail }
-
-        let additionalPages = try await loadAdditionalPreviewPages(
-            key: key,
-            site: site,
-            pageCount: previewPageCount,
-            builder: builder
-        )
-        var pagesByIndex: [Int: GalleryPageDescriptor] = [:]
-        for page in detail.pages + additionalPages {
-            pagesByIndex[page.index] = page
+        var finalDetail: GalleryDetail?
+        for try await loadedDetail in detailStream(for: key, site: site) {
+            finalDetail = loadedDetail
         }
-        detail.pages = pagesByIndex.values.sorted { $0.index < $1.index }
-        return detail
+        guard let finalDetail else {
+            throw EHError.parsingFailed(String(localized: "详情响应为空"))
+        }
+        return finalDetail
+    }
+
+    public func detailStream(for key: GalleryKey, site: SiteMode) -> AsyncThrowingStream<GalleryDetail, Error> {
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: GalleryDetail.self)
+        let task = Task { [self] in
+            do {
+                let builder = SiteRequestBuilder(site: site)
+                let request = try builder.galleryRequest(key: key)
+                let (data, response) = try await authorized(request)
+                try validate(response)
+                var detail = try parser.parseDetail(data: data, key: key, site: site)
+                let firstPreviewPage = try parser.parsePreviewPage(data: data, key: key, site: site)
+                let previewPageCount = max(
+                    firstPreviewPage.pageCount ?? 1,
+                    Self.estimatedPreviewPageCount(
+                        totalPageCount: detail.summary.pageCount,
+                        firstPreviewPageCount: firstPreviewPage.pages.count
+                    )
+                )
+
+                continuation.yield(detail)
+                guard previewPageCount > 1 else {
+                    continuation.finish()
+                    return
+                }
+
+                try await withThrowingTaskGroup(of: [GalleryPageDescriptor].self) { group in
+                    var nextPage = 1
+                    let initialTaskCount = min(Self.maximumPreviewPageConcurrency, previewPageCount - 1)
+                    for _ in 0..<initialTaskCount {
+                        let previewPage = nextPage
+                        nextPage += 1
+                        group.addTask { [self] in
+                            let request = try builder.galleryRequest(key: key, previewPage: previewPage)
+                            let (data, response) = try await authorized(request)
+                            try validate(response)
+                            return try parser.parsePreviewPage(data: data, key: key, site: site).pages
+                        }
+                    }
+
+                    while let previewPages = try await group.next() {
+                        Self.mergePreviewPages(previewPages, into: &detail)
+                        continuation.yield(detail)
+
+                        guard nextPage < previewPageCount else { continue }
+                        let previewPage = nextPage
+                        nextPage += 1
+                        group.addTask { [self] in
+                            let request = try builder.galleryRequest(key: key, previewPage: previewPage)
+                            let (data, response) = try await authorized(request)
+                            try validate(response)
+                            return try parser.parsePreviewPage(data: data, key: key, site: site).pages
+                        }
+                    }
+                }
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
     }
 
     public func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary] {
@@ -300,46 +358,17 @@ public struct EHClient: EHAPI, Sendable {
         return summaries
     }
 
-    private func loadAdditionalPreviewPages(
-        key: GalleryKey,
-        site: SiteMode,
-        pageCount: Int,
-        builder: SiteRequestBuilder,
-        maximumConcurrent: Int = 4
-    ) async throws -> [GalleryPageDescriptor] {
-        guard pageCount > 1 else { return [] }
-        return try await withThrowingTaskGroup(
-            of: [GalleryPageDescriptor].self,
-            returning: [GalleryPageDescriptor].self
-        ) { group in
-            var nextPage = 1
-            let initialTaskCount = min(maximumConcurrent, pageCount - 1)
-            for _ in 0..<initialTaskCount {
-                let previewPage = nextPage
-                nextPage += 1
-                group.addTask { [self] in
-                    let request = try builder.galleryRequest(key: key, previewPage: previewPage)
-                    let (data, response) = try await authorized(request)
-                    try validate(response)
-                    return try parser.parsePreviewPage(data: data, key: key, site: site).pages
-                }
-            }
+    private static let maximumPreviewPageConcurrency = 4
 
-            var pages: [GalleryPageDescriptor] = []
-            while let previewPages = try await group.next() {
-                pages.append(contentsOf: previewPages)
-                guard nextPage < pageCount else { continue }
-                let previewPage = nextPage
-                nextPage += 1
-                group.addTask { [self] in
-                    let request = try builder.galleryRequest(key: key, previewPage: previewPage)
-                    let (data, response) = try await authorized(request)
-                    try validate(response)
-                    return try parser.parsePreviewPage(data: data, key: key, site: site).pages
-                }
-            }
-            return pages
+    private static func mergePreviewPages(
+        _ pages: [GalleryPageDescriptor],
+        into detail: inout GalleryDetail
+    ) {
+        var pagesByIndex = Dictionary(uniqueKeysWithValues: detail.pages.map { ($0.index, $0) })
+        for page in pages {
+            pagesByIndex[page.index] = page
         }
+        detail.pages = pagesByIndex.values.sorted { $0.index < $1.index }
     }
 
     private static func estimatedPreviewPageCount(totalPageCount: Int?, firstPreviewPageCount: Int) -> Int {
@@ -419,7 +448,8 @@ public struct EHClient: EHAPI, Sendable {
     }
 
     public func comments(for key: GalleryKey, site: SiteMode) async throws -> [GalleryComment] {
-        try await (detail(for: key, site: site)).comments
+        var iterator = detailStream(for: key, site: site).makeAsyncIterator()
+        return try await iterator.next()?.comments ?? []
     }
 
     public func submitComment(for key: GalleryKey, site: SiteMode, body: String, editing commentID: String? = nil) async throws -> [GalleryComment] {

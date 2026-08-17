@@ -30,18 +30,19 @@ struct GalleryDetailView: View {
     let key: GalleryKey
     @State private var detail: GalleryDetail?
     @State private var isFavorite = false
-    @State private var commentText = ""
     @State private var comments: [GalleryComment] = []
     @State private var torrents: [TorrentDescriptor] = []
     @State private var archiveOptions: [ArchiveOption] = []
     @State private var readingPage: Int?
     @State private var isLoadingDetail = true
+    @State private var isLoadingMorePreviews = false
+    @State private var hasCachedDetail = false
     @State private var detailError: String?
+    @State private var previewError: String?
     @State private var detailLoadToken = UUID()
     @State private var isEnqueueing = false
     @State private var isUpdatingFavorite = false
     @State private var isRating = false
-    @State private var isSubmittingComment = false
     @State private var downloadJob: DownloadJob?
 
     var body: some View {
@@ -49,12 +50,15 @@ struct GalleryDetailView: View {
             if let detail {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        GalleryDetailHeader(summary: detail.summary, pageCount: detail.pages.count)
+                        GalleryDetailHeader(
+                            summary: detail.summary,
+                            pageCount: detail.summary.pageCount ?? detail.pages.count
+                        )
 
                         VStack(alignment: .leading, spacing: 20) {
                             GalleryInfoCard(detail: detail, readingPage: readingPage)
 
-                            actionSection(detail)
+                            actionSection(detail, pageListReady: pageListReady)
 
                             if detail.tags.isEmpty == false {
                                 GroupedTags(tags: detail.tags)
@@ -97,36 +101,32 @@ struct GalleryDetailView: View {
                         .padding()
                         .frame(maxWidth: 760, alignment: .leading)
 
+                        GalleryCommentsSection(key: key, comments: comments)
+                            .padding(.horizontal)
+                            .frame(maxWidth: 760, alignment: .leading)
+                            .padding(.bottom, 12)
+
                         if detail.pages.isEmpty == false {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text("预览").font(.headline)
                                 GalleryPreviewGrid(key: key, pages: detail.pages)
+                                if isLoadingMorePreviews {
+                                    ProgressView("加载中…")
+                                        .font(.caption)
+                                        .frame(maxWidth: .infinity)
+                                }
+                                if let previewError {
+                                    Text(previewError)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
                             }
                             .padding(.horizontal)
                             .frame(maxWidth: 760, alignment: .leading)
                             .padding(.bottom, 12)
                         }
                     }
-                    GalleryCommentsSection(
-                        comments: comments,
-                        commentText: $commentText,
-                        canSubmit: model.isGuestMode == false,
-                        isSubmitting: isSubmittingComment
-                    ) {
-                        guard commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { return }
-                        let body = commentText
-                        isSubmittingComment = true
-                        Task {
-                            defer { isSubmittingComment = false }
-                            if let updated = await model.submitComment(for: detail, body: body) {
-                                comments = updated
-                                commentText = ""
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .frame(maxWidth: 760, alignment: .leading)
-                    .padding(.bottom, 12)
                 }
             } else if let detailError {
                 VStack(spacing: 12) {
@@ -171,7 +171,7 @@ struct GalleryDetailView: View {
     }
 
     @ViewBuilder
-    private func actionSection(_ detail: GalleryDetail) -> some View {
+    private func actionSection(_ detail: GalleryDetail, pageListReady: Bool) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 NavigationLink(value: AppRoute.reader(key, page: 0)) {
@@ -180,6 +180,7 @@ struct GalleryDetailView: View {
                         .foregroundStyle(AppTheme.onAccent)
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(pageListReady == false)
                 .accessibilityIdentifier("start-reading-action")
                 #if os(macOS)
                 Button {
@@ -189,6 +190,7 @@ struct GalleryDetailView: View {
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
+                .disabled(pageListReady == false)
                 .accessibilityIdentifier("new-window-reader-action")
                 #endif
                 if let downloadJob {
@@ -209,7 +211,7 @@ struct GalleryDetailView: View {
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(isEnqueueing)
+                    .disabled(isEnqueueing || pageListReady == false)
                     .accessibilityIdentifier("enqueue-download-action")
                 }
             }
@@ -299,23 +301,49 @@ struct GalleryDetailView: View {
 
     private func loadDetail() async {
         isLoadingDetail = true
+        isLoadingMorePreviews = false
+        hasCachedDetail = false
         detailError = nil
+        previewError = nil
         let localJob = await model.downloadJob(for: key)
         downloadJob = localJob
-        do {
-            detail = try await model.detail(for: key)
+        let cachedDetail = await model.cachedDetail(for: key)
+        if let cachedDetail {
+            detail = cachedDetail
+            hasCachedDetail = true
+            isLoadingDetail = false
             isFavorite = await model.favoriteState(for: key)
-            comments = detail?.comments ?? []
-            if detail != nil {
-                async let loadedTorrents = model.torrents(for: key)
-                async let loadedArchives = model.archiveOptions(for: key)
-                torrents = await loadedTorrents
-                archiveOptions = await loadedArchives
+        }
+        let cachedPages = cachedDetail?.pages ?? []
+        let cacheGeneration = await model.galleryCacheGeneration()
+        var presentedRemoteDetail = false
+        do {
+            isLoadingMorePreviews = true
+            for try await loadedDetail in model.detailStream(for: key) {
+                guard Task.isCancelled == false else { return }
+                detail = Self.detailByMergingPages(from: loadedDetail, with: cachedPages)
+                comments = loadedDetail.comments
+                await model.cacheDetail(loadedDetail, generation: cacheGeneration)
+                if presentedRemoteDetail == false {
+                    presentedRemoteDetail = true
+                    isLoadingDetail = false
+                    isFavorite = await model.favoriteState(for: key)
+                    async let loadedTorrents = model.torrents(for: key)
+                    async let loadedArchives = model.archiveOptions(for: key)
+                    torrents = await loadedTorrents
+                    archiveOptions = await loadedArchives
+                }
             }
+            isLoadingMorePreviews = false
         } catch is CancellationError {
             return
         } catch {
-            if let localJob {
+            isLoadingMorePreviews = false
+            if presentedRemoteDetail {
+                previewError = error.localizedDescription
+            } else if cachedDetail != nil {
+                previewError = error.localizedDescription
+            } else if let localJob {
                 detail = ReaderView.downloadedDetail(for: localJob, site: model.site)
                 comments = []
             } else {
@@ -325,9 +353,37 @@ struct GalleryDetailView: View {
         isLoadingDetail = false
     }
 
+    private static func detailByMergingPages(
+        from liveDetail: GalleryDetail,
+        with cachedPages: [GalleryPageDescriptor]
+    ) -> GalleryDetail {
+        guard cachedPages.isEmpty == false else { return liveDetail }
+        var merged = liveDetail
+        var pagesByIndex = Dictionary(uniqueKeysWithValues: cachedPages.map { ($0.index, $0) })
+        for page in liveDetail.pages {
+            pagesByIndex[page.index] = page
+        }
+        merged.pages = pagesByIndex.values.sorted { $0.index < $1.index }
+        return merged
+    }
+
     private var readingActionTitle: String {
+        if isLoadingMorePreviews {
+            return String(localized: "加载中…")
+        }
+        if previewError != nil {
+            return String(localized: "加载失败")
+        }
         guard let downloadJob else { return String(localized: "开始阅读") }
         return downloadJob.completedPageIndexes.isEmpty ? String(localized: "开始阅读（下载中）") : String(localized: "阅读本地内容")
+    }
+
+    private var pageListReady: Bool {
+        let cachedPageListReady = hasCachedDetail && isLoadingMorePreviews == false && detail.map { cachedDetail in
+            guard let pageCount = cachedDetail.summary.pageCount, pageCount > 0 else { return false }
+            return cachedDetail.pages.count >= pageCount
+        } == true
+        return cachedPageListReady || (isLoadingMorePreviews == false && previewError == nil)
     }
 
     private func downloadStatusTitle(_ job: DownloadJob) -> String {
@@ -425,63 +481,23 @@ private struct GalleryInfoCard: View {
 }
 
 private struct GalleryCommentsSection: View {
+    let key: GalleryKey
     let comments: [GalleryComment]
-    @Binding var commentText: String
-    let canSubmit: Bool
-    let isSubmitting: Bool
-    let submit: () -> Void
-    @State private var showingAllComments = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("评论").font(.headline)
-            ForEach(visibleComments) { comment in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(comment.author).font(.subheadline.bold())
-                        Spacer()
-                        if let postedAt = comment.postedAt {
-                            Text(postedAt, format: .relative(presentation: .named))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        if comment.score != 0 { Text("评分 \(comment.score)").font(.caption).foregroundStyle(.secondary) }
-                    }
-                    Text(comment.body)
-                        .font(.callout)
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
-                .padding(10)
-                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+            ForEach(comments.prefix(2)) { comment in
+                GalleryCommentCard(comment: comment)
             }
             if comments.count > 2 {
-                Button(showingAllComments ? "收起评论" : "更多评论（共 \(comments.count) 条）") {
-                    showingAllComments.toggle()
+                NavigationLink(value: AppRoute.comments(key)) {
+                    Label("更多评论（共 \(comments.count) 条）", systemImage: "text.bubble")
                 }
                 .font(.subheadline)
                 .accessibilityIdentifier("more-comments-action")
             }
-            TextField(canSubmit ? "写评论" : "登录后发表评论", text: $commentText, axis: .vertical)
-                .lineLimit(3...6)
-                .disabled(canSubmit == false)
-            Button {
-                submit()
-            } label: {
-                if isSubmitting {
-                    ProgressView()
-                } else {
-                    Label("发布评论", systemImage: "paperplane")
-                }
-            }
-                .buttonStyle(.bordered)
-                .disabled(isSubmitting || canSubmit == false || commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-    }
-
-    private var visibleComments: [GalleryComment] {
-        showingAllComments ? comments : Array(comments.prefix(2))
     }
 }
 
@@ -551,7 +567,7 @@ private struct GalleryDetailHeader: View {
             guard let thumbnailURL = summary.thumbnailURL else { return }
             do {
                 let page = GalleryPageImage(galleryKey: summary.key, index: 0, imageURL: thumbnailURL)
-                let data = try await model.imageData(for: page)
+                let data = try await model.galleryImageData(for: page)
                 guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                       let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return }
                 image = Image(decorative: cgImage, scale: 1, orientation: .up)
@@ -637,15 +653,29 @@ private struct TagGroup: Identifiable {
     var id: String { namespace }
 }
 
+struct GalleryPreviewRevealState: Hashable, Sendable {
+    static let initialCount = 27
+    static let batchSize = 20
+
+    private(set) var visibleCount = initialCount
+
+    mutating func revealNext(totalCount: Int) {
+        visibleCount = min(visibleCount + Self.batchSize, totalCount)
+    }
+
+    mutating func collapse() {
+        visibleCount = Self.initialCount
+    }
+}
+
 /// Preview thumbnail grid with page numbers, mirroring the reference detail
 /// scene's `bindPreviews`: only the first 27 previews render initially and a
-/// "more previews" action reveals the rest.
+/// "more previews" action reveals the rest in batches of 20.
 private struct GalleryPreviewGrid: View {
     let key: GalleryKey
     let pages: [GalleryPageDescriptor]
-    @State private var showingAll = false
+    @State private var revealState = GalleryPreviewRevealState()
 
-    private static let initialPreviewCount = 27
     private let columns = [GridItem(.adaptive(minimum: 100, maximum: 130), spacing: 8)]
 
     var body: some View {
@@ -672,20 +702,29 @@ private struct GalleryPreviewGrid: View {
                     .accessibilityLabel("预览第 \(page.index + 1) 页")
                 }
             }
-            if pages.count > Self.initialPreviewCount {
-                Button(showingAll ? "收起预览" : "更多预览（共 \(pages.count)）") {
-                    showingAll.toggle()
+            if pages.count > GalleryPreviewRevealState.initialCount {
+                if revealState.visibleCount < pages.count {
+                    Button("更多预览（共 \(pages.count)）") {
+                        revealState.revealNext(totalCount: pages.count)
+                    }
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("more-previews-action")
+                } else {
+                    Button("收起预览") {
+                        revealState.collapse()
+                    }
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("more-previews-action")
                 }
-                .font(.subheadline)
-                .frame(maxWidth: .infinity)
-                .accessibilityIdentifier("more-previews-action")
             }
         }
         .accessibilityIdentifier("detail-previews-grid")
     }
 
     private var visiblePages: [GalleryPageDescriptor] {
-        showingAll ? pages : Array(pages.prefix(Self.initialPreviewCount))
+        Array(pages.prefix(revealState.visibleCount))
     }
 }
 
@@ -715,7 +754,7 @@ private struct GalleryPreviewThumbnail: View {
             guard let url = descriptor.previewURL else { return }
             do {
                 let page = GalleryPageImage(galleryKey: descriptor.galleryKey, index: descriptor.index, imageURL: url)
-                let data = try await model.imageData(for: page)
+                let data = try await model.galleryImageData(for: page)
                 image = Self.decodedPreview(from: data, clip: descriptor.previewClip)
             } catch is CancellationError {
                 return
@@ -758,4 +797,3 @@ private struct GalleryPreviewThumbnail: View {
         return Image(decorative: full, scale: 1, orientation: .up)
     }
 }
-

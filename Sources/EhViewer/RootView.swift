@@ -23,13 +23,13 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var presentedRootAlert: RootAlert?
-    @State private var compactSelection: AppRoute = .browse
+    @State private var compactSelection: AppRoute = .downloads
     @State private var compactBrowsePath: [AppRoute] = []
     @State private var compactDownloadsPath: [AppRoute] = []
     @State private var compactHistoryPath: [AppRoute] = []
     @State private var compactSettingsPath: [AppRoute] = []
     @State private var compactLibraryMode: LibraryView.Mode = .history
-    @State private var splitSelection: AppRoute? = .browse
+    @State private var splitSelection: AppRoute? = .downloads
     @State private var splitDetailPath: [AppRoute] = []
 
     var body: some View {
@@ -197,29 +197,38 @@ private struct CompactRootView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            RootNavigationStack(path: $browsePath) { path in
-                HomeBrowseView(model: model, navigationPath: path)
+            Tab(value: AppRoute.browse) {
+                RootNavigationStack(path: $browsePath) { path in
+                    HomeBrowseView(model: model, navigationPath: path)
+                }
+            } label: {
+                Label("browse_title", systemImage: "list.bullet.rectangle")
             }
-            .tabItem { Label("browse_title", systemImage: "list.bullet.rectangle") }
-            .tag(AppRoute.browse)
 
-            RootNavigationStack(path: $downloadsPath) { _ in
-                DownloadsView()
+            Tab(value: AppRoute.downloads) {
+                RootNavigationStack(path: $downloadsPath) { _ in
+                    DownloadsView()
+                }
+            } label: {
+                Label("downloads_title", systemImage: "arrow.down.circle")
             }
-            .tabItem { Label("downloads_title", systemImage: "arrow.down.circle") }
-            .tag(AppRoute.downloads)
 
-            RootNavigationStack(path: $historyPath) { _ in
-                LibraryView(mode: libraryMode)
+            Tab(value: AppRoute.history) {
+                RootNavigationStack(path: $historyPath) { _ in
+                    LibraryView(mode: libraryMode)
+                }
+            } label: {
+                Label("history_title", systemImage: "clock")
             }
-            .tabItem { Label("history_title", systemImage: "clock") }
-            .tag(AppRoute.history)
 
-            RootNavigationStack(path: $settingsPath) { _ in
-                SettingsView()
+            Tab(value: AppRoute.settings) {
+                RootNavigationStack(path: $settingsPath) { _ in
+                    SettingsView()
+                }
+            } label: {
+                Label("settings_title", systemImage: "gearshape")
+                    .accessibilityIdentifier("settings-tab")
             }
-            .tabItem { Label("settings_title", systemImage: "gearshape").accessibilityIdentifier("settings-tab") }
-            .tag(AppRoute.settings)
         }
         .onChange(of: selection) { _, route in
             model.selectedRoute = route
@@ -324,6 +333,8 @@ struct DestinationView: View {
             SettingsView()
         case .gallery(let key):
             GalleryDetailView(key: key)
+        case .comments(let key):
+            GalleryCommentsView(key: key)
         case .reader(let key, let page):
             ReaderView(key: key, initialPage: page)
         }

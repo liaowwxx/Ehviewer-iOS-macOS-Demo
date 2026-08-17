@@ -36,6 +36,7 @@ struct SettingsView: View {
     @State private var showingDownloadRestoreImporter = false
     @State private var showingDownloadRestoreResult = false
     @State private var downloadRestoreMessage = ""
+    @State private var showingGalleryCacheClearConfirmation = false
 
     private var settingsForm: some View {
         @Bindable var model = model
@@ -77,6 +78,20 @@ struct SettingsView: View {
                 Text("「显示标签翻译」开启时详情页标签显示中文翻译（参考项目默认开启）；关闭时显示英文标签名。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("启用详情缓存", isOn: $model.galleryCacheEnabled)
+                    .onChange(of: model.galleryCacheEnabled) { _, enabled in
+                        model.setGalleryCacheEnabled(enabled)
+                    }
+                    .accessibilityIdentifier("gallery-cache-enabled-toggle")
+                LabeledContent("详情缓存占用", value: galleryCacheSize)
+                Button("清除详情缓存", systemImage: "trash", role: .destructive) {
+                    showingGalleryCacheClearConfirmation = true
+                }
+                .disabled(model.galleryCacheByteCount == 0)
+                .accessibilityIdentifier("clear-gallery-cache-action")
+                Text("仅清除详情页元数据和预览图缓存，不会影响下载内容、阅读进度或收藏数据。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("登录") {
                 Button("用户名&密码登录", systemImage: "person.badge.key") { showingPasswordLogin = true }
@@ -90,7 +105,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("About") {
-                LabeledContent("version:", value: "1.1-beta")
+                LabeledContent("version:", value: appVersion)
                 Text("基于https://github.com/xiaojieonly/Ehviewer_CN_SXJ")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -141,6 +156,18 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .accessibilityIdentifier("settings-screen")
         .navigationTitle("settings_title")
+        .confirmationDialog(
+            "清除详情缓存？",
+            isPresented: $showingGalleryCacheClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("清除缓存", role: .destructive) {
+                Task { await model.clearGalleryCache() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("这不会删除下载文件或其他应用数据。")
+        }
     }
 
     var body: some View {
@@ -228,7 +255,10 @@ struct SettingsView: View {
         } message: {
             Text(downloadRestoreMessage)
         }
-        .task { await model.loadFilterRules() }
+        .task {
+            await model.refreshGalleryCacheUsage()
+            await model.loadFilterRules()
+        }
     }
 
     /// 分享面板关闭后删除临时导出的数据包，避免残留占用存储。
@@ -236,6 +266,18 @@ struct SettingsView: View {
         if let url = model.pendingSharedFileURL {
             model.discardPendingSharedFile(url)
         }
+    }
+
+    private var appVersion: String {
+        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+              version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return String(localized: "未知")
+        }
+        return version
+    }
+
+    private var galleryCacheSize: String {
+        ByteCountFormatter.string(fromByteCount: model.galleryCacheByteCount, countStyle: .file)
     }
 }
 

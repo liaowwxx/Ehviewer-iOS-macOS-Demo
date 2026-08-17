@@ -112,6 +112,7 @@ final class AppModel {
     let imagePipeline: ImagePipeline
     let backgroundSession: BackgroundDownloadSession
     let downloadFiles: DownloadFileStore
+    let galleryCache: GalleryCacheStore
     let tagSuggestionProvider: TagSuggestionProvider
 
     var site: SiteMode
@@ -119,6 +120,8 @@ final class AppModel {
     var downloadSortOrder: DownloadSortOrder
     var downloadStatusFilter: DownloadStatusFilter
     var downloadLayoutMode: DownloadsLayoutMode
+    var galleryCacheEnabled: Bool
+    private(set) var galleryCacheByteCount: Int64 = 0
     var galleries: [GallerySummary] = []
     var historyGalleries: [GallerySummary] = []
     var favoriteGalleries: [GallerySummary] = []
@@ -128,7 +131,7 @@ final class AppModel {
     var searchHistorySuggestions: [String] = []
     var tagSearchSuggestions: [SearchTagSuggestion] = []
     var localArchive: LocalArchiveDocument?
-    var selectedRoute: AppRoute? = .browse
+    var selectedRoute: AppRoute? = .downloads
     var browseRefreshToken = 0
     var isLoading = false
     var searchText = ""
@@ -159,6 +162,7 @@ final class AppModel {
         sessionVault: SessionVault = SessionVault(),
         defaults: UserDefaults = .standard,
         downloadFiles: DownloadFileStore? = nil,
+        galleryCache: GalleryCacheStore? = nil,
         tagSuggestionProvider: TagSuggestionProvider = TagSuggestionProvider()
     ) {
         let arguments = ProcessInfo.processInfo.arguments
@@ -178,6 +182,7 @@ final class AppModel {
         downloadLayoutMode = DownloadsLayoutMode(
             rawValue: defaults.string(forKey: "downloadLayoutMode") ?? ""
         ) ?? .list
+        galleryCacheEnabled = defaults.object(forKey: "galleryCacheEnabled") as? Bool ?? true
         if forceGuestModeForUITest {
             isGuestMode = true
         }
@@ -191,6 +196,7 @@ final class AppModel {
         imagePipeline = ImagePipeline()
         let fileStore = downloadFiles ?? DownloadFileStore()
         self.downloadFiles = fileStore
+        self.galleryCache = galleryCache ?? GalleryCacheStore()
         let backgroundSession = BackgroundDownloadSession(
             taskObserver: { description, identifier in
                 guard let (key, pageIndex) = parseDownloadTaskDescription(description) else { return }
@@ -276,6 +282,7 @@ final class AppModel {
         )
         Task { @MainActor [weak self] in
             guard let self else { return }
+            await self.refreshGalleryCacheUsage()
             if self.forceGuestMode == false {
                 await self.refreshSessionStatus()
             }
@@ -488,6 +495,24 @@ final class AppModel {
         return detail
     }
 
+    func detailStream(for key: GalleryKey) -> AsyncThrowingStream<GalleryDetail, Error> {
+        api.detailStream(for: key, site: site)
+    }
+
+    func cachedDetail(for key: GalleryKey) async -> GalleryDetail? {
+        guard galleryCacheEnabled else { return nil }
+        return await galleryCache.detail(for: key, site: site)
+    }
+
+    func cacheDetail(_ detail: GalleryDetail, generation: UInt64? = nil) async {
+        guard galleryCacheEnabled else { return }
+        await galleryCache.save(detail, for: detail.summary.key, site: site, generation: generation)
+    }
+
+    func galleryCacheGeneration() async -> UInt64 {
+        await galleryCache.currentGeneration()
+    }
+
     func pageImage(for descriptor: GalleryPageDescriptor) async throws -> GalleryPageImage {
         try await api.pageImage(for: descriptor, site: site)
     }
@@ -497,6 +522,30 @@ final class AppModel {
         return try await imagePipeline.data(for: imageURL(for: image, resolution: resolution)) {
             try await api.imageData(for: image, resolution: resolution)
         }
+    }
+
+    func galleryImageData(for image: GalleryPageImage, resolution: ImageResolution = .preview) async throws -> Data {
+        let api = self.api
+        guard galleryCacheEnabled else {
+            return try await api.imageData(for: image, resolution: resolution)
+        }
+        return try await galleryCache.imageData(for: image, resolution: resolution) {
+            try await api.imageData(for: image, resolution: resolution)
+        }
+    }
+
+    func setGalleryCacheEnabled(_ enabled: Bool) {
+        galleryCacheEnabled = enabled
+        defaults.set(enabled, forKey: "galleryCacheEnabled")
+    }
+
+    func refreshGalleryCacheUsage() async {
+        galleryCacheByteCount = await galleryCache.usage().byteCount
+    }
+
+    func clearGalleryCache() async {
+        await galleryCache.removeAll()
+        await refreshGalleryCacheUsage()
     }
 
     func downloadedPageData(
@@ -620,13 +669,21 @@ final class AppModel {
         }
     }
 
-    func submitComment(for detail: GalleryDetail, body: String) async -> [GalleryComment]? {
+    func comments(for key: GalleryKey) async throws -> [GalleryComment] {
+        try await api.comments(for: key, site: site)
+    }
+
+    func submitComment(for key: GalleryKey, body: String) async -> [GalleryComment]? {
         do {
-            return try await api.submitComment(for: detail.summary.key, site: site, body: body, editing: nil)
+            return try await api.submitComment(for: key, site: site, body: body, editing: nil)
         } catch {
             errorMessage = error.localizedDescription
             return nil
         }
+    }
+
+    func submitComment(for detail: GalleryDetail, body: String) async -> [GalleryComment]? {
+        await submitComment(for: detail.summary.key, body: body)
     }
 
     func torrents(for key: GalleryKey) async -> [TorrentDescriptor] {

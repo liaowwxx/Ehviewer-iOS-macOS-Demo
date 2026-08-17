@@ -8,6 +8,22 @@ import EHDownloads
 
 @MainActor
 struct AppModelTests {
+    @Test("Preview reveal state adds 20 items and collapses to the initial window")
+    func previewRevealState() {
+        var state = GalleryPreviewRevealState()
+        #expect(state.visibleCount == 27)
+
+        state.revealNext(totalCount: 100)
+        #expect(state.visibleCount == 47)
+        state.revealNext(totalCount: 60)
+        #expect(state.visibleCount == 60)
+        state.revealNext(totalCount: 60)
+        #expect(state.visibleCount == 60)
+
+        state.collapse()
+        #expect(state.visibleCount == 27)
+    }
+
     @Test("App starts in guest mode without a saved session")
     func defaultsToGuestMode() async throws {
         let suiteName = "EhViewerGuestModeTests-\(UUID().uuidString)"

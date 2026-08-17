@@ -236,6 +236,25 @@ struct NetworkingTests {
         #expect(previewIndexes == Set([1]))
     }
 
+    @Test("Gallery detail stream emits the first preview batch before pagination finishes")
+    func detailStreamEmitsInitialSnapshot() async throws {
+        let key = GalleryKey(gid: 1_366_222, token: "sample-token")
+        let transport = PreviewPaginationTransport(key: key, blockAdditionalPage: true)
+        let client = EHClient(transport: transport)
+        var iterator = client.detailStream(for: key, site: .eHentai).makeAsyncIterator()
+
+        let initial = try await iterator.next()
+        #expect(initial?.pages.map(\.index) == Array(0..<20))
+
+        await transport.waitUntilAdditionalPageStarted()
+        #expect(await transport.didStartAdditionalPage())
+        await transport.releaseAdditionalPage()
+
+        let final = try await iterator.next()
+        #expect(final?.pages.map(\.index) == Array(0..<26))
+        #expect(try await iterator.next() == nil)
+    }
+
     @Test("Gallery page parser handles HTML response metadata")
     func pageHTMLParser() throws {
         let fixtureURL = try #require(Bundle.module.url(forResource: "page", withExtension: "html"))
@@ -542,6 +561,67 @@ struct NetworkingTests {
         await pipeline.removeAll()
     }
 
+    @Test("Gallery cache keeps static detail data, caches preview images, and clears only its own root")
+    func galleryCacheStore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-gallery-cache-\(UUID().uuidString)")
+        let unrelatedFile = root.deletingLastPathComponent()
+            .appendingPathComponent("ehviewer-download-sentinel-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: unrelatedFile)
+        }
+
+        try Data("download placeholder".utf8).write(to: unrelatedFile, options: .atomic)
+        let store = GalleryCacheStore(root: root)
+        let key = GalleryKey(gid: 42, token: "cached-token")
+        let page = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://e-hentai.org/s/page-token/42-1")!,
+            previewURL: URL(string: "https://ehgt.org/preview.jpg")!
+        )
+        let summary = GallerySummary(
+            key: key,
+            title: "Cached gallery",
+            category: "Manga",
+            pageCount: 1,
+            rating: 4.5,
+            ratingCount: 12,
+            tags: ["artist:sample"]
+        )
+        let detail = GalleryDetail(
+            summary: summary,
+            pages: [page],
+            tags: summary.tags,
+            comments: [GalleryComment(id: "comment", author: "reader", body: "stale")],
+            favoriteCount: 99,
+            favoriteName: "收藏夹",
+            ratingCount: 12
+        )
+
+        await store.save(detail, for: key, site: .eHentai)
+        let cached = try #require(await store.detail(for: key, site: .eHentai))
+        #expect(cached.summary.title == "Cached gallery")
+        #expect(cached.tags == ["artist:sample"])
+        #expect(cached.pages == [page])
+        #expect(cached.comments.isEmpty)
+        #expect(cached.favoriteCount == nil)
+        #expect(cached.summary.rating == nil)
+        #expect(cached.summary.ratingCount == nil)
+
+        let image = GalleryPageImage(galleryKey: key, index: 0, imageURL: page.previewURL!)
+        let imageData = try await store.imageData(for: image, resolution: .preview) {
+            Data("preview".utf8)
+        }
+        #expect(imageData == Data("preview".utf8))
+        #expect((await store.usage()).byteCount > 0)
+
+        await store.removeAll()
+        #expect((await store.usage()).byteCount == 0)
+        #expect(FileManager.default.fileExists(atPath: unrelatedFile.path))
+    }
+
     @Test("Reference-shaped advanced HTML parses comments, Torrent, archive and watched tags")
     func advancedParsers() throws {
         let fixtureURL = try #require(Bundle.module.url(forResource: "advanced", withExtension: "html"))
@@ -641,10 +721,14 @@ private extension Array {
 
 private actor PreviewPaginationTransport: HTTPTransport {
     private let key: GalleryKey
+    private let blockAdditionalPage: Bool
     private var requests: [URLRequest] = []
+    private var additionalPageStarted = false
+    private var additionalPageRelease: CheckedContinuation<Void, Never>?
 
-    init(key: GalleryKey) {
+    init(key: GalleryKey, blockAdditionalPage: Bool = false) {
         self.key = key
+        self.blockAdditionalPage = blockAdditionalPage
     }
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -653,6 +737,12 @@ private actor PreviewPaginationTransport: HTTPTransport {
             .queryItems?
             .first(where: { $0.name == "p" })?.value
             .flatMap(Int.init) ?? 0
+        if blockAdditionalPage && previewPage == 1 {
+            additionalPageStarted = true
+            await withCheckedContinuation { continuation in
+                additionalPageRelease = continuation
+            }
+        }
         let data = Self.previewHTML(
             key: key,
             startIndex: previewPage == 0 ? 0 : 20,
@@ -670,6 +760,22 @@ private actor PreviewPaginationTransport: HTTPTransport {
 
     func requestURLs() -> [URL] {
         requests.compactMap(\.url)
+    }
+
+    func waitUntilAdditionalPageStarted() async {
+        for _ in 0..<200 {
+            if additionalPageStarted { return }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func didStartAdditionalPage() -> Bool {
+        additionalPageStarted
+    }
+
+    func releaseAdditionalPage() {
+        additionalPageRelease?.resume()
+        additionalPageRelease = nil
     }
 
     private static func previewHTML(key: GalleryKey, startIndex: Int, count: Int, includeMetadata: Bool) -> String {

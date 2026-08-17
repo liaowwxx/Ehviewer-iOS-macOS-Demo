@@ -90,6 +90,10 @@ public actor ImagePipeline {
     }
 
     public func removeAll() {
+        for task in inFlight.values {
+            task.cancel()
+        }
+        inFlight.removeAll()
         cache.removeAll()
         cachedBytes = 0
         if let diskRoot {

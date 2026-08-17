@@ -82,6 +82,10 @@ application_version() {
         print "Unable to read CFBundleShortVersionString from: $app_path" >&2
         return 1
     fi
+    if ! print -r -- "$version" | /usr/bin/awk '!/^[0-9]+(\.[0-9]+){2}$/ { exit 1 }'; then
+        print "CFBundleShortVersionString must contain three numeric components: $version" >&2
+        return 1
+    fi
     print -r -- "$version"
 }
 

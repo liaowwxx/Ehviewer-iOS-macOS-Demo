@@ -4,6 +4,13 @@ import EHDomain
 import EHNetworking
 
 struct DomainTests {
+    @Test("Comment routes round-trip through Codable")
+    func commentRouteRoundTrip() throws {
+        let route = AppRoute.comments(GalleryKey(gid: 123, token: "comment-token"))
+        let data = try JSONEncoder().encode(route)
+        #expect(try JSONDecoder().decode(AppRoute.self, from: data) == route)
+    }
+
     @Test("Search composer follows the original tag completion syntax")
     func searchQueryComposer() throws {
         #expect(SearchQueryComposer.suggestionFragment(in: "language:english  blue archive") == "blue archive")
