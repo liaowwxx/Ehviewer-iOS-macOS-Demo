@@ -285,6 +285,9 @@ final class AppModel {
         Task { @MainActor [weak self] in
             await self?.restoreDownloads()
         }
+        Task.detached(priority: .utility) {
+            Self.sweepStaleTemporaryFiles()
+        }
         Task { [tagSuggestionProvider, weak self] in
             await tagSuggestionProvider.preload()
             await self?.importTagTranslationsIfNeeded()
@@ -828,6 +831,17 @@ final class AppModel {
             guard await hydrateSyncedDownload(job) else { return }
         }
         await downloads.resume(key)
+    }
+
+    /// Deletes every downloaded page and restarts the job from the beginning.
+    func redownloadDownload(_ key: GalleryKey) async {
+        guard let job = await downloads.job(for: key) else { return }
+        if job.pages.isEmpty {
+            guard await hydrateSyncedDownload(job) else { return }
+        }
+        if case let .failed(message) = await downloads.redownload(key) {
+            errorMessage = message
+        }
     }
 
     func startAllDownloads() async {
@@ -1388,6 +1402,20 @@ final class AppModel {
         try? FileManager.default.removeItem(at: url)
     }
 
+    /// 导入完成后删除系统留在应用临时目录内的文件副本（iOS 文件选择器与
+    /// 「打开方式」会把文件复制到 tmp/Inbox）。macOS 的选择器返回原文件的
+    /// 安全作用域 URL，位于临时目录之外，不会被误删。
+    func discardTemporaryImportCopy(_ url: URL) {
+        guard Self.isInsideTemporaryDirectory(url) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    nonisolated private static func isInsideTemporaryDirectory(_ url: URL) -> Bool {
+        let temporaryPath = FileManager.default.temporaryDirectory.path
+        let normalized = temporaryPath.hasSuffix("/") ? temporaryPath : temporaryPath + "/"
+        return url.standardizedFileURL.path.hasPrefix(normalized)
+    }
+
     private func stageIncomingArchive(_ url: URL) {
         incomingStagingGeneration += 1
         let generation = incomingStagingGeneration
@@ -1505,6 +1533,12 @@ final class AppModel {
                 throw error
             }
 
+            // iOS 文件选择器/「打开方式」会在 tmp/Inbox 留下源文件副本，
+            // 复制到暂存目录后即可删除，避免导入后残留多份数据。
+            if Self.isInsideTemporaryDirectory(url) {
+                try? FileManager.default.removeItem(at: url)
+            }
+
             if let previousDirectoryToRemove {
                 try? FileManager.default.removeItem(at: previousDirectoryToRemove)
             }
@@ -1592,6 +1626,16 @@ final class AppModel {
         guard beginMigration(status: String(localized: "正在准备画廊同步包…")) else { return nil }
         defer { finishMigration() }
 
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EhViewer-Galleries-\(Self.timestampForExportFilename()).ehgallery")
+        var archiveReady = false
+        defer {
+            // 导出失败或取消时清理未完成的压缩包，避免残留占用存储。
+            if archiveReady == false {
+                try? FileManager.default.removeItem(at: archiveURL)
+            }
+        }
+
         do {
             setMigrationProgress(status: String(localized: "正在读取下载列表…"), fraction: 0.15)
             let jobs = await downloads.snapshot()
@@ -1616,12 +1660,11 @@ final class AppModel {
 
             setMigrationProgress(status: String(localized: "正在创建画廊同步包…"), fraction: 0.45)
             let snapshot = GallerySyncSnapshot(galleries: galleries)
-            let archiveURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("EhViewer-Galleries-\(Self.timestampForExportFilename()).ehgallery")
             try await Task.detached(priority: .userInitiated) {
                 try GallerySyncArchive.export(snapshot, to: archiveURL)
             }.value
             setMigrationProgress(status: String(localized: "画廊同步包已准备完成"), fraction: 1)
+            archiveReady = true
             replacePendingSharedFile(with: archiveURL)
             return archiveURL
         } catch is CancellationError {
@@ -1662,6 +1705,17 @@ final class AppModel {
         guard beginMigration(status: String(localized: "正在准备下载包…")) else { return nil }
         defer { finishMigration() }
 
+        let scopeName = keys.map { "\($0.count)items" } ?? "All"
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EhViewer-Downloads-\(scopeName)-\(Self.timestampForExportFilename()).eharchive")
+        var archiveReady = false
+        defer {
+            // 导出失败或取消时清理未完成的压缩包，避免残留占用存储。
+            if archiveReady == false {
+                try? FileManager.default.removeItem(at: archiveURL)
+            }
+        }
+
         do {
             setMigrationProgress(status: String(localized: "正在读取下载任务…"), fraction: 0.05)
             let persisted = try await persistence.downloadJobs()
@@ -1692,9 +1746,6 @@ final class AppModel {
             }
 
             setMigrationProgress(status: String(localized: "正在创建下载包…"), fraction: 0.1)
-            let scopeName = keys.map { "\($0.count)items" } ?? "All"
-            let archiveURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("EhViewer-Downloads-\(scopeName)-\(Self.timestampForExportFilename()).eharchive")
             _ = try await DownloadArchiveExporter.export(
                 items: items,
                 files: downloadFiles,
@@ -1710,6 +1761,7 @@ final class AppModel {
                 )
             }
             setMigrationProgress(status: String(localized: "下载包已准备完成"), fraction: 1)
+            archiveReady = true
             replacePendingSharedFile(with: archiveURL)
             return archiveURL
         } catch is CancellationError {
@@ -1734,6 +1786,27 @@ final class AppModel {
         formatter.timeZone = TimeZone.current
         formatter.dateFormat = "yyyyMMdd-HHmm"
         return formatter.string(from: Date())
+    }
+
+    /// 启动时清理上次会话遗留的导出/导入暂存临时文件（分享后未删除、
+    /// 导入中断等场景）。只删除创建超过 1 小时的文件，避免误伤进行中的任务。
+    nonisolated static func sweepStaleTemporaryFiles() {
+        let fileManager = FileManager.default
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: fileManager.temporaryDirectory,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let cutoff = Date().addingTimeInterval(-3600)
+        for entry in entries {
+            let name = entry.lastPathComponent
+            guard name.hasPrefix("EhViewer-Downloads-")
+                || name.hasPrefix("EhViewer-Galleries-")
+                || name.hasPrefix("EhViewer-Incoming-") else { continue }
+            let created = (try? entry.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            guard created < cutoff else { continue }
+            try? fileManager.removeItem(at: entry)
+        }
     }
 
     private func queueMissingSyncedDownloads(_ summaries: [GallerySummary]) async -> Int {

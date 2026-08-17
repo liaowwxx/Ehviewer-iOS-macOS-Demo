@@ -275,6 +275,60 @@ struct DownloadTests {
         #expect(job?.state == .failed)
         #expect(job?.errorMessage?.contains("删除失败") == true)
     }
+
+    @Test("Redownload deletes local pages and restarts the job from scratch")
+    func redownloadClearsFilesAndRestarts() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ehviewer-redownload-\(UUID().uuidString)")
+        let store = DownloadFileStore(root: root, minimumFreeBytes: 1)
+        let key = GalleryKey(gid: 30, token: "redownload")
+        let pages = (0..<3).map { index in
+            GalleryPageDescriptor(
+                galleryKey: key,
+                index: index,
+                pageURL: URL(string: "https://example.invalid/redownload/\(index)")!
+            )
+        }
+        let imageData = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
+        let gate = DownloadGate()
+        await gate.open()
+        let coordinator = DownloadCoordinator(
+            maxConcurrentPages: 2,
+            pageLoader: { _ in
+                await gate.wait()
+                return imageData
+            },
+            fileStore: store
+        )
+        await coordinator.enqueue(key: key, title: "Redownload", pages: pages)
+
+        for _ in 0..<100 {
+            if await coordinator.snapshot().first?.state == .completed { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await coordinator.snapshot().first?.state == .completed)
+        #expect(try await store.readablePageIndexes(for: key, pageIndexes: [0, 1, 2]) == [0, 1, 2])
+
+        // Hold the restarted run at the loader so the reset stays observable.
+        await gate.close()
+        await coordinator.redownload(key)
+
+        #expect(try await store.readablePageIndexes(for: key, pageIndexes: [0, 1, 2]).isEmpty)
+        #expect(await coordinator.snapshot().first?.completedPageIndexes.isEmpty == true)
+
+        await gate.open()
+        for _ in 0..<100 {
+            if let job = await coordinator.snapshot().first(where: { $0.key == key }),
+               job.state == .completed {
+                #expect(job.completedPageIndexes == [0, 1, 2])
+                #expect(try await store.readablePageIndexes(for: key, pageIndexes: [0, 1, 2]) == [0, 1, 2])
+                try? FileManager.default.removeItem(at: root)
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try? FileManager.default.removeItem(at: root)
+        Issue.record("redownloaded job did not complete within the test budget")
+    }
 }
 
 private func restoredJob(gid: Int64, token: String, title: String) -> DownloadJob {
@@ -319,6 +373,26 @@ private actor ActiveGalleryProbe {
 
     func leave(_ key: GalleryKey) {
         active.remove(key)
+    }
+}
+
+/// Lets a test hold a download run at the page loader so that a restarted
+/// job stays in its reset state while assertions run.
+private actor DownloadGate {
+    private var isOpen = false
+
+    func open() {
+        isOpen = true
+    }
+
+    func close() {
+        isOpen = false
+    }
+
+    func wait() async {
+        while isOpen == false {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
     }
 }
 

@@ -37,9 +37,9 @@ struct SettingsView: View {
     @State private var showingDownloadRestoreResult = false
     @State private var downloadRestoreMessage = ""
 
-    var body: some View {
+    private var settingsForm: some View {
         @Bindable var model = model
-        Form {
+        return Form {
             Section("站点") {
                 Picker("画廊站点", selection: $model.site) {
                     ForEach(SiteMode.allCases, id: \.self) { site in
@@ -97,19 +97,19 @@ struct SettingsView: View {
             }
             FilterRulesSection()
             Section("数据迁移/备份") {
-                Text("导入")
+                Label("导入", systemImage: "square.and.arrow.down")
                     .font(.subheadline.weight(.semibold))
-                Button("导入画廊同步包（.ehgallery）", systemImage: "square.and.arrow.down") {
+                Button("导入元数据(.ehgallery)", systemImage: "square.and.arrow.down") {
                     showingGallerySyncImporter = true
                 }
                 .disabled(model.isMigrating)
-                Button("恢复下载归档（.eharchive / .zip）", systemImage: "arrow.counterclockwise.circle") {
+                Button("导入归档(.eharchive)", systemImage: "arrow.counterclockwise.circle") {
                     showingDownloadRestoreImporter = true
                 }
                 .disabled(model.isRestoringDownloads)
-                Text("分享")
+                Label("导出", systemImage: "square.and.arrow.up")
                     .font(.subheadline.weight(.semibold))
-                Button("分享画廊同步包（.ehgallery）", systemImage: "square.and.arrow.up") {
+                Button("导出元数据(.ehgallery)", systemImage: "square.and.arrow.up") {
                     Task {
                         guard let url = await model.exportGallerySync() else { return }
 #if os(iOS)
@@ -122,7 +122,7 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(model.isMigrating)
-                Button("分享下载归档（.eharchive）", systemImage: "square.and.arrow.up") {
+                Button("导出归档(.eharchive)", systemImage: "square.and.arrow.up") {
                     Task {
                         guard let url = await model.exportDownloadArchive() else { return }
 #if os(iOS)
@@ -141,17 +141,21 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .accessibilityIdentifier("settings-screen")
         .navigationTitle("settings_title")
-        .sheet(isPresented: $showingCookieSheet) { CookieLoginSheet() }
+    }
+
+    var body: some View {
+        settingsForm
+            .sheet(isPresented: $showingCookieSheet) { CookieLoginSheet() }
         .sheet(isPresented: $showingWebLogin) { WebLoginSheet() }
         .sheet(isPresented: $showingPasswordLogin) { PasswordLoginSheet() }
-        .sheet(isPresented: $showingArchiveShareSheet) {
+        .sheet(isPresented: $showingArchiveShareSheet, onDismiss: discardPendingSharedFileIfAny) {
 #if os(iOS)
             if let url = model.pendingSharedFileURL {
                 ShareSheet(items: [url])
             }
 #endif
         }
-        .sheet(isPresented: $showingGallerySyncShareSheet) {
+        .sheet(isPresented: $showingGallerySyncShareSheet, onDismiss: discardPendingSharedFileIfAny) {
 #if os(iOS)
             if let url = model.pendingSharedFileURL {
                 ShareSheet(items: [url])
@@ -215,6 +219,8 @@ struct SettingsView: View {
             Task {
                 downloadRestoreMessage = await model.restoreDownloads(from: url).message
                 showingDownloadRestoreResult = true
+                // iOS 文件选择器会在 tmp/Inbox 留下副本，导入后清理。
+                model.discardTemporaryImportCopy(url)
             }
         }
         .alert("恢复下载项", isPresented: $showingDownloadRestoreResult) {
@@ -223,6 +229,13 @@ struct SettingsView: View {
             Text(downloadRestoreMessage)
         }
         .task { await model.loadFilterRules() }
+    }
+
+    /// 分享面板关闭后删除临时导出的数据包，避免残留占用存储。
+    private func discardPendingSharedFileIfAny() {
+        if let url = model.pendingSharedFileURL {
+            model.discardPendingSharedFile(url)
+        }
     }
 }
 

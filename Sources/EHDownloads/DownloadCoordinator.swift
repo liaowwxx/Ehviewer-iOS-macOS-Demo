@@ -238,6 +238,42 @@ public actor DownloadCoordinator {
         startNextQueuedJobIfNeeded()
     }
 
+    /// Deletes every downloaded page and restarts the job from the beginning.
+    public func redownload(_ key: GalleryKey) async -> DownloadRemovalResult {
+        tasks[key]?.cancel()
+        tasks[key] = nil
+        runTokens[key] = nil
+        if activeKey == key { activeKey = nil }
+
+        do {
+            if let fileStore { try await fileStore.remove(key) }
+            guard var job = jobs[key] else {
+                startNextQueuedJobIfNeeded()
+                return .removed
+            }
+            job.completedPageIndexes = []
+            job.state = .queued
+            job.errorMessage = nil
+            jobs[key] = job
+            await save(job)
+            emit(.changed(job))
+            startNextQueuedJobIfNeeded()
+            return .removed
+        } catch {
+            guard var job = jobs[key] else {
+                startNextQueuedJobIfNeeded()
+                return .failed(error.localizedDescription)
+            }
+            job.state = .failed
+            job.errorMessage = String(localized: "删除失败：\(error.localizedDescription)")
+            jobs[key] = job
+            await save(job)
+            emit(.changed(job))
+            startNextQueuedJobIfNeeded()
+            return .failed(error.localizedDescription)
+        }
+    }
+
     public func remove(_ key: GalleryKey) async -> DownloadRemovalResult {
         tasks[key]?.cancel()
         tasks[key] = nil
@@ -426,6 +462,7 @@ public actor DownloadCoordinator {
         } catch is CancellationError {
             // pause/cancel have already published their intentional state.
         } catch EHError.diskSpaceLow {
+            guard runTokens[key] == runToken else { return }
             guard var paused = jobs[key], paused.state != .cancelled else { return }
             paused.state = .paused
             paused.errorMessage = EHError.diskSpaceLow.localizedDescription
@@ -433,6 +470,7 @@ public actor DownloadCoordinator {
             await save(paused)
             emit(.changed(paused))
         } catch let error as EHError {
+            guard runTokens[key] == runToken else { return }
             guard var failed = jobs[key], failed.state != .cancelled else { return }
             failed.state = state(for: error)
             failed.errorMessage = error.localizedDescription
@@ -440,6 +478,7 @@ public actor DownloadCoordinator {
             await save(failed)
             emit(.changed(failed))
         } catch {
+            guard runTokens[key] == runToken else { return }
             guard var failed = jobs[key], failed.state != .cancelled else { return }
             failed.state = .failed
             failed.errorMessage = error.localizedDescription

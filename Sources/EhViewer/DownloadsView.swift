@@ -32,8 +32,10 @@ struct DownloadsView: View {
     @State private var showingResetProgressConfirmation = false
     @State private var jobPendingRemoval: DownloadJob?
     @State private var removalErrorMessage: String?
+    @State private var jobPendingRedownload: DownloadJob?
     @State private var isSelectionMode = false
     @State private var selectedKeys: Set<GalleryKey> = []
+    @State private var showingDeleteSelectedConfirmation = false
     @State private var showingDownloadShareSheet = false
     @State private var showingDownloadExporter = false
     @State private var downloadExportDocument: ArchiveExportDocument?
@@ -53,7 +55,84 @@ struct DownloadsView: View {
 
     var body: some View {
         @Bindable var model = model
-        Group {
+        content
+            .confirmationDialog("重置所有下载内容的阅读进度？", isPresented: $showingResetProgressConfirmation, titleVisibility: .visible) {
+                Button("重置进度", role: .destructive) {
+                    Task { await model.resetAllDownloadReadingProgress() }
+                }
+                Button("取消", role: .cancel) {}
+            }
+            .confirmationDialog(
+                "删除《\(jobPendingRemoval?.title ?? "")》？",
+                isPresented: Binding(
+                    get: { jobPendingRemoval != nil },
+                    set: { if $0 == false { jobPendingRemoval = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("删除下载及本地图片", role: .destructive) {
+                    guard let job = jobPendingRemoval else { return }
+                    jobPendingRemoval = nil
+                    Task {
+                        if case let .failed(message) = await model.downloads.remove(job.key) {
+                            removalErrorMessage = message
+                        }
+                    }
+                }
+                Button("取消", role: .cancel) { jobPendingRemoval = nil }
+            } message: {
+                Text("将移除 \(jobPendingRemoval?.completedPageIndexes.count ?? 0) 个已下载页面，并从下载列表中移除。")
+            }
+            .confirmationDialog(
+                "重新下载《\(jobPendingRedownload?.title ?? "")》？",
+                isPresented: Binding(
+                    get: { jobPendingRedownload != nil },
+                    set: { if $0 == false { jobPendingRedownload = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("重新下载", role: .destructive) {
+                    guard let job = jobPendingRedownload else { return }
+                    jobPendingRedownload = nil
+                    Task { await model.redownloadDownload(job.key) }
+                }
+                Button("取消", role: .cancel) { jobPendingRedownload = nil }
+            } message: {
+                Text("将删除已下载的 \(jobPendingRedownload?.completedPageIndexes.count ?? 0) 个页面，并重新开始下载。")
+            }
+            .confirmationDialog(
+                "删除选中的 \(selectedKeys.count) 项下载？",
+                isPresented: $showingDeleteSelectedConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("删除下载及本地图片", role: .destructive) {
+                    deleteSelectedDownloads()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("将移除所选下载的本地图片，并从下载列表中移除。")
+            }
+            .alert("删除下载失败", isPresented: Binding(
+                get: { removalErrorMessage != nil },
+                set: { if $0 == false { removalErrorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) { removalErrorMessage = nil }
+            } message: {
+                Text(removalErrorMessage ?? String(localized: "请稍后重试。"))
+            }
+            .alert("下载包导出失败", isPresented: Binding(
+                get: { downloadExportError != nil },
+                set: { if $0 == false { downloadExportError = nil } }
+            )) {
+                Button("好", role: .cancel) { downloadExportError = nil }
+            } message: {
+                Text(downloadExportError ?? String(localized: "请稍后重试。"))
+            }
+    }
+
+    private var content: some View {
+        @Bindable var model = model
+        return Group {
             if jobs.isEmpty {
                 if model.isLoadingDownloads {
                     ProgressView("正在加载下载内容…")
@@ -78,9 +157,15 @@ struct DownloadsView: View {
                     Button("完成") { exitSelectionMode() }
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button(selectedKeys.count == visibleJobs.count && visibleJobs.isEmpty == false ? String(localized: "取消全选") : String(localized: "全选")) {
+                    Button(selectAllTitle) {
                         toggleSelectAll()
                     }
+                    Button {
+                        showingDeleteSelectedConfirmation = true
+                    } label: {
+                        Label("删除(\(selectedKeys.count))", systemImage: "trash")
+                    }
+                    .disabled(selectedKeys.isEmpty)
 #if os(iOS)
                     Button {
                         Task { await shareSelectedDownloads() }
@@ -97,6 +182,12 @@ struct DownloadsView: View {
                     .disabled(selectedKeys.isEmpty || model.isMigrating)
                 }
             } else {
+                ToolbarItem(placement: selectPlacement) {
+                    Button("选择") {
+                        enterSelectionMode()
+                    }
+                    .disabled(visibleJobs.isEmpty)
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
@@ -112,12 +203,6 @@ struct DownloadsView: View {
                         )
                     }
                     .accessibilityIdentifier("downloads-layout-toggle")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("选择") {
-                        enterSelectionMode()
-                    }
-                    .disabled(visibleJobs.isEmpty)
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Menu("下载管理", systemImage: "ellipsis.circle") {
@@ -155,41 +240,6 @@ struct DownloadsView: View {
                 }
             }
         }
-        .confirmationDialog("重置所有下载内容的阅读进度？", isPresented: $showingResetProgressConfirmation, titleVisibility: .visible) {
-            Button("重置进度", role: .destructive) {
-                Task { await model.resetAllDownloadReadingProgress() }
-            }
-            Button("取消", role: .cancel) {}
-        }
-        .confirmationDialog(
-            "删除《\(jobPendingRemoval?.title ?? "")》？",
-            isPresented: Binding(
-                get: { jobPendingRemoval != nil },
-                set: { if $0 == false { jobPendingRemoval = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("删除下载及本地图片", role: .destructive) {
-                guard let job = jobPendingRemoval else { return }
-                jobPendingRemoval = nil
-                Task {
-                    if case let .failed(message) = await model.downloads.remove(job.key) {
-                        removalErrorMessage = message
-                    }
-                }
-            }
-            Button("取消", role: .cancel) { jobPendingRemoval = nil }
-        } message: {
-            Text("将移除 \(jobPendingRemoval?.completedPageIndexes.count ?? 0) 个已下载页面，并从下载列表中移除。")
-        }
-        .alert("删除下载失败", isPresented: Binding(
-            get: { removalErrorMessage != nil },
-            set: { if $0 == false { removalErrorMessage = nil } }
-        )) {
-            Button("好", role: .cancel) { removalErrorMessage = nil }
-        } message: {
-            Text(removalErrorMessage ?? String(localized: "请稍后重试。"))
-        }
         .task(id: model.isLoadingDownloads) { jobs = await model.downloads.snapshot() }
         .task {
             for await event in await model.downloads.events() {
@@ -216,7 +266,11 @@ struct DownloadsView: View {
             }
             .presentationDetents([.medium])
         }
-        .sheet(isPresented: $showingDownloadShareSheet) {
+        .sheet(isPresented: $showingDownloadShareSheet, onDismiss: {
+            if let url = model.pendingSharedFileURL {
+                model.discardPendingSharedFile(url)
+            }
+        }) {
 #if os(iOS)
             if let url = model.pendingSharedFileURL {
                 ShareSheet(items: [url])
@@ -236,14 +290,6 @@ struct DownloadsView: View {
             if case let .failure(error) = result {
                 downloadExportError = error.localizedDescription
             }
-        }
-        .alert("下载包导出失败", isPresented: Binding(
-            get: { downloadExportError != nil },
-            set: { if $0 == false { downloadExportError = nil } }
-        )) {
-            Button("好", role: .cancel) { downloadExportError = nil }
-        } message: {
-            Text(downloadExportError ?? String(localized: "请稍后重试。"))
         }
     }
 
@@ -290,6 +336,33 @@ struct DownloadsView: View {
         }
     }
 
+    private var selectAllTitle: String {
+        selectedKeys.count == visibleJobs.count && visibleJobs.isEmpty == false
+            ? String(localized: "取消全选")
+            : String(localized: "全选")
+    }
+
+    /// 「选择」按钮放在导航栏左上角（iOS）；macOS 无导航栏，使用工具栏前导位置。
+    private var selectPlacement: ToolbarItemPlacement {
+#if os(iOS)
+        .topBarLeading
+#else
+        .navigation
+#endif
+    }
+
+    private func deleteSelectedDownloads() {
+        let keys = Array(selectedKeys)
+        exitSelectionMode()
+        Task {
+            for key in keys {
+                if case let .failed(message) = await model.downloads.remove(key) {
+                    removalErrorMessage = message
+                }
+            }
+        }
+    }
+
     private func shareSelectedDownloads() async {
         guard await prepareSelectedDownloadsForExport() else { return }
         showingDownloadShareSheet = true
@@ -327,8 +400,8 @@ struct DownloadsView: View {
                     if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
                     else { await model.resumeDownload(job.key) }
                 }
-            } cancel: {
-                Task { await model.downloads.cancel(job.key) }
+            } redownload: {
+                jobPendingRedownload = job
             } remove: {
                 jobPendingRemoval = job
             } label: {
@@ -362,8 +435,8 @@ struct DownloadsView: View {
                             if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
                             else { await model.resumeDownload(job.key) }
                         }
-                    } cancel: {
-                        Task { await model.downloads.cancel(job.key) }
+                    } redownload: {
+                        jobPendingRedownload = job
                     } remove: {
                         jobPendingRemoval = job
                     } label: {
@@ -505,7 +578,7 @@ private struct DownloadCard: View {
     let select: () -> Void
     let requestSelection: () -> Void
     let toggle: () -> Void
-    let cancel: () -> Void
+    let redownload: () -> Void
     let remove: () -> Void
     let label: () -> Void
 
@@ -541,8 +614,8 @@ private struct DownloadCard: View {
                         if canToggle {
                             Button(job.state == .running || job.state == .queued ? String(localized: "暂停") : String(localized: "继续"), systemImage: job.state == .running ? "pause" : "play", action: toggle)
                         }
-                        if job.state != .completed && job.state != .cancelled {
-                            Button("取消下载", systemImage: "xmark.circle", role: .destructive, action: cancel)
+                        if job.state != .completed {
+                            Button("重新下载", systemImage: "arrow.clockwise", action: redownload)
                         }
                         Button("设置标签", systemImage: "tag", action: label)
                         Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
@@ -634,7 +707,7 @@ private struct DownloadGridCard: View {
     let select: () -> Void
     let requestSelection: () -> Void
     let toggle: () -> Void
-    let cancel: () -> Void
+    let redownload: () -> Void
     let remove: () -> Void
     let label: () -> Void
 
@@ -662,8 +735,8 @@ private struct DownloadGridCard: View {
                     if canToggle {
                         Button(job.state == .running || job.state == .queued ? String(localized: "暂停") : String(localized: "继续"), systemImage: job.state == .running ? "pause" : "play", action: toggle)
                     }
-                    if job.state != .completed && job.state != .cancelled {
-                        Button("取消下载", systemImage: "xmark.circle", role: .destructive, action: cancel)
+                    if job.state != .completed {
+                        Button("重新下载", systemImage: "arrow.clockwise", action: redownload)
                     }
                     Button("设置标签", systemImage: "tag", action: label)
                     Button("删除下载", systemImage: "trash", role: .destructive, action: remove)

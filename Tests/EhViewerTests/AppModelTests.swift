@@ -716,6 +716,7 @@ struct AppModelTests {
         model.handleIncomingURL(archiveURL)
         await waitForPendingIncomingArchive(model)
         #expect(model.pendingIncomingArchive?.stagedURL.pathExtension.lowercased() == "eharchive")
+        #expect(FileManager.default.fileExists(atPath: archiveURL.path) == false)
         model.discardIncomingArchive()
         #expect(model.pendingIncomingArchive == nil)
 
@@ -732,6 +733,7 @@ struct AppModelTests {
         await waitForPendingIncomingGallerySync(model)
         #expect(model.pendingIncomingGallerySync?.stagedURL.pathExtension.lowercased() == "ehgallery")
         #expect(model.pendingIncomingArchive == nil)
+        #expect(FileManager.default.fileExists(atPath: gallerySyncURL.path) == false)
         await model.confirmIncomingGallerySync()
         #expect(model.pendingIncomingGallerySync == nil)
         let syncedJob = try #require(await model.downloadJob(for: GalleryKey(gid: 99, token: "sync")))
@@ -760,6 +762,73 @@ struct AppModelTests {
     func downloadArchiveImportTypesIncludeLegacyZip() {
         #expect(BackupFileFormat.downloadImportTypes == [.ehViewerDownloadArchive, .zip])
         #expect(BackupFileFormat.gallerySyncImportTypes == [.ehViewerGallerySync])
+    }
+
+    @Test("Discarding a temporary import copy deletes only files inside the app temporary directory")
+    func discardTemporaryImportCopyOnlyRemovesTemporaryFiles() async throws {
+        let suiteName = "EhViewerImportCopyTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+
+        let temporaryFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-import-copy-\(UUID().uuidString).eharchive")
+        try Data("copy".utf8).write(to: temporaryFile)
+        defer { try? FileManager.default.removeItem(at: temporaryFile) }
+
+        let cachesDirectory = try #require(
+            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        )
+        let outsideFile = cachesDirectory
+            .appendingPathComponent("ehviewer-import-copy-\(UUID().uuidString).eharchive")
+        try Data("original".utf8).write(to: outsideFile)
+        defer { try? FileManager.default.removeItem(at: outsideFile) }
+
+        model.discardTemporaryImportCopy(temporaryFile)
+        model.discardTemporaryImportCopy(outsideFile)
+
+        #expect(FileManager.default.fileExists(atPath: temporaryFile.path) == false)
+        #expect(FileManager.default.fileExists(atPath: outsideFile.path) == true)
+    }
+
+    @Test("Startup sweep removes stale EhViewer temporary leftovers but keeps fresh and unrelated files")
+    func sweepStaleTemporaryFilesRemovesOldLeftovers() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+        let old = Date(timeIntervalSinceNow: -7200)
+
+        let staleArchive = temporaryDirectory
+            .appendingPathComponent("EhViewer-Downloads-All-20200101-0000.eharchive")
+        try Data("stale".utf8).write(to: staleArchive)
+        defer { try? FileManager.default.removeItem(at: staleArchive) }
+        try FileManager.default.setAttributes([.creationDate: old], ofItemAtPath: staleArchive.path)
+
+        let staleIncoming = temporaryDirectory
+            .appendingPathComponent("EhViewer-Incoming-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: staleIncoming, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: staleIncoming) }
+        try FileManager.default.setAttributes([.creationDate: old], ofItemAtPath: staleIncoming.path)
+
+        let freshArchive = temporaryDirectory
+            .appendingPathComponent("EhViewer-Galleries-\(UUID().uuidString).ehgallery")
+        try Data("fresh".utf8).write(to: freshArchive)
+        defer { try? FileManager.default.removeItem(at: freshArchive) }
+
+        let unrelated = temporaryDirectory
+            .appendingPathComponent("incoming-\(UUID().uuidString).zip")
+        try Data("unrelated".utf8).write(to: unrelated)
+        defer { try? FileManager.default.removeItem(at: unrelated) }
+
+        AppModel.sweepStaleTemporaryFiles()
+
+        #expect(FileManager.default.fileExists(atPath: staleArchive.path) == false)
+        #expect(FileManager.default.fileExists(atPath: staleIncoming.path) == false)
+        #expect(FileManager.default.fileExists(atPath: freshArchive.path) == true)
+        #expect(FileManager.default.fileExists(atPath: unrelated.path) == true)
     }
 
     @Test("Gallery sync export contains only galleries in the download list")
