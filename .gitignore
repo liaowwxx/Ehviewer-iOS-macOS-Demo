@@ -17,6 +17,7 @@ build/
 *.dSYM.zip
 *.xcarchive
 *.ipa
+release/
 
 # Swift Package Manager build products and local state
 .build/

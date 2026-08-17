@@ -90,7 +90,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("About") {
-                LabeledContent("version:", value: "1.0-beta")
+                LabeledContent("version:", value: "1.1-beta")
                 Text("基于https://github.com/xiaojieonly/Ehviewer_CN_SXJ")
                     .font(.caption)
                     .foregroundStyle(.secondary)
