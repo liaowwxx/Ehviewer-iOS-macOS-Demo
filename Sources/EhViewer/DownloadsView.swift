@@ -388,6 +388,36 @@ struct DownloadsView: View {
     }
 
     private var downloadsList: some View {
+#if os(macOS)
+        ScrollView {
+            LazyVStack(spacing: 6) {
+                ForEach(visibleJobs) { job in
+                    DownloadCard(
+                        job: job,
+                        isSelectionMode: isSelectionMode,
+                        isSelected: selectedKeys.contains(job.key),
+                        select: { toggleSelection(job.key) },
+                        requestSelection: { enterSelectionMode(selecting: job.key) }
+                    ) {
+                        Task {
+                            if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
+                            else { await model.resumeDownload(job.key) }
+                        }
+                    } redownload: {
+                        jobPendingRedownload = job
+                    } remove: {
+                        jobPendingRemoval = job
+                    } label: {
+                        labelInput = job.label ?? ""
+                        editingJob = job
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+        }
+        .background(.secondary.opacity(0.08))
+#else
         List(visibleJobs) { job in
             DownloadCard(
                 job: job,
@@ -415,6 +445,7 @@ struct DownloadsView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(.secondary.opacity(0.08))
+#endif
     }
 
     private var downloadsGrid: some View {
@@ -594,9 +625,41 @@ private struct DownloadCard: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+#if os(macOS)
+                .foregroundStyle(.primary)
+#endif
                 .accessibilityLabel(isSelected ? String(localized: "取消选择《\(displayTitle)》") : String(localized: "选择《\(displayTitle)》"))
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             } else {
+#if os(macOS)
+                HStack(alignment: .top, spacing: 8) {
+                    NavigationLink {
+                        ReaderView(downloaded: job, initialPage: 0)
+                    } label: {
+                        cardContent
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("打开《\(displayTitle)》")
+                    .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+
+                    VStack(spacing: 6) {
+                        NavigationLink(value: AppRoute.gallery(job.key)) {
+                            Label("查看详情", systemImage: "info.circle")
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .frame(width: 32, height: 32)
+                        .help("查看详情")
+
+                        Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .frame(width: 32, height: 32)
+                            .help("删除下载")
+                    }
+                    .accessibilityElement(children: .contain)
+                }
+#else
                 HStack(alignment: .top, spacing: 8) {
                     NavigationLink {
                         ReaderView(downloaded: job, initialPage: 0)
@@ -624,14 +687,32 @@ private struct DownloadCard: View {
                     .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
                     .accessibilityLabel("《\(displayTitle)》下载操作")
                 }
+#endif
             }
         }
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 16))
         .contextMenu {
+#if os(macOS)
             if isSelectionMode == false {
                 Button("选择", systemImage: "checkmark.circle", action: requestSelection)
             }
+            if canToggle {
+                Button(
+                    job.state == .running || job.state == .queued ? String(localized: "暂停") : String(localized: "继续"),
+                    systemImage: job.state == .running ? "pause" : "play",
+                    action: toggle
+                )
+            }
+            if job.state != .completed {
+                Button("重新下载", systemImage: "arrow.clockwise", action: redownload)
+            }
+            Button("设置标签", systemImage: "tag", action: label)
+#else
+            if isSelectionMode == false {
+                Button("选择", systemImage: "checkmark.circle", action: requestSelection)
+            }
+#endif
         }
     }
 
@@ -671,7 +752,11 @@ private struct DownloadCard: View {
     private var selectionIndicator: some View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
             .font(.title2)
+#if os(macOS)
+            .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary)
+#else
             .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+#endif
             .frame(minWidth: 28, minHeight: 44, alignment: .top)
             .accessibilityLabel(isSelected ? String(localized: "已选择") : String(localized: "未选择"))
     }

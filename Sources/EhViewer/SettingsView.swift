@@ -387,11 +387,22 @@ private struct FilterRulesSection: View {
         } label: {
             Text(mode.title)
                 .font(.caption.weight(.semibold))
+#if os(macOS)
+                .foregroundStyle(AppTheme.accent)
+#else
                 .foregroundStyle(.white)
+#endif
                 .padding(.horizontal, 9)
                 .frame(height: 24)
+#if os(macOS)
+                .background(AppTheme.accent.opacity(0.16), in: Capsule())
+#else
                 .background(AppTheme.accent, in: Capsule())
+#endif
         }
+#if os(macOS)
+        .tint(AppTheme.accent)
+#endif
         .accessibilityLabel("规则模式 \(mode.title)")
     }
 

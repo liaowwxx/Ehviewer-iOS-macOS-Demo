@@ -20,6 +20,13 @@ import SwiftUI
 import EHDomain
 import EHDownloads
 
+#if os(macOS)
+enum MacReaderLayoutMetrics {
+    /// The macOS window toolbar is transparent over the reader content.
+    static let titleBarClearance: CGFloat = 5
+}
+#endif
+
 enum ReaderContentSource: Hashable, Sendable {
     case remote
     case download
@@ -41,9 +48,12 @@ struct ReaderView: View {
     @State private var detailError: String?
     @State private var detailLoadToken = UUID()
     @State private var progressSaveTask: Task<Void, Never>?
-    #if os(iOS)
+#if os(macOS)
+    @FocusState private var readerContentFocused: Bool
+#endif
+#if os(iOS)
     @State private var volumeMonitor = VolumeButtonMonitor()
-    #endif
+#endif
 
     private var readingMode: ReadingMode { model.readingSettings.readingMode }
 
@@ -64,7 +74,7 @@ struct ReaderView: View {
     }
 
     var body: some View {
-        readerContent
+        readerRoot
             .task(id: position.page) {
             guard source == .remote, let detail else { return }
             await model.prefetch(
@@ -98,6 +108,7 @@ struct ReaderView: View {
                 }
             }
         }
+#if os(iOS)
         .task(id: controlsInteractionToken) {
             guard isShowingControls else { return }
             try? await Task.sleep(for: .seconds(4))
@@ -106,6 +117,7 @@ struct ReaderView: View {
                 isShowingControls = false
             }
         }
+#endif
         .task(id: "\(key.id)-\(source)-\(detailLoadToken)") {
             await loadDetail()
         }
@@ -119,10 +131,18 @@ struct ReaderView: View {
                 }
             }
         }
+#if os(macOS)
+        .onChange(of: detail != nil) { _, isReady in
+            guard isReady else { return }
+            readerContentFocused = true
+        }
+#endif
         .onChange(of: position.page) { _, _ in
             scheduleProgressSave()
+#if os(iOS)
             // 翻页/拖动进度条视为交互：仅在控件已显示时重置自动隐藏计时。
             controlsInteractionToken = UUID()
+#endif
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { saveProgressImmediately() }
@@ -176,9 +196,15 @@ struct ReaderView: View {
             }
         }
         #elseif os(macOS)
-        .toolbar(isShowingControls ? .visible : .hidden)
+        .toolbar(.visible)
         #endif
         .overlay(alignment: .topLeading) {
+            readerStatusOverlay
+        }
+    }
+
+    @ViewBuilder
+    private var readerStatusOverlay: some View {
             if isShowingControls, let detail, showsStatusOverlay {
                 ReaderStatusOverlay(
                     settings: model.readingSettings,
@@ -188,7 +214,23 @@ struct ReaderView: View {
                 .padding()
                 .transition(.opacity)
             }
-        }
+    }
+
+    private var readerRoot: some View {
+#if os(macOS)
+        macReaderLayout
+            .focusable()
+            .focusEffectDisabled()
+            .focused($readerContentFocused)
+            .onAppear { readerContentFocused = true }
+            .onKeyPress(.space) {
+                guard let detail else { return .ignored }
+                requestPage(position.page + horizontalPageDelta(forLeftDirection: false), pageCount: detail.pages.count)
+                return .handled
+            }
+#else
+        readerContent
+#endif
     }
 
     private var showsStatusOverlay: Bool {
@@ -208,7 +250,9 @@ struct ReaderView: View {
                         source: source,
                         position: $position
                     )
+#if os(iOS)
                     .onTapGesture(perform: toggleControls)
+#endif
                 } else {
                     ReaderPagedView(
                         descriptors: detail.pages,
@@ -219,7 +263,9 @@ struct ReaderView: View {
                         source: source,
                         position: $position
                     )
+#if os(iOS)
                     .onTapGesture(perform: toggleControls)
+#endif
                 }
             } else if let detailError {
                 VStack(spacing: 12) {
@@ -235,6 +281,34 @@ struct ReaderView: View {
             }
         }
     }
+
+#if os(macOS)
+    /// macOS 的窗口工具栏和阅读进度控件会覆盖内容，因此使用真实的
+    /// 上下布局区域，而不是依赖窗口 safe area 对分页滚动容器的传播。
+    private var macReaderLayout: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: MacReaderLayoutMetrics.titleBarClearance)
+
+            readerContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if let detail {
+                ReaderProgressControl(
+                    page: position.page,
+                    pageCount: detail.pages.count,
+                    descriptors: detail.pages,
+                    source: source,
+                    requestPage: { page in
+                        requestPage(page, pageCount: detail.pages.count, animated: false)
+                    },
+                    onSeekEnded: saveProgressImmediately
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+#endif
 
     private var readerNavigationTitle: String {
         guard let detail else { return String(localized: "阅读") }

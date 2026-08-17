@@ -16,7 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#if os(iOS)
 import SwiftUI
 import EHDomain
 
@@ -89,4 +88,3 @@ struct ReaderThumbnailView: View {
         thumbnail = Image(decorative: image, scale: 1, orientation: .up)
     }
 }
-#endif

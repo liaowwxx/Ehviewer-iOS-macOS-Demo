@@ -148,6 +148,7 @@
 		EHF00000000000000000046 /* TagFlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagFlowLayout.swift; sourceTree = "<group>"; };
 		EHF00000000000000000047 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		EHF00000000000000000048 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		EHF00000000000000000049 /* Info-macOS.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info-macOS.plist; sourceTree = "<group>"; };
 		EHF0000000000000000003B /* BrowsePageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsePageModel.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003C /* HomeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBrowseView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000040 /* ReaderPageWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPageWindow.swift; sourceTree = "<group>"; };
@@ -250,6 +251,7 @@
 				EHF00000000000000000044 /* ReaderThumbnailLoader.swift */,
 				EHF00000000000000000047 /* ShareSheet.swift */,
 				EHF00000000000000000048 /* Info.plist */,
+				EHF00000000000000000049 /* Info-macOS.plist */,
 			);
 			path = Sources/EhViewer;
 			sourceTree = "<group>";
@@ -531,6 +533,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewer/Info.plist;
+				"INFOPLIST_FILE[sdk=macosx*]" = Sources/EhViewer/Info-macOS.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = EhViewer;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Viewer;\n    CFBundleURLSchemes =     (\n        ehviewer\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
@@ -560,6 +563,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewer/Info.plist;
+				"INFOPLIST_FILE[sdk=macosx*]" = Sources/EhViewer/Info-macOS.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = EhViewer;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Viewer;\n    CFBundleURLSchemes =     (\n        ehviewer\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
