@@ -623,6 +623,64 @@ struct AppModelTests {
         #expect(loaded == localData)
     }
 
+    @Test("Downloaded detail composes local metadata and pages before online enrichment")
+    func localGalleryDetailUsesStoredDownloadData() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-detail-local-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = DownloadFileStore(root: root, minimumFreeBytes: 1)
+        let key = GalleryKey(gid: 10, token: "local-detail")
+        let descriptor = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://example.invalid/local-page.jpg")!,
+            previewURL: URL(string: "https://example.invalid/local-preview.jpg")!
+        )
+        let localData = try #require(Self.onePixelPNG)
+        _ = try await files.write(localData, for: key, pageIndex: 0)
+
+        let suiteName = "EhViewerLocalDetailTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: OfflineReaderAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            downloadFiles: files
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        try await model.persistence.upsert([
+            GallerySummary(
+                key: key,
+                title: "Stored local title",
+                japaneseTitle: "ローカルタイトル",
+                category: "Manga",
+                pageCount: 1,
+                tags: ["artist:local", "language:english"]
+            )
+        ])
+        var job = DownloadJob(
+            key: key,
+            title: "Stored local title",
+            japaneseTitle: "ローカルタイトル",
+            tags: ["artist:local", "language:english"],
+            pages: [descriptor]
+        )
+        job.completedPageIndexes = [0]
+        job.state = .completed
+        await model.downloads.restore([job])
+
+        let detail = try #require(await model.localGalleryDetail(for: key))
+
+        #expect(detail.summary.title == "Stored local title")
+        #expect(detail.summary.japaneseTitle == "ローカルタイトル")
+        #expect(detail.tags == ["artist:local", "language:english"])
+        #expect(detail.pages == [descriptor])
+        #expect(await model.downloadedPageDataIfAvailable(for: descriptor) == localData)
+    }
+
     @Test("Search result models are reused and do not reload after returning from detail")
     func searchResultModelIsCached() async throws {
         let result = GallerySummary(key: GalleryKey(gid: 20, token: "cached"), title: "Cached")

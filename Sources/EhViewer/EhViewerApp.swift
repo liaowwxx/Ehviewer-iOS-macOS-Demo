@@ -82,6 +82,9 @@ struct EhViewerApp: App {
             }
         }
         #if os(macOS)
+        .defaultSize(width: 700, height: 700)
+        #endif
+        #if os(macOS)
         WindowGroup("阅读器", for: AppRoute.self) { route in
             if let model, let modelContainer,
                let route = route.wrappedValue,

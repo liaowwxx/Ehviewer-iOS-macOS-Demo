@@ -511,6 +511,73 @@ final class AppModel {
         api.detailStream(for: key, site: site)
     }
 
+    /// Builds the detail page from data already stored for a downloaded
+    /// gallery. The detail cache contributes fields that are not part of a
+    /// download job, while SwiftData and the job remain the source of truth
+    /// for local metadata and page descriptors.
+    func localGalleryDetail(for key: GalleryKey, job: DownloadJob? = nil) async -> GalleryDetail? {
+        let resolvedJob: DownloadJob?
+        if let job {
+            resolvedJob = job
+        } else {
+            resolvedJob = await downloads.job(for: key)
+        }
+        guard let job = resolvedJob else { return nil }
+
+        let storedSummary = try? await persistence.gallerySummary(for: key)
+        let cachedDetail = await cachedDetail(for: key)
+        let cachedSummary = cachedDetail?.summary
+        let pages = job.pages.isEmpty ? (cachedDetail?.pages ?? []) : job.pages
+        let tags: [String] = if job.tags.isEmpty == false {
+            job.tags
+        } else if let storedSummary, storedSummary.tags.isEmpty == false {
+            storedSummary.tags
+        } else if let cachedDetail, cachedDetail.tags.isEmpty == false {
+            cachedDetail.tags
+        } else {
+            cachedSummary?.tags ?? []
+        }
+        let title = job.title.isEmpty
+            ? (storedSummary?.title ?? cachedSummary?.title ?? "Gallery \(key.gid)")
+            : job.title
+        let summary = GallerySummary(
+            key: key,
+            title: title,
+            japaneseTitle: job.japaneseTitle ?? storedSummary?.japaneseTitle ?? cachedSummary?.japaneseTitle,
+            thumbnailURL: storedSummary?.thumbnailURL
+                ?? cachedSummary?.thumbnailURL
+                ?? pages.first(where: { $0.index == 0 })?.previewURL,
+            category: storedSummary?.category ?? cachedSummary?.category,
+            pageCount: storedSummary?.pageCount ?? cachedSummary?.pageCount ?? (pages.isEmpty ? nil : pages.count),
+            postedAt: storedSummary?.postedAt ?? cachedSummary?.postedAt,
+            rating: storedSummary?.rating ?? cachedSummary?.rating,
+            ratingCount: storedSummary?.ratingCount ?? cachedSummary?.ratingCount,
+            favoriteCategory: storedSummary?.favoriteCategory ?? cachedSummary?.favoriteCategory,
+            uploader: storedSummary?.uploader ?? cachedSummary?.uploader,
+            tags: tags,
+            metadataCompleteness: storedSummary?.metadataCompleteness ?? cachedSummary?.metadataCompleteness
+        )
+        return GalleryDetail(
+            summary: summary,
+            pages: pages,
+            tags: tags,
+            comments: cachedDetail?.comments ?? [],
+            descriptionText: cachedDetail?.descriptionText,
+            externalURL: cachedDetail?.externalURL
+                ?? URL(string: "https://\(site.host)/g/\(key.gid)/\(key.token)/"),
+            apiUID: cachedDetail?.apiUID,
+            apiKey: cachedDetail?.apiKey,
+            favoriteCount: cachedDetail?.favoriteCount,
+            favoriteName: cachedDetail?.favoriteName,
+            ratingCount: cachedDetail?.ratingCount ?? summary.ratingCount,
+            language: cachedDetail?.language,
+            fileSize: cachedDetail?.fileSize,
+            torrentURL: cachedDetail?.torrentURL,
+            torrentCount: cachedDetail?.torrentCount,
+            archiveURL: cachedDetail?.archiveURL
+        )
+    }
+
     func prepareTagTranslations() async {
         await tagTranslationLoadTask?.value
     }

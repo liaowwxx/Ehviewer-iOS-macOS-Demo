@@ -17,6 +17,7 @@
  */
 
 import SwiftUI
+import CoreGraphics
 import ImageIO
 import EHDomain
 import EHDownloads
@@ -44,6 +45,7 @@ struct GalleryDetailView: View {
     @State private var isUpdatingFavorite = false
     @State private var isRating = false
     @State private var downloadJob: DownloadJob?
+    @State private var shouldFullyRefreshDetail = false
 
     var body: some View {
         Group {
@@ -52,7 +54,8 @@ struct GalleryDetailView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         GalleryDetailHeader(
                             summary: detail.summary,
-                            pageCount: detail.summary.pageCount ?? detail.pages.count
+                            pageCount: detail.summary.pageCount ?? detail.pages.count,
+                            localPage: downloadJob?.pages.first(where: { $0.index == 0 })
                         )
 
                         VStack(alignment: .leading, spacing: 20) {
@@ -109,7 +112,11 @@ struct GalleryDetailView: View {
                         if detail.pages.isEmpty == false {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text("预览").font(.headline)
-                                GalleryPreviewGrid(key: key, pages: detail.pages)
+                                GalleryPreviewGrid(
+                                    key: key,
+                                    pages: detail.pages,
+                                    prefersLocalMedia: downloadJob != nil
+                                )
                                 if isLoadingMorePreviews {
                                     ProgressView("加载中…")
                                         .font(.caption)
@@ -132,6 +139,7 @@ struct GalleryDetailView: View {
                 VStack(spacing: 12) {
                     ContentUnavailableView("详情加载失败", systemImage: "exclamationmark.triangle", description: Text(detailError))
                     Button("重试", systemImage: "arrow.clockwise") {
+                        shouldFullyRefreshDetail = true
                         detailLoadToken = UUID()
                     }
                     .buttonStyle(.borderedProminent)
@@ -149,6 +157,7 @@ struct GalleryDetailView: View {
                         Link("在站点打开", destination: externalURL)
                     }
                     Button("刷新", systemImage: "arrow.clockwise") {
+                        shouldFullyRefreshDetail = true
                         detailLoadToken = UUID()
                     }
                 } label: {
@@ -174,7 +183,7 @@ struct GalleryDetailView: View {
     private func actionSection(_ detail: GalleryDetail, pageListReady: Bool) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                NavigationLink(value: AppRoute.reader(key, page: 0)) {
+                NavigationLink(value: AppRoute.reader(key, page: readerStartPage)) {
                     Label(readingActionTitle, systemImage: downloadJob == nil ? "book" : "internaldrive")
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .foregroundStyle(AppTheme.onAccent)
@@ -184,7 +193,7 @@ struct GalleryDetailView: View {
                 .accessibilityIdentifier("start-reading-action")
                 #if os(macOS)
                 Button {
-                    openWindow(value: AppRoute.reader(key, page: 0))
+                    openWindow(value: AppRoute.reader(key, page: readerStartPage))
                 } label: {
                     Label("新窗口阅读", systemImage: "rectangle.split.2x1")
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -305,10 +314,23 @@ struct GalleryDetailView: View {
         hasCachedDetail = false
         detailError = nil
         previewError = nil
-        await model.prepareTagTranslations()
+        comments = []
+        torrents = []
+        archiveOptions = []
+        let shouldFullyRefresh = shouldFullyRefreshDetail
+        shouldFullyRefreshDetail = false
         let localJob = await model.downloadJob(for: key)
         downloadJob = localJob
-        let cachedDetail = await model.cachedDetail(for: key)
+        let localDetail = await model.localGalleryDetail(for: key, job: localJob)
+        if let localDetail {
+            detail = localDetail
+            hasCachedDetail = true
+            isLoadingDetail = false
+            isLoadingMorePreviews = false
+            isFavorite = await model.favoriteState(for: key)
+        }
+        await model.prepareTagTranslations()
+        let cachedDetail = localDetail == nil ? await model.cachedDetail(for: key) : nil
         if let cachedDetail {
             detail = cachedDetail
             hasCachedDetail = true
@@ -319,10 +341,20 @@ struct GalleryDetailView: View {
         let cacheGeneration = await model.galleryCacheGeneration()
         var presentedRemoteDetail = false
         do {
-            isLoadingMorePreviews = true
+            if localDetail == nil {
+                isLoadingMorePreviews = true
+            }
             for try await loadedDetail in model.detailStream(for: key) {
                 guard Task.isCancelled == false else { return }
-                detail = Self.detailByMergingPages(from: loadedDetail, with: cachedPages)
+                detail = if let localDetail {
+                    Self.detailByMergingLocal(
+                        from: loadedDetail,
+                        with: localDetail,
+                        fullyRefresh: shouldFullyRefresh
+                    )
+                } else {
+                    Self.detailByMergingPages(from: loadedDetail, with: cachedPages)
+                }
                 comments = loadedDetail.comments
                 await model.cacheDetail(loadedDetail, generation: cacheGeneration)
                 try? await model.persistence.upsert([loadedDetail.summary])
@@ -335,6 +367,9 @@ struct GalleryDetailView: View {
                     torrents = await loadedTorrents
                     archiveOptions = await loadedArchives
                 }
+                if localDetail != nil, shouldFullyRefresh == false {
+                    break
+                }
             }
             isLoadingMorePreviews = false
         } catch is CancellationError {
@@ -345,9 +380,12 @@ struct GalleryDetailView: View {
                 previewError = error.localizedDescription
             } else if cachedDetail != nil {
                 previewError = error.localizedDescription
-            } else if let localJob {
-                detail = ReaderView.downloadedDetail(for: localJob, site: model.site)
+            } else if let localDetail {
+                detail = localDetail
                 comments = []
+            } else if let localJob {
+                detail = await model.localGalleryDetail(for: key, job: localJob)
+                    ?? ReaderView.downloadedDetail(for: localJob, site: model.site)
             } else {
                 detailError = error.localizedDescription
             }
@@ -369,6 +407,49 @@ struct GalleryDetailView: View {
         return merged
     }
 
+    private static func detailByMergingLocal(
+        from liveDetail: GalleryDetail,
+        with localDetail: GalleryDetail,
+        fullyRefresh: Bool
+    ) -> GalleryDetail {
+        var summary = fullyRefresh ? liveDetail.summary : localDetail.summary
+        if fullyRefresh == false {
+            summary.rating = liveDetail.summary.rating ?? summary.rating
+            summary.ratingCount = liveDetail.summary.ratingCount ?? summary.ratingCount
+            summary.favoriteCategory = liveDetail.summary.favoriteCategory ?? summary.favoriteCategory
+        }
+
+        let pages: [GalleryPageDescriptor]
+        if fullyRefresh {
+            pages = detailByMergingPages(from: liveDetail, with: localDetail.pages).pages
+        } else {
+            var pagesByIndex = Dictionary(uniqueKeysWithValues: localDetail.pages.map { ($0.index, $0) })
+            for page in liveDetail.pages where pagesByIndex[page.index] == nil {
+                pagesByIndex[page.index] = page
+            }
+            pages = pagesByIndex.values.sorted { $0.index < $1.index }
+        }
+
+        return GalleryDetail(
+            summary: summary,
+            pages: pages,
+            tags: fullyRefresh || localDetail.tags.isEmpty ? liveDetail.tags : localDetail.tags,
+            comments: liveDetail.comments,
+            descriptionText: liveDetail.descriptionText ?? localDetail.descriptionText,
+            externalURL: liveDetail.externalURL ?? localDetail.externalURL,
+            apiUID: liveDetail.apiUID ?? localDetail.apiUID,
+            apiKey: liveDetail.apiKey ?? localDetail.apiKey,
+            favoriteCount: liveDetail.favoriteCount ?? localDetail.favoriteCount,
+            favoriteName: liveDetail.favoriteName ?? localDetail.favoriteName,
+            ratingCount: liveDetail.ratingCount ?? localDetail.ratingCount,
+            language: liveDetail.language ?? localDetail.language,
+            fileSize: liveDetail.fileSize ?? localDetail.fileSize,
+            torrentURL: liveDetail.torrentURL ?? localDetail.torrentURL,
+            torrentCount: liveDetail.torrentCount ?? localDetail.torrentCount,
+            archiveURL: liveDetail.archiveURL ?? localDetail.archiveURL
+        )
+    }
+
     private var readingActionTitle: String {
         if isLoadingMorePreviews {
             return String(localized: "加载中…")
@@ -378,6 +459,18 @@ struct GalleryDetailView: View {
         }
         guard let downloadJob else { return String(localized: "开始阅读") }
         return downloadJob.completedPageIndexes.isEmpty ? String(localized: "开始阅读（下载中）") : String(localized: "阅读本地内容")
+    }
+
+    private var readerStartPage: Int {
+        guard let detail else { return 0 }
+        switch model.readingSettings.startPosition {
+        case .lastRead:
+            return readingPage ?? 0
+        case .first:
+            return 0
+        case .last:
+            return max(detail.pages.count - 1, 0)
+        }
     }
 
     private var pageListReady: Bool {
@@ -503,10 +596,76 @@ private struct GalleryCommentsSection: View {
     }
 }
 
+private enum GalleryThumbnailDecoder {
+    static func thumbnailCGImage(from data: Data, maxPixelSize: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ] as CFDictionary
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+    }
+
+    static func previewCGImage(from data: Data, clip: GalleryPreviewClip?) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        if let clip, clip.width > 0, clip.height > 0 {
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            let pixelWidth = properties?[kCGImagePropertyPixelWidth] as? Int ?? 0
+            let pixelHeight = properties?[kCGImagePropertyPixelHeight] as? Int ?? 0
+            if pixelWidth > 0, pixelHeight > 0 {
+                var crop = clip.cropRect
+                let maxDimension: CGFloat = 2400
+                let scale = min(1, maxDimension / max(crop.width, crop.height))
+                if scale < 1 {
+                    crop = CGRect(
+                        x: crop.minX * scale,
+                        y: crop.minY * scale,
+                        width: crop.width * scale,
+                        height: crop.height * scale
+                    )
+                }
+                crop = crop.intersection(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
+                if crop.width >= 1, crop.height >= 1,
+                   let full = CGImageSourceCreateImageAtIndex(source, 0, nil),
+                   let cropped = full.cropping(to: crop.integral) {
+                    return cropped
+                }
+            }
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    static func decodeThumbnailCGImage(from data: Data, maxPixelSize: Int) async -> CGImage? {
+        let decoding = Task.detached(priority: .utility) {
+            thumbnailCGImage(from: data, maxPixelSize: maxPixelSize)
+        }
+        return await withTaskCancellationHandler {
+            guard let image = await decoding.value, Task.isCancelled == false else { return nil }
+            return image
+        } onCancel: {
+            decoding.cancel()
+        }
+    }
+
+    static func decodePreviewCGImage(from data: Data, clip: GalleryPreviewClip?) async -> CGImage? {
+        let decoding = Task.detached(priority: .utility) {
+            previewCGImage(from: data, clip: clip)
+        }
+        return await withTaskCancellationHandler {
+            guard let image = await decoding.value, Task.isCancelled == false else { return nil }
+            return image
+        } onCancel: {
+            decoding.cancel()
+        }
+    }
+}
+
 private struct GalleryDetailHeader: View {
     @Environment(AppModel.self) private var model
     let summary: GallerySummary
     let pageCount: Int
+    let localPage: GalleryPageDescriptor?
     @State private var image: Image?
 
     var body: some View {
@@ -516,6 +675,7 @@ private struct GalleryDetailHeader: View {
                     image
                         .resizable()
                         .scaledToFit()
+                        .transition(.opacity)
                 } else {
                     Image(systemName: "books.vertical.fill")
                         .font(.system(size: 38))
@@ -565,14 +725,27 @@ private struct GalleryDetailHeader: View {
         .padding(.top, 8)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(summary.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle))，\(pageCount) 页")
-        .task(id: summary.thumbnailURL) {
+        .task(id: "\(summary.thumbnailURL?.absoluteString ?? "")-\(localPage?.id ?? "")", priority: .utility) {
+            if let localPage,
+               let data = await model.downloadedPageDataIfAvailable(for: localPage),
+               let localCGImage = await GalleryThumbnailDecoder.decodeThumbnailCGImage(from: data, maxPixelSize: 512) {
+                guard Task.isCancelled == false else { return }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    image = Image(decorative: localCGImage, scale: 1, orientation: .up)
+                }
+                return
+            }
             guard let thumbnailURL = summary.thumbnailURL else { return }
             do {
                 let page = GalleryPageImage(galleryKey: summary.key, index: 0, imageURL: thumbnailURL)
                 let data = try await model.galleryImageData(for: page)
-                guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                      let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return }
-                image = Image(decorative: cgImage, scale: 1, orientation: .up)
+                guard let cgImage = await GalleryThumbnailDecoder.decodeThumbnailCGImage(
+                    from: data,
+                    maxPixelSize: 512
+                ), Task.isCancelled == false else { return }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    image = Image(decorative: cgImage, scale: 1, orientation: .up)
+                }
             } catch is CancellationError {
                 return
             } catch {
@@ -580,6 +753,7 @@ private struct GalleryDetailHeader: View {
             }
         }
     }
+
 }
 
 /// Tags grouped by namespace with a translated group header, mirroring the
@@ -676,6 +850,7 @@ struct GalleryPreviewRevealState: Hashable, Sendable {
 private struct GalleryPreviewGrid: View {
     let key: GalleryKey
     let pages: [GalleryPageDescriptor]
+    let prefersLocalMedia: Bool
     @State private var revealState = GalleryPreviewRevealState()
 
     private let columns = [GridItem(.adaptive(minimum: 100, maximum: 130), spacing: 8)]
@@ -684,23 +859,31 @@ private struct GalleryPreviewGrid: View {
         VStack(alignment: .leading, spacing: 10) {
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(visiblePages) { page in
-                    NavigationLink(value: AppRoute.reader(key, page: page.index)) {
+                    NavigationLink {
+                        ReaderView(key: key, initialPage: page.index)
+                    } label: {
                         VStack(spacing: 2) {
                             Color.clear
                                 .aspectRatio(page.previewClip?.clampedAspect ?? 0.667, contentMode: .fit)
                                 .overlay {
-                                    GalleryPreviewThumbnail(descriptor: page)
+                                    GalleryPreviewThumbnail(
+                                        descriptor: page,
+                                        prefersLocalMedia: prefersLocalMedia
+                                    )
                                 }
                                 .clipped()
                                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .allowsHitTesting(false)
                             Text("\(page.index + 1)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity)
                         }
-                        .frame(maxHeight: .infinity, alignment: .top)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .contentShape(Rectangle())
                     .accessibilityLabel("预览第 \(page.index + 1) 页")
                 }
             }
@@ -733,17 +916,19 @@ private struct GalleryPreviewGrid: View {
 private struct GalleryPreviewThumbnail: View {
     @Environment(AppModel.self) private var model
     let descriptor: GalleryPageDescriptor
+    let prefersLocalMedia: Bool
     @State private var image: Image?
 
     var body: some View {
         Group {
-            if let image {
-                image
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(.quaternary.opacity(0.5))
+                if let image {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .transition(.opacity)
+                } else {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.quaternary.opacity(0.5))
                     .overlay {
                         Image(systemName: "photo")
                             .font(.caption)
@@ -751,13 +936,31 @@ private struct GalleryPreviewThumbnail: View {
                     }
             }
         }
-        .task(id: descriptor.previewURL) {
+        .task(id: "\(descriptor.previewURL?.absoluteString ?? "")-\(prefersLocalMedia)", priority: .utility) {
             image = nil
+            if prefersLocalMedia,
+               let localData = await model.downloadedPageDataIfAvailable(for: descriptor),
+               let localCGImage = await GalleryThumbnailDecoder.decodeThumbnailCGImage(
+                   from: localData,
+                   maxPixelSize: 640
+               ) {
+                guard Task.isCancelled == false else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    image = Image(decorative: localCGImage, scale: 1, orientation: .up)
+                }
+                return
+            }
             guard let url = descriptor.previewURL else { return }
             do {
                 let page = GalleryPageImage(galleryKey: descriptor.galleryKey, index: descriptor.index, imageURL: url)
                 let data = try await model.galleryImageData(for: page)
-                image = Self.decodedPreview(from: data, clip: descriptor.previewClip)
+                guard let cgImage = await GalleryThumbnailDecoder.decodePreviewCGImage(
+                    from: data,
+                    clip: descriptor.previewClip
+                ), Task.isCancelled == false else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    image = Image(decorative: cgImage, scale: 1, orientation: .up)
+                }
             } catch is CancellationError {
                 return
             } catch {
@@ -770,32 +973,7 @@ private struct GalleryPreviewThumbnail: View {
     /// Loads the large preview image and crops the site's visible window,
     /// mirroring the reference client's clipped `LoadImageView` rendering.
     static func decodedPreview(from data: Data, clip: GalleryPreviewClip?) -> Image? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        if let clip, clip.width > 0, clip.height > 0 {
-            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-            let pixelWidth = properties?[kCGImagePropertyPixelWidth] as? Int ?? 0
-            let pixelHeight = properties?[kCGImagePropertyPixelHeight] as? Int ?? 0
-            if pixelWidth > 0, pixelHeight > 0 {
-                var crop = clip.cropRect
-                let maxDimension: CGFloat = 2400
-                let scale = min(1, maxDimension / max(crop.width, crop.height))
-                if scale < 1 {
-                    crop = CGRect(
-                        x: crop.minX * scale,
-                        y: crop.minY * scale,
-                        width: crop.width * scale,
-                        height: crop.height * scale
-                    )
-                }
-                crop = crop.intersection(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
-                if crop.width >= 1, crop.height >= 1,
-                   let full = CGImageSourceCreateImageAtIndex(source, 0, nil),
-                   let cropped = full.cropping(to: crop.integral) {
-                    return Image(decorative: cropped, scale: 1, orientation: .up)
-                }
-            }
-        }
-        guard let full = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-        return Image(decorative: full, scale: 1, orientation: .up)
+        guard let cgImage = GalleryThumbnailDecoder.previewCGImage(from: data, clip: clip) else { return nil }
+        return Image(decorative: cgImage, scale: 1, orientation: .up)
     }
 }

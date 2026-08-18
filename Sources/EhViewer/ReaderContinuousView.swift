@@ -30,6 +30,7 @@ struct ReaderVerticalPagedView: View {
     let resetToken: UUID
     let source: ReaderContentSource
     @Binding var position: ReaderPositionState
+    @State private var initialScrollPending = true
 
     var body: some View {
         #if os(iOS)
@@ -45,37 +46,53 @@ struct ReaderVerticalPagedView: View {
         )
         .id("reader-vertical-paging")
         #else
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
-                    ForEach(descriptors) { descriptor in
-                        ReaderPage(
-                            descriptor: descriptor,
-                            resolution: resolution,
-                            source: source,
-                            fitsViewport: true
-                        )
-                        .containerRelativeFrame([.horizontal, .vertical])
-                        .id(descriptor.index)
-                    }
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(descriptors) { descriptor in
+                    ReaderPage(
+                        descriptor: descriptor,
+                        resolution: resolution,
+                        source: source,
+                        fitsViewport: true
+                    )
+                    .containerRelativeFrame([.horizontal, .vertical])
+                    .id(descriptor.index)
                 }
                 .scrollTargetLayout()
             }
-            .scrollTargetBehavior(.paging)
-            .scrollIndicators(.visible)
-            .task {
-                await Task.yield()
-                proxy.scrollTo(position.page, anchor: .center)
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollIndicators(.visible)
+        .scrollPosition(id: $scrollPosition, anchor: .center)
+        .task {
+            await Task.yield()
+            scrollPosition = position.page
+        }
+        .onChange(of: position.scrollRequestSequence) {
+            guard let target = position.scrollTarget else { return }
+            if position.scrollRequestAnimated {
+                withAnimation {
+                    scrollPosition = target
+                }
+            } else {
+                scrollPosition = target
             }
-            .onChange(of: position.scrollRequestSequence) {
-                guard let target = position.scrollTarget else { return }
-                proxy.scrollTo(target, anchor: .center)
+        }
+        .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.55) { visiblePages in
+            if initialScrollPending {
+                guard visiblePages.contains(position.page) else {
+                    scrollPosition = position.page
+                    return
+                }
+                initialScrollPending = false
             }
-            .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.55) { visiblePages in
-                position.markVisiblePage(from: visiblePages, displayOrder: descriptors.map(\.index))
-            }
+            position.markVisiblePage(from: visiblePages, displayOrder: descriptors.map(\.index))
         }
         .accessibilityHint("上下翻页阅读")
         #endif
     }
+
+    #if os(macOS)
+    @State private var scrollPosition: Int?
+    #endif
 }
