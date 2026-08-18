@@ -305,6 +305,7 @@ struct GalleryDetailView: View {
         hasCachedDetail = false
         detailError = nil
         previewError = nil
+        await model.prepareTagTranslations()
         let localJob = await model.downloadJob(for: key)
         downloadJob = localJob
         let cachedDetail = await model.cachedDetail(for: key)
@@ -324,6 +325,7 @@ struct GalleryDetailView: View {
                 detail = Self.detailByMergingPages(from: loadedDetail, with: cachedPages)
                 comments = loadedDetail.comments
                 await model.cacheDetail(loadedDetail, generation: cacheGeneration)
+                try? await model.persistence.upsert([loadedDetail.summary])
                 if presentedRemoteDetail == false {
                     presentedRemoteDetail = true
                     isLoadingDetail = false

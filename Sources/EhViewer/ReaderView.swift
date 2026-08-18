@@ -41,9 +41,8 @@ struct ReaderView: View {
     @State private var source: ReaderContentSource
     @State private var detail: GalleryDetail?
     @State private var position: ReaderPositionState
-    /// 视频播放器式控件显隐：点击页面切换，无操作一段时间后自动隐藏。
+    /// 阅读控件显隐：点击页面手动切换。
     @State private var isShowingControls = true
-    @State private var controlsInteractionToken = UUID()
     @State private var zoomResetToken = UUID()
     @State private var detailError: String?
     @State private var detailLoadToken = UUID()
@@ -108,16 +107,6 @@ struct ReaderView: View {
                 }
             }
         }
-#if os(iOS)
-        .task(id: controlsInteractionToken) {
-            guard isShowingControls else { return }
-            try? await Task.sleep(for: .seconds(4))
-            guard Task.isCancelled == false else { return }
-            withAnimation(.easeInOut(duration: 0.25)) {
-                isShowingControls = false
-            }
-        }
-#endif
         .task(id: "\(key.id)-\(source)-\(detailLoadToken)") {
             await loadDetail()
         }
@@ -139,10 +128,6 @@ struct ReaderView: View {
 #endif
         .onChange(of: position.page) { _, _ in
             scheduleProgressSave()
-#if os(iOS)
-            // 翻页/拖动进度条视为交互：仅在控件已显示时重置自动隐藏计时。
-            controlsInteractionToken = UUID()
-#endif
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { saveProgressImmediately() }
@@ -155,9 +140,6 @@ struct ReaderView: View {
             #if os(iOS)
             updateVolumeMonitor()
             #endif
-        }
-        .onChange(of: model.readingSettings.keepScreenOn) { _, _ in
-            applyReaderSystemSettings()
         }
         #if os(iOS)
         .onChange(of: model.readingSettings.screenRotation) { _, _ in
@@ -198,22 +180,6 @@ struct ReaderView: View {
         #elseif os(macOS)
         .toolbar(.visible)
         #endif
-        .overlay(alignment: .topLeading) {
-            readerStatusOverlay
-        }
-    }
-
-    @ViewBuilder
-    private var readerStatusOverlay: some View {
-            if isShowingControls, let detail, showsStatusOverlay {
-                ReaderStatusOverlay(
-                    settings: model.readingSettings,
-                    page: position.page,
-                    pageCount: detail.pages.count
-                )
-                .padding()
-                .transition(.opacity)
-            }
     }
 
     private var readerRoot: some View {
@@ -233,10 +199,6 @@ struct ReaderView: View {
 #endif
     }
 
-    private var showsStatusOverlay: Bool {
-        model.readingSettings.showClock || model.readingSettings.showProgress || model.readingSettings.showBattery || model.readingSettings.showPageInterval
-    }
-
     /// 阅读内容：分页/连续两种模式，或加载中/失败状态。
     private var readerContent: some View {
         Group {
@@ -246,7 +208,6 @@ struct ReaderView: View {
                         descriptors: detail.pages,
                         resolution: .preview,
                         resetToken: zoomResetToken,
-                        pageScaling: model.readingSettings.pageScaling,
                         source: source,
                         position: $position
                     )
@@ -259,7 +220,6 @@ struct ReaderView: View {
                         resolution: .preview,
                         resetToken: zoomResetToken,
                         readingDirection: model.readingSettings.readingDirection,
-                        pageScaling: model.readingSettings.pageScaling,
                         source: source,
                         position: $position
                     )
@@ -323,7 +283,6 @@ struct ReaderView: View {
         withAnimation(.easeInOut(duration: 0.25)) {
             isShowingControls.toggle()
         }
-        controlsInteractionToken = UUID()
     }
 
     private func loadDetail() async {
@@ -380,7 +339,7 @@ struct ReaderView: View {
 
     private func applyReaderSystemSettings() {
         #if os(iOS)
-        UIApplication.shared.isIdleTimerDisabled = model.readingSettings.keepScreenOn
+        UIApplication.shared.isIdleTimerDisabled = false
         let orientationMask: UIInterfaceOrientationMask = switch model.readingSettings.screenRotation {
         case .automatic: .all
         case .portrait: .portrait
@@ -440,68 +399,10 @@ struct ReaderView: View {
             title: job.title,
             japaneseTitle: job.japaneseTitle,
             thumbnailURL: job.pages.lazy.compactMap(\.previewURL).first,
-            pageCount: job.pages.count
+            pageCount: job.pages.count,
+            tags: job.tags
         )
         let externalURL = URL(string: "https://\(site.host)/g/\(job.key.gid)/\(job.key.token)/")
         return GalleryDetail(summary: summary, pages: job.pages, externalURL: externalURL)
     }
-}
-
-private struct ReaderStatusOverlay: View {
-    let settings: ReadingSettings
-    let page: Int
-    let pageCount: Int
-
-    var body: some View {
-        Group {
-            if settings.showClock {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    statusContent(date: context.date)
-                }
-            } else {
-                statusContent(date: nil)
-            }
-        }
-        #if os(iOS)
-        .onAppear { UIDevice.current.isBatteryMonitoringEnabled = true }
-        .onDisappear { UIDevice.current.isBatteryMonitoringEnabled = false }
-        #endif
-    }
-
-    private func statusContent(date: Date?) -> some View {
-        HStack(spacing: 8) {
-            if let date {
-                Text(date, style: .time)
-            }
-            if settings.showProgress {
-                Text("\(progressPercent)%")
-            }
-            if settings.showPageInterval {
-                Text("\(page + 1)/\(pageCount)")
-            }
-            #if os(iOS)
-            if settings.showBattery {
-                Text(batteryText)
-            }
-            #endif
-        }
-        .font(.caption.monospacedDigit())
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.thinMaterial, in: Capsule())
-    }
-
-    private var progressPercent: Int {
-        guard pageCount > 0 else { return 0 }
-        return Int((Double(page + 1) / Double(pageCount) * 100).rounded())
-    }
-
-    #if os(iOS)
-    private var batteryText: String {
-        let level = UIDevice.current.batteryLevel
-        guard level >= 0 else { return String(localized: "电量 --") }
-        return String(localized: "电量 \(Int((level * 100).rounded()))%")
-    }
-    #endif
 }

@@ -24,7 +24,6 @@ struct ReaderPage: View {
     let descriptor: GalleryPageDescriptor
     let resolution: ImageResolution
     let source: ReaderContentSource
-    let pageScaling: ReaderPageScaling
     let fitsViewport: Bool
     @State private var media: ReaderMediaView.Content?
     @State private var aspectRatio: CGFloat?
@@ -44,7 +43,7 @@ struct ReaderPage: View {
         Group {
             if let media {
 #if os(macOS)
-                ReaderMediaView(content: media, pageScaling: pageScaling, fitsViewport: fitsViewport)
+                ReaderMediaView(content: media, fitsViewport: fitsViewport)
                     .scaleEffect(min(max(zoomScale * pinchScale, 1), 4))
                     .gesture(
                         MagnificationGesture()
@@ -57,14 +56,14 @@ struct ReaderPage: View {
                     )
                     .transition(.opacity)
 #else
-                ReaderMediaView(content: media, pageScaling: pageScaling, fitsViewport: fitsViewport)
+                ReaderMediaView(content: media, fitsViewport: fitsViewport)
                     .transition(.opacity)
 #endif
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(.quaternary)
                     .aspectRatio(aspectRatio ?? 0.72, contentMode: .fit)
-                    .frame(maxHeight: fitsViewport || pageScaling == .height ? .infinity : nil)
+                    .frame(maxHeight: fitsViewport ? .infinity : nil)
                     .overlay {
                         VStack(spacing: 8) {
                             if failed {
@@ -99,7 +98,7 @@ struct ReaderPage: View {
             Button("保存媒体", systemImage: "square.and.arrow.down", action: saveMedia)
                 .disabled(media == nil || isSaving)
         }
-        .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)-\(pageScaling.rawValue)-\(loadToken)") {
+        .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)-\(loadToken)") {
             await loadImage()
         }
         .alert("媒体已保存", isPresented: $showingSaveConfirmation) {

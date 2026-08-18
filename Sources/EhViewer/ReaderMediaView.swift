@@ -25,7 +25,6 @@ import EHDownloads
 
 struct ReaderMediaView: View {
     let content: Content
-    let pageScaling: ReaderPageScaling
     let fitsViewport: Bool
 
     var body: some View {
@@ -41,21 +40,21 @@ struct ReaderMediaView: View {
                 }
             case .video(let playback):
                 VideoPlayer(player: playback.player)
-                    .aspectRatio(contentMode: pageScaling == .original ? .fill : .fit)
+                    .aspectRatio(contentMode: .fit)
                     .onAppear(perform: playback.play)
                     .onDisappear(perform: playback.pause)
             }
         }
         .frame(
-            maxWidth: pageScaling == .original || pageScaling == .height ? nil : .infinity,
-            maxHeight: fitsViewport || pageScaling == .height ? .infinity : nil
+            maxWidth: .infinity,
+            maxHeight: fitsViewport ? .infinity : nil
         )
     }
 
     private func pageImage(_ cgImage: CGImage) -> some View {
         Image(decorative: cgImage, scale: 1, orientation: .up)
             .resizable()
-            .aspectRatio(content.aspectRatio, contentMode: pageScaling == .original ? .fill : .fit)
+            .aspectRatio(content.aspectRatio, contentMode: .fit)
     }
 }
 

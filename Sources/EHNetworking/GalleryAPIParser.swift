@@ -59,7 +59,12 @@ public struct GalleryAPIParser: Sendable {
                 postedAt: postedAt,
                 rating: rating,
                 uploader: uploader,
-                tags: tags
+                tags: tags,
+                metadataCompleteness: GalleryMetadataCompleteness(
+                    title: title.isEmpty == false,
+                    japaneseTitle: japaneseTitle?.isEmpty == false,
+                    tags: true
+                )
             )
         }
     }

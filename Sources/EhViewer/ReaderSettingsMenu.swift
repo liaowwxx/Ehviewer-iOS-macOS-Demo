@@ -38,11 +38,6 @@ struct ReaderSettingsMenu: View {
                         }
                     }
                 }
-                Picker("页面缩放", selection: $model.readingSettings.pageScaling) {
-                    ForEach(ReaderPageScaling.allCases) { scaling in
-                        Text(scaling.title).tag(scaling)
-                    }
-                }
                 Picker("开始位置", selection: $model.readingSettings.startPosition) {
                     ForEach(ReaderStartPosition.allCases) { position in
                         Text(position.title).tag(position)
@@ -58,13 +53,6 @@ struct ReaderSettingsMenu: View {
                     }
                 }
 #endif
-                Toggle("阅读时保持屏幕常亮", isOn: $model.readingSettings.keepScreenOn)
-                Toggle("显示时钟", isOn: $model.readingSettings.showClock)
-                Toggle("显示阅读进度", isOn: $model.readingSettings.showProgress)
-#if os(iOS)
-                Toggle("显示电量", isOn: $model.readingSettings.showBattery)
-#endif
-                Toggle("显示页码", isOn: $model.readingSettings.showPageInterval)
             }
 
 #if os(iOS)

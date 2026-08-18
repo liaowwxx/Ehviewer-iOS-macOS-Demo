@@ -256,6 +256,7 @@ public struct EHClient: EHAPI, Sendable {
         for try await loadedDetail in detailStream(for: key, site: site) {
             finalDetail = loadedDetail
         }
+        try Task.checkCancellation()
         guard let finalDetail else {
             throw EHError.parsingFailed(String(localized: "详情响应为空"))
         }
@@ -611,7 +612,12 @@ public struct EHClient: EHAPI, Sendable {
                 return result
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let error as URLError where error.code == .cancelled {
+                throw CancellationError()
             } catch {
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
                 EHLog.network.error("request failed: \(error.localizedDescription, privacy: .public)")
                 guard attempt < 2 else { throw error }
                 try await Task.sleep(for: .milliseconds(250 * (1 << attempt)))

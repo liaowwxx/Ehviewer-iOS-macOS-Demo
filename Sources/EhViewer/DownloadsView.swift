@@ -29,6 +29,8 @@ struct DownloadsView: View {
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
     @State private var searchText = ""
+    @State private var tagSearchSuggestions: [SearchTagSuggestion] = []
+    @State private var isUpdatingTagSearchSuggestions = false
     @State private var showingResetProgressConfirmation = false
     @State private var jobPendingRemoval: DownloadJob?
     @State private var removalErrorMessage: String?
@@ -48,6 +50,8 @@ struct DownloadsView: View {
             .filter {
                 searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || $0.containsTitle(searchText)
+                    || $0.containsTag(searchText)
+                    || $0.tags.contains { model.displayTag($0).localizedCaseInsensitiveContains(searchText) }
                     || ($0.label?.localizedCaseInsensitiveContains(searchText) == true)
             }
             .sorted(by: model.downloadSortOrder.areInIncreasingOrder)
@@ -63,7 +67,7 @@ struct DownloadsView: View {
                 Button("取消", role: .cancel) {}
             }
             .confirmationDialog(
-                "删除《\(jobPendingRemoval?.title ?? "")》？",
+                "删除《\(displayTitle(for: jobPendingRemoval))》？",
                 isPresented: Binding(
                     get: { jobPendingRemoval != nil },
                     set: { if $0 == false { jobPendingRemoval = nil } }
@@ -84,7 +88,7 @@ struct DownloadsView: View {
                 Text("将移除 \(jobPendingRemoval?.completedPageIndexes.count ?? 0) 个已下载页面，并从下载列表中移除。")
             }
             .confirmationDialog(
-                "重新下载《\(jobPendingRedownload?.title ?? "")》？",
+                "重新下载《\(displayTitle(for: jobPendingRedownload))》？",
                 isPresented: Binding(
                     get: { jobPendingRedownload != nil },
                     set: { if $0 == false { jobPendingRedownload = nil } }
@@ -130,6 +134,10 @@ struct DownloadsView: View {
             }
     }
 
+    private func displayTitle(for job: DownloadJob?) -> String {
+        job?.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle) ?? ""
+    }
+
     private var content: some View {
         @Bindable var model = model
         return Group {
@@ -151,6 +159,39 @@ struct DownloadsView: View {
         }
         .navigationTitle("downloads_title")
         .searchable(text: $searchText, prompt: "搜索下载标题或标签")
+        .searchSuggestions {
+            if isUpdatingTagSearchSuggestions {
+                Section {
+                    HStack {
+                        ProgressView()
+                        Text("正在读取标签候选…")
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            } else if tagSearchSuggestions.isEmpty == false {
+                Section("标签") {
+                    ForEach(tagSearchSuggestions) { suggestion in
+                        Button {
+                            searchText = suggestion.english
+                        } label: {
+                            Label {
+                                VStack(alignment: .leading) {
+                                    Text(suggestion.english)
+                                    if let localizedText = suggestion.localizedText,
+                                       localizedText.localizedCaseInsensitiveCompare(suggestion.english) != .orderedSame {
+                                        Text(localizedText)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            } icon: {
+                                Image(systemName: "tag")
+                            }
+                        }
+                    }
+                }
+            }
+        }
         .toolbar {
             if isSelectionMode {
                 ToolbarItem(placement: .cancellationAction) {
@@ -172,14 +213,14 @@ struct DownloadsView: View {
                     } label: {
                         Label(String(localized: "分享(\(selectedKeys.count))"), systemImage: "square.and.arrow.up")
                     }
-                    .disabled(selectedKeys.isEmpty || model.isMigrating)
+                    .disabled(selectedKeys.isEmpty || model.isMigrating || model.isRestoringDownloads)
 #endif
                     Button {
                         Task { await saveSelectedDownloadsToFiles() }
                     } label: {
                         Label("保存到文件", systemImage: "folder")
                     }
-                    .disabled(selectedKeys.isEmpty || model.isMigrating)
+                    .disabled(selectedKeys.isEmpty || model.isMigrating || model.isRestoringDownloads)
                 }
             } else {
                 ToolbarItem(placement: selectPlacement) {
@@ -241,6 +282,9 @@ struct DownloadsView: View {
             }
         }
         .task(id: model.isLoadingDownloads) { jobs = await model.downloads.snapshot() }
+        .task(id: searchText) {
+            await refreshTagSearchSuggestions(for: searchText)
+        }
         .task {
             for await event in await model.downloads.events() {
                 apply(event)
@@ -290,6 +334,35 @@ struct DownloadsView: View {
             if case let .failure(error) = result {
                 downloadExportError = error.localizedDescription
             }
+        }
+    }
+
+    private func refreshTagSearchSuggestions(for query: String) async {
+        tagSearchSuggestions = []
+        isUpdatingTagSearchSuggestions = false
+
+        let normalizedQuery = SearchQueryComposer.normalized(query)
+        let fragment = SearchQueryComposer.suggestionFragment(in: normalizedQuery)
+        guard fragment.isEmpty == false else { return }
+
+        isUpdatingTagSearchSuggestions = true
+        defer {
+            if Task.isCancelled == false {
+                isUpdatingTagSearchSuggestions = false
+            }
+        }
+
+        do {
+            try await Task.sleep(for: .milliseconds(120))
+            try Task.checkCancellation()
+            let suggestions = await model.filterTagSuggestions(for: fragment, limit: 20)
+            try Task.checkCancellation()
+            guard SearchQueryComposer.normalized(searchText) == normalizedQuery else { return }
+            tagSearchSuggestions = suggestions
+        } catch is CancellationError {
+            return
+        } catch {
+            tagSearchSuggestions = []
         }
     }
 

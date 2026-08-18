@@ -14,7 +14,12 @@ struct ArchiveTests {
             category: "Doujinshi",
             pageCount: 12,
             rating: 4.5,
-            tags: ["language:chinese"]
+            tags: ["language:chinese"],
+            metadataCompleteness: GalleryMetadataCompleteness(
+                title: true,
+                japaneseTitle: false,
+                tags: true
+            )
         )
         let snapshot = GallerySyncSnapshot(
             exportedAt: Date(timeIntervalSince1970: 1_700_000_000),
@@ -159,9 +164,26 @@ struct ArchiveTests {
         let item = DownloadArchiveExportItem(
             key: key,
             title: "导出/测试画廊",
+            japaneseTitle: "日本語タイトル",
+            tags: ["artist:sample", "female:sub tag"],
+            metadataCompleteness: GalleryMetadataCompleteness(
+                title: true,
+                japaneseTitle: true,
+                tags: true
+            ),
             totalPageCount: 2,
             pageTokens: [0: "page-token"]
         )
+
+        do {
+            _ = try await DownloadArchiveExporter.export(items: [], files: store, to: archiveURL)
+            Issue.record("An archive without local media should not be created")
+        } catch let error as EHError {
+            #expect(error.localizedDescription.contains("没有可导出的本地下载文件"))
+        } catch {
+            Issue.record("Unexpected empty archive export error: \(error)")
+        }
+
         let progress = ProgressProbe()
         let result = try await DownloadArchiveExporter.export(
             items: [item],
@@ -179,6 +201,10 @@ struct ArchiveTests {
         let candidate = try #require(inspection.candidates.first)
         #expect(candidate.key == key)
         #expect(candidate.declaredPageCount == 2)
+        #expect(candidate.title == "导出/测试画廊")
+        #expect(candidate.japaneseTitle == "日本語タイトル")
+        #expect(candidate.tags == ["artist:sample", "female:sub tag"])
+        #expect(candidate.metadataCompleteness?.isComplete == true)
         #expect(candidate.images.map(\.pageIndex) == [0, 1])
         #expect(candidate.pageTokens == [0: "page-token"])
         #expect(candidate.images.contains { $0.archivePath.hasSuffix("00000002.mp4") })

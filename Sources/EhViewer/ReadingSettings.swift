@@ -18,24 +18,6 @@
 
 import Foundation
 
-enum ReaderPageScaling: String, CaseIterable, Codable, Hashable, Sendable, Identifiable {
-    case fit
-    case width
-    case height
-    case original
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .fit: String(localized: "适应屏幕")
-        case .width: String(localized: "适应宽度")
-        case .height: String(localized: "适应高度")
-        case .original: String(localized: "原始尺寸")
-        }
-    }
-}
-
 enum ReaderStartPosition: String, CaseIterable, Codable, Hashable, Sendable, Identifiable {
     case lastRead
     case first
@@ -71,14 +53,8 @@ enum ReaderScreenRotation: String, CaseIterable, Codable, Hashable, Sendable, Id
 struct ReadingSettings: Codable, Hashable, Sendable {
     var readingMode: ReadingMode = .paged
     var readingDirection: ReadingDirection = .rightToLeft
-    var pageScaling: ReaderPageScaling = .fit
     var startPosition: ReaderStartPosition = .lastRead
     var screenRotation: ReaderScreenRotation = .automatic
-    var keepScreenOn = false
-    var showClock = false
-    var showProgress = true
-    var showBattery = false
-    var showPageInterval = true
     var volumePage = false
     var reverseVolumePage = false
     var fullscreen = false
@@ -91,14 +67,8 @@ struct ReadingSettings: Codable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case readingMode
         case readingDirection
-        case pageScaling
         case startPosition
         case screenRotation
-        case keepScreenOn
-        case showClock
-        case showProgress
-        case showBattery
-        case showPageInterval
         case volumePage
         case reverseVolumePage
         case fullscreen
@@ -127,14 +97,8 @@ struct ReadingSettings: Codable, Hashable, Sendable {
         if let direction = try container.decodeIfPresent(ReadingDirection.self, forKey: .readingDirection) {
             readingDirection = direction
         }
-        pageScaling = try container.decodeIfPresent(ReaderPageScaling.self, forKey: .pageScaling) ?? .fit
         startPosition = try container.decodeIfPresent(ReaderStartPosition.self, forKey: .startPosition) ?? .lastRead
         screenRotation = try container.decodeIfPresent(ReaderScreenRotation.self, forKey: .screenRotation) ?? .automatic
-        keepScreenOn = try container.decodeIfPresent(Bool.self, forKey: .keepScreenOn) ?? false
-        showClock = try container.decodeIfPresent(Bool.self, forKey: .showClock) ?? false
-        showProgress = try container.decodeIfPresent(Bool.self, forKey: .showProgress) ?? true
-        showBattery = try container.decodeIfPresent(Bool.self, forKey: .showBattery) ?? false
-        showPageInterval = try container.decodeIfPresent(Bool.self, forKey: .showPageInterval) ?? true
         volumePage = try container.decodeIfPresent(Bool.self, forKey: .volumePage) ?? false
         reverseVolumePage = try container.decodeIfPresent(Bool.self, forKey: .reverseVolumePage) ?? false
         fullscreen = try container.decodeIfPresent(Bool.self, forKey: .fullscreen) ?? false
@@ -146,14 +110,8 @@ struct ReadingSettings: Codable, Hashable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(readingMode, forKey: .readingMode)
         try container.encode(readingDirection, forKey: .readingDirection)
-        try container.encode(pageScaling, forKey: .pageScaling)
         try container.encode(startPosition, forKey: .startPosition)
         try container.encode(screenRotation, forKey: .screenRotation)
-        try container.encode(keepScreenOn, forKey: .keepScreenOn)
-        try container.encode(showClock, forKey: .showClock)
-        try container.encode(showProgress, forKey: .showProgress)
-        try container.encode(showBattery, forKey: .showBattery)
-        try container.encode(showPageInterval, forKey: .showPageInterval)
         try container.encode(volumePage, forKey: .volumePage)
         try container.encode(reverseVolumePage, forKey: .reverseVolumePage)
         try container.encode(fullscreen, forKey: .fullscreen)

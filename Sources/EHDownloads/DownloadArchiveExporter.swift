@@ -23,12 +23,26 @@ import EHDomain
 public struct DownloadArchiveExportItem: Sendable, Hashable {
     public let key: GalleryKey
     public let title: String
+    public let japaneseTitle: String?
+    public let tags: [String]
+    public let metadataCompleteness: GalleryMetadataCompleteness?
     public let totalPageCount: Int
     public let pageTokens: [Int: String]
 
-    public init(key: GalleryKey, title: String, totalPageCount: Int, pageTokens: [Int: String]) {
+    public init(
+        key: GalleryKey,
+        title: String,
+        japaneseTitle: String? = nil,
+        tags: [String] = [],
+        metadataCompleteness: GalleryMetadataCompleteness? = nil,
+        totalPageCount: Int,
+        pageTokens: [Int: String]
+    ) {
         self.key = key
         self.title = title
+        self.japaneseTitle = japaneseTitle
+        self.tags = tags
+        self.metadataCompleteness = metadataCompleteness
         self.totalPageCount = totalPageCount
         self.pageTokens = pageTokens
     }
@@ -78,6 +92,9 @@ public enum DownloadArchiveExporter {
         try Task.checkCancellation()
 
         let prepared = try await prepare(items: items, files: files)
+        guard prepared.isEmpty == false else {
+            throw EHError.storageFailed(String(localized: "没有可导出的本地下载文件"))
+        }
         let totalBytes = prepared.reduce(0) { $0 + $1.entry.byteCount }
         let totalFiles = prepared.count
         var currentProgress = DownloadArchiveExportProgress(
@@ -102,7 +119,7 @@ public enum DownloadArchiveExporter {
             try Task.checkCancellation()
             if currentDirectory != item.directory {
                 let metadataPath = "\(item.directory)/.ehviewer"
-                let metadata = metadata(for: item)
+                let metadata = try metadata(for: item)
                 try writeData(metadata, to: metadataPath, writer: writer)
                 currentDirectory = item.directory
             }
@@ -152,6 +169,9 @@ public enum DownloadArchiveExporter {
         let key: GalleryKey
         let directory: String
         let title: String
+        let japaneseTitle: String?
+        let tags: [String]
+        let metadataCompleteness: GalleryMetadataCompleteness?
         let totalPageCount: Int
         let pageTokens: [Int: String]
         let entry: DownloadFileExportEntry
@@ -179,6 +199,9 @@ public enum DownloadArchiveExporter {
                         key: item.key,
                         directory: directory,
                         title: item.title,
+                        japaneseTitle: item.japaneseTitle,
+                        tags: item.tags,
+                        metadataCompleteness: item.metadataCompleteness,
                         totalPageCount: pageCount,
                         pageTokens: item.pageTokens,
                         entry: entry
@@ -189,7 +212,23 @@ public enum DownloadArchiveExporter {
         return prepared
     }
 
-    private static func metadata(for item: PreparedEntry) -> Data {
+    private struct ArchiveMetadata: Codable {
+        let title: String
+        let japaneseTitle: String?
+        let tags: [String]
+        let metadataCompleteness: GalleryMetadataCompleteness?
+    }
+
+    private static func metadata(for item: PreparedEntry) throws -> Data {
+        let payload = try JSONEncoder().encode(
+            ArchiveMetadata(
+                title: item.title,
+                japaneseTitle: item.japaneseTitle,
+                tags: item.tags,
+                metadataCompleteness: item.metadataCompleteness
+            )
+        )
+        let encodedPayload = payload.base64EncodedString()
         var lines = [
             "VERSION2",
             "",
@@ -203,6 +242,7 @@ public enum DownloadArchiveExporter {
         for index in 0..<item.totalPageCount {
             lines.append("\(index) \(item.pageTokens[index] ?? "failed")")
         }
+        lines.append("EHVIEWER_METADATA_V1 \(encodedPayload)")
         return Data((lines.joined(separator: "\n") + "\n").utf8)
     }
 

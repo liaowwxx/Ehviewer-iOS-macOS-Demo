@@ -36,6 +36,7 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
     public let key: GalleryKey
     public let title: String
     public let japaneseTitle: String?
+    public let tags: [String]
     public let pages: [GalleryPageDescriptor]
     public let addedAt: Date
     public var label: String?
@@ -47,6 +48,7 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
         key: GalleryKey,
         title: String,
         japaneseTitle: String? = nil,
+        tags: [String] = [],
         pages: [GalleryPageDescriptor],
         label: String? = nil,
         addedAt: Date = Date()
@@ -54,6 +56,7 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
         self.key = key
         self.title = title
         self.japaneseTitle = japaneseTitle
+        self.tags = tags
         self.pages = pages
         self.label = label
         self.addedAt = addedAt
@@ -90,6 +93,12 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
         guard query.isEmpty == false else { return true }
         let haystack = "\(japaneseTitle ?? "")\(title)"
         return haystack.localizedCaseInsensitiveContains(query)
+    }
+
+    public func containsTag(_ query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty == false else { return true }
+        return tags.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }
 
@@ -148,9 +157,15 @@ public actor DownloadCoordinator {
         return stream
     }
 
-    public func enqueue(key: GalleryKey, title: String, japaneseTitle: String? = nil, pages: [GalleryPageDescriptor]) async {
+    public func enqueue(
+        key: GalleryKey,
+        title: String,
+        japaneseTitle: String? = nil,
+        tags: [String] = [],
+        pages: [GalleryPageDescriptor]
+    ) async {
         guard jobs[key] == nil else { return }
-        let job = DownloadJob(key: key, title: title, japaneseTitle: japaneseTitle, pages: pages)
+        let job = DownloadJob(key: key, title: title, japaneseTitle: japaneseTitle, tags: tags, pages: pages)
         jobs[key] = job
         await save(job)
         emit(.changed(job))
@@ -324,8 +339,15 @@ public actor DownloadCoordinator {
         for incoming in restoredJobs {
             if let existing = jobs[incoming.key] {
                 var mergedPages = Dictionary(uniqueKeysWithValues: existing.pages.map { ($0.index, $0) })
-                for page in incoming.pages where mergedPages[page.index] == nil {
-                    mergedPages[page.index] = page
+                for page in incoming.pages {
+                    guard let existingPage = mergedPages[page.index] else {
+                        mergedPages[page.index] = page
+                        continue
+                    }
+                    if page.requiresPageResolution,
+                       existingPage.pageURL.fragment?.hasPrefix("restored-") == true {
+                        mergedPages[page.index] = page
+                    }
                 }
                 let pages = mergedPages.values.sorted { $0.index < $1.index }
                 let expectedIndexes = Set(pages.map(\.index))
@@ -334,6 +356,7 @@ public actor DownloadCoordinator {
                     key: existing.key,
                     title: existing.title.isEmpty ? incoming.title : existing.title,
                     japaneseTitle: existing.japaneseTitle ?? incoming.japaneseTitle,
+                    tags: existing.tags.isEmpty ? incoming.tags : existing.tags,
                     pages: pages,
                     label: existing.label ?? incoming.label,
                     addedAt: min(existing.addedAt, incoming.addedAt)
@@ -361,6 +384,29 @@ public actor DownloadCoordinator {
             }
         }
         startNextQueuedJobIfNeeded()
+    }
+
+    /// Updates only gallery metadata for an existing download. Local pages,
+    /// progress, labels and state remain untouched.
+    public func mergeMetadata(_ summaries: [GallerySummary]) async {
+        for summary in summaries {
+            guard let existing = jobs[summary.key] else { continue }
+            var updated = DownloadJob(
+                key: existing.key,
+                title: summary.title,
+                japaneseTitle: summary.japaneseTitle,
+                tags: summary.tags,
+                pages: existing.pages,
+                label: existing.label,
+                addedAt: existing.addedAt
+            )
+            updated.completedPageIndexes = existing.completedPageIndexes
+            updated.state = existing.state
+            updated.errorMessage = existing.errorMessage
+            jobs[summary.key] = updated
+            await save(updated)
+            emit(.changed(updated))
+        }
     }
 
     public func loadPersisted(_ restoredJobs: [DownloadJob]) {

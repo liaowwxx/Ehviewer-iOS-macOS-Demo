@@ -24,6 +24,7 @@ public struct PersistedDownload: Hashable, Sendable {
     public let key: GalleryKey
     public let title: String
     public let japaneseTitle: String?
+    public let tags: [String]
     public let pages: [GalleryPageDescriptor]
     public let totalPageCount: Int
     public let createdAt: Date
@@ -38,6 +39,7 @@ public struct PersistedDownload: Hashable, Sendable {
         key: GalleryKey,
         title: String,
         japaneseTitle: String? = nil,
+        tags: [String] = [],
         pages: [GalleryPageDescriptor],
         totalPageCount: Int? = nil,
         createdAt: Date = Date(),
@@ -51,6 +53,7 @@ public struct PersistedDownload: Hashable, Sendable {
         self.key = key
         self.title = title
         self.japaneseTitle = japaneseTitle
+        self.tags = tags
         self.pages = pages
         self.totalPageCount = totalPageCount ?? pages.count
         self.createdAt = createdAt
@@ -97,8 +100,70 @@ public struct FilterRuleSnapshot: Hashable, Sendable, Codable {
 }
 
 public enum ModelContainerFactory {
+    // Keep this snapshot in sync with the store that existed before the
+    // per-gallery metadata completeness flags were added.
     public enum SchemaV1: VersionedSchema {
         public static let versionIdentifier = Schema.Version(1, 0, 0)
+
+        @Model
+        public final class GalleryRecord {
+            #Index<GalleryRecord>([\.gid], [\.lastReadAt])
+
+            public var gid: Int64
+            public var token: String
+            public var title: String
+            public var japaneseTitle: String?
+            public var thumbnailURLString: String?
+            public var category: String?
+            public var pageCount: Int?
+            public var postedAt: Date?
+            public var rating: Double?
+            public var ratingCount: Int?
+            public var favoriteCategory: Int?
+            public var uploader: String?
+            public var lastReadAt: Date?
+            public var lastReadPage: Int
+            public var isFavorite: Bool
+            public var tags: [String]
+
+            public init(
+                snapshot: GallerySummary,
+                lastReadPage: Int = 0,
+                lastReadAt: Date? = nil,
+                isFavorite: Bool = false
+            ) {
+                gid = snapshot.key.gid
+                token = snapshot.key.token
+                title = snapshot.title
+                japaneseTitle = snapshot.japaneseTitle
+                thumbnailURLString = snapshot.thumbnailURL?.absoluteString
+                category = snapshot.category
+                pageCount = snapshot.pageCount
+                postedAt = snapshot.postedAt
+                rating = snapshot.rating
+                ratingCount = snapshot.ratingCount
+                favoriteCategory = snapshot.favoriteCategory
+                uploader = snapshot.uploader
+                self.lastReadPage = lastReadPage
+                self.lastReadAt = lastReadAt
+                self.isFavorite = isFavorite
+                tags = snapshot.tags
+            }
+        }
+
+        public static let models: [any PersistentModel.Type] = [
+            SchemaV1.GalleryRecord.self,
+            DownloadJobRecord.self,
+            DownloadPageRecord.self,
+            DownloadLabelRecord.self,
+            QuickSearchRecord.self,
+            FilterRuleRecord.self,
+            TagTranslationRecord.self
+        ]
+    }
+
+    public enum SchemaV2: VersionedSchema {
+        public static let versionIdentifier = Schema.Version(2, 0, 0)
 
         public static let models: [any PersistentModel.Type] = [
             GalleryRecord.self,
@@ -112,14 +177,16 @@ public enum ModelContainerFactory {
     }
 
     public enum MigrationPlan: SchemaMigrationPlan {
-        public static let schemas: [any VersionedSchema.Type] = [SchemaV1.self]
-        public static let stages: [MigrationStage] = []
+        public static let schemas: [any VersionedSchema.Type] = [SchemaV1.self, SchemaV2.self]
+        public static let stages: [MigrationStage] = [
+            .lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self)
+        ]
     }
 
     public static func make(inMemory: Bool = false) throws -> ModelContainer {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: inMemory)
         return try ModelContainer(
-            for: Schema(SchemaV1.models),
+            for: Schema(SchemaV2.models),
             migrationPlan: MigrationPlan.self,
             configurations: configuration
         )
@@ -275,6 +342,8 @@ public actor PersistenceStore {
         )
         descriptor.relationshipKeyPathsForPrefetching = [\.pages]
         let records = try modelContext.fetch(descriptor)
+        let galleryRecords = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
+        let summariesByKey = Dictionary(uniqueKeysWithValues: galleryRecords.map { ($0.key, $0.summary) })
         return records.map { record in
             let key = record.key
             var pages: [GalleryPageDescriptor] = []
@@ -299,6 +368,7 @@ public actor PersistenceStore {
                 key: key,
                 title: record.title,
                 japaneseTitle: record.japaneseTitle,
+                tags: summariesByKey[key]?.tags ?? [],
                 pages: pages,
                 totalPageCount: record.totalPages,
                 createdAt: record.createdAt,
@@ -527,6 +597,41 @@ public actor PersistenceStore {
             insertedCount: missing.count
         )
     }
+
+    /// Merges transferable gallery metadata while preserving local reading
+    /// progress, favorite state and all downloaded page records.
+    public func mergeGallerySyncSummaries(
+        _ summaries: [GallerySummary]
+    ) throws -> GallerySyncImportOutcome {
+        var uniqueSummaries: [GallerySummary] = []
+        var incomingKeys = Set<GalleryKey>()
+        uniqueSummaries.reserveCapacity(summaries.count)
+        for summary in summaries where incomingKeys.insert(summary.key).inserted {
+            uniqueSummaries.append(summary)
+        }
+
+        let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
+        let recordsByKey = Dictionary(uniqueKeysWithValues: records.map { ($0.key, $0) })
+        var insertedCount = 0
+        for summary in uniqueSummaries {
+            if let record = recordsByKey[summary.key] {
+                record.update(from: summary)
+            } else {
+                modelContext.insert(GalleryRecord(snapshot: summary))
+                insertedCount += 1
+            }
+        }
+        if uniqueSummaries.isEmpty == false {
+            try modelContext.save()
+        }
+
+        return GallerySyncImportOutcome(
+            sourceCount: summaries.count,
+            duplicateInFileCount: summaries.count - uniqueSummaries.count,
+            existingCount: uniqueSummaries.count - insertedCount,
+            insertedCount: insertedCount
+        )
+    }
 }
 
 public struct GallerySyncImportOutcome: Sendable, Hashable {
@@ -562,7 +667,12 @@ private extension GalleryRecord {
             ratingCount: ratingCount,
             favoriteCategory: favoriteCategory,
             uploader: uploader,
-            tags: tags
+            tags: tags,
+            metadataCompleteness: GalleryMetadataCompleteness(
+                title: metadataTitleComplete,
+                japaneseTitle: metadataJapaneseTitleComplete,
+                tags: metadataTagsComplete
+            )
         )
     }
 }

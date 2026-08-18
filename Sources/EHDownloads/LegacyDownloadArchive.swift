@@ -36,6 +36,10 @@ public struct LegacyDownloadCandidate: Identifiable, Sendable {
     public let declaredPageCount: Int
     public let pageTokens: [Int: String]
     public let images: [LegacyDownloadImageEntry]
+    public let title: String?
+    public let japaneseTitle: String?
+    public let tags: [String]?
+    public let metadataCompleteness: GalleryMetadataCompleteness?
 
     public var id: String { directoryPath }
 
@@ -44,13 +48,21 @@ public struct LegacyDownloadCandidate: Identifiable, Sendable {
         directoryPath: String,
         declaredPageCount: Int,
         pageTokens: [Int: String],
-        images: [LegacyDownloadImageEntry]
+        images: [LegacyDownloadImageEntry],
+        title: String? = nil,
+        japaneseTitle: String? = nil,
+        tags: [String]? = nil,
+        metadataCompleteness: GalleryMetadataCompleteness? = nil
     ) {
         self.key = key
         self.directoryPath = directoryPath
         self.declaredPageCount = declaredPageCount
         self.pageTokens = pageTokens
         self.images = images
+        self.title = title
+        self.japaneseTitle = japaneseTitle
+        self.tags = tags
+        self.metadataCompleteness = metadataCompleteness
     }
 }
 
@@ -173,7 +185,11 @@ public enum LegacyDownloadArchive {
                 directoryPath: directoryPath,
                 declaredPageCount: spiderInfo.pageCount,
                 pageTokens: spiderInfo.pageTokens,
-                images: images
+                images: images,
+                title: spiderInfo.title,
+                japaneseTitle: spiderInfo.japaneseTitle,
+                tags: spiderInfo.tags,
+                metadataCompleteness: spiderInfo.metadataCompleteness
             )
         }.sorted { lhs, rhs in
             lhs.directoryPath.localizedStandardCompare(rhs.directoryPath) == .orderedAscending
@@ -289,10 +305,7 @@ public enum LegacyDownloadArchive {
             }
             if bytesSinceCapacityCheck >= 16 * 1_024 * 1_024 {
                 bytesSinceCapacityCheck = 0
-                if let available = try? volumeURL.resourceValues(
-                    forKeys: [.volumeAvailableCapacityForImportantUsageKey]
-                ).volumeAvailableCapacityForImportantUsage,
-                   available < minimumFreeBytes {
+                if hasSufficientFreeSpace(at: volumeURL) == false {
                     throw EHError.diskSpaceLow
                 }
             }
@@ -312,6 +325,27 @@ public enum LegacyDownloadArchive {
             data.append(buffer, count: Int(count))
         }
         return data
+    }
+
+    /// macOS sandboxed processes can report zero for the important-usage
+    /// capacity while still exposing a valid regular capacity. Keep the
+    /// safety threshold, but use the regular value when it is the only valid
+    /// capacity measurement.
+    private static func hasSufficientFreeSpace(at url: URL) -> Bool {
+        guard let values = try? url.resourceValues(
+            forKeys: [
+                .volumeAvailableCapacityForImportantUsageKey,
+                .volumeAvailableCapacityKey
+            ]
+        ) else { return true }
+        let available: Int64? = if let important = values.volumeAvailableCapacityForImportantUsage,
+                                  important > 0 {
+            important
+        } else {
+            values.volumeAvailableCapacity.map(Int64.init)
+        }
+        guard let available else { return true }
+        return available >= minimumFreeBytes
     }
 
     private static func safePathComponents(_ rawPath: String) -> [String]? {
@@ -373,6 +407,35 @@ private struct LegacySpiderInfo {
     let key: GalleryKey
     let pageCount: Int
     let pageTokens: [Int: String]
+    let title: String?
+    let japaneseTitle: String?
+    let tags: [String]?
+    let metadataCompleteness: GalleryMetadataCompleteness?
+
+    private struct ArchiveMetadata: Decodable {
+        let title: String
+        let japaneseTitle: String?
+        let tags: [String]
+        let metadataCompleteness: GalleryMetadataCompleteness?
+
+        private enum CodingKeys: String, CodingKey {
+            case title
+            case japaneseTitle
+            case tags
+            case metadataCompleteness
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            title = try container.decode(String.self, forKey: .title)
+            japaneseTitle = try container.decodeIfPresent(String.self, forKey: .japaneseTitle)
+            tags = try container.decode([String].self, forKey: .tags)
+            metadataCompleteness = try container.decodeIfPresent(
+                GalleryMetadataCompleteness.self,
+                forKey: .metadataCompleteness
+            )
+        }
+    }
 
     init?(data: Data) {
         let text = String(decoding: data, as: UTF8.self)
@@ -382,16 +445,38 @@ private struct LegacySpiderInfo {
         let gidIndex: Int
         let tokenIndex: Int
         let pageCountIndex: Int
+        var metadata: ArchiveMetadata?
         if lines.first == "VERSION2" {
             gidIndex = 2
             tokenIndex = 3
             pageCountIndex = 7
+            metadata = nil
+        } else if lines.first == "VERSION3" {
+            gidIndex = 2
+            tokenIndex = 3
+            pageCountIndex = 5
+            guard lines.indices.contains(4),
+                  let payload = Data(base64Encoded: lines[4]),
+                  let decoded = try? JSONDecoder().decode(ArchiveMetadata.self, from: payload) else {
+                return nil
+            }
+            metadata = decoded
         } else if lines.first?.hasPrefix("VERSION") == true {
             return nil
         } else {
             gidIndex = 1
             tokenIndex = 2
             pageCountIndex = 6
+            metadata = nil
+        }
+        if metadata == nil,
+           let metadataLine = lines.dropFirst(pageCountIndex + 1).first(where: { $0.hasPrefix("EHVIEWER_METADATA_V1 ") }) {
+            let encodedPayload = String(metadataLine.dropFirst("EHVIEWER_METADATA_V1 ".count))
+            guard let payload = Data(base64Encoded: encodedPayload),
+                  let decoded = try? JSONDecoder().decode(ArchiveMetadata.self, from: payload) else {
+                return nil
+            }
+            metadata = decoded
         }
         guard lines.indices.contains(gidIndex),
               lines.indices.contains(tokenIndex),
@@ -404,6 +489,10 @@ private struct LegacySpiderInfo {
               (1...100_000).contains(pageCount) else { return nil }
         key = GalleryKey(gid: gid, token: lines[tokenIndex])
         self.pageCount = pageCount
+        title = metadata?.title
+        japaneseTitle = metadata?.japaneseTitle
+        tags = metadata.map(\.tags)
+        metadataCompleteness = metadata?.metadataCompleteness
         var parsedTokens: [Int: String] = [:]
         for line in lines.dropFirst(pageCountIndex + 1) {
             guard let separator = line.firstIndex(of: " "),

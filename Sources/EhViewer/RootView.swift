@@ -75,7 +75,7 @@ struct RootView: View {
             case .incomingGallerySync(let pending):
                 Alert(
                     title: Text("收到 EhViewer 画廊同步包"),
-                    message: Text("将只添加本机缺失的画廊，不会修改已有画廊、阅读进度、收藏、下载或设置。"),
+                    message: Text("将恢复画廊的普通标题、日文标题和标签；保留本机已有的阅读进度、收藏及下载文件。"),
                     primaryButton: .default(Text("导入")) {
                         Task { await model.confirmIncomingGallerySync(pending) }
                     },

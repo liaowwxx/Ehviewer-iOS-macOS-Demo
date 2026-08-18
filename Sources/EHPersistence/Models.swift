@@ -40,6 +40,9 @@ public final class GalleryRecord {
     public var lastReadPage: Int
     public var isFavorite: Bool
     public var tags: [String]
+    public var metadataTitleComplete: Bool = false
+    public var metadataJapaneseTitleComplete: Bool = false
+    public var metadataTagsComplete: Bool = false
 
     public init(snapshot: GallerySummary, lastReadPage: Int = 0, lastReadAt: Date? = nil, isFavorite: Bool = false) {
         gid = snapshot.key.gid
@@ -58,6 +61,9 @@ public final class GalleryRecord {
         self.lastReadAt = lastReadAt
         self.isFavorite = isFavorite
         tags = snapshot.tags
+        metadataTitleComplete = snapshot.metadataCompleteness?.title ?? false
+        metadataJapaneseTitleComplete = snapshot.metadataCompleteness?.japaneseTitle ?? false
+        metadataTagsComplete = snapshot.metadataCompleteness?.tags ?? false
     }
 
     public var key: GalleryKey { GalleryKey(gid: gid, token: token) }
@@ -75,6 +81,11 @@ public final class GalleryRecord {
         favoriteCategory = snapshot.favoriteCategory
         uploader = snapshot.uploader
         tags = snapshot.tags
+        if let completeness = snapshot.metadataCompleteness {
+            metadataTitleComplete = completeness.title
+            metadataJapaneseTitleComplete = completeness.japaneseTitle
+            metadataTagsComplete = completeness.tags
+        }
     }
 }
 

@@ -28,7 +28,6 @@ struct ReaderVerticalPagedView: View {
     let descriptors: [GalleryPageDescriptor]
     let resolution: ImageResolution
     let resetToken: UUID
-    let pageScaling: ReaderPageScaling
     let source: ReaderContentSource
     @Binding var position: ReaderPositionState
 
@@ -41,7 +40,6 @@ struct ReaderVerticalPagedView: View {
             resetToken: resetToken,
             readingDirection: .leftToRight,
             navigationOrientation: .vertical,
-            pageScaling: pageScaling,
             source: source,
             position: $position
         )
@@ -55,7 +53,6 @@ struct ReaderVerticalPagedView: View {
                             descriptor: descriptor,
                             resolution: resolution,
                             source: source,
-                            pageScaling: pageScaling,
                             fitsViewport: true
                         )
                         .containerRelativeFrame([.horizontal, .vertical])

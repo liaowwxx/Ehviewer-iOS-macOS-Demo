@@ -94,6 +94,36 @@ public struct GalleryKey: Hashable, Codable, Sendable, Identifiable {
     public var id: String { "\(gid)-\(token)" }
 }
 
+/// Records whether each transferable gallery metadata field contains usable
+/// data. A gallery is complete when tags are known and at least one of the
+/// ordinary or Japanese titles is present; some galleries legitimately expose
+/// only one title variant.
+public struct GalleryMetadataCompleteness: Codable, Hashable, Sendable {
+    public var title: Bool
+    public var japaneseTitle: Bool
+    public var tags: Bool
+
+    public var isComplete: Bool {
+        tags && (title || japaneseTitle)
+    }
+
+    public static let complete = GalleryMetadataCompleteness(
+        title: true,
+        japaneseTitle: true,
+        tags: true
+    )
+
+    public init(
+        title: Bool = false,
+        japaneseTitle: Bool = false,
+        tags: Bool = false
+    ) {
+        self.title = title
+        self.japaneseTitle = japaneseTitle
+        self.tags = tags
+    }
+}
+
 public struct GallerySummary: Identifiable, Hashable, Codable, Sendable {
     public let key: GalleryKey
     public var title: String
@@ -107,6 +137,8 @@ public struct GallerySummary: Identifiable, Hashable, Codable, Sendable {
     public var favoriteCategory: Int?
     public var uploader: String?
     public var tags: [String]
+    /// Nil means the summary predates per-field completeness tracking.
+    public var metadataCompleteness: GalleryMetadataCompleteness?
 
     public init(
         key: GalleryKey,
@@ -120,7 +152,8 @@ public struct GallerySummary: Identifiable, Hashable, Codable, Sendable {
         ratingCount: Int? = nil,
         favoriteCategory: Int? = nil,
         uploader: String? = nil,
-        tags: [String] = []
+        tags: [String] = [],
+        metadataCompleteness: GalleryMetadataCompleteness? = nil
     ) {
         self.key = key
         self.title = title
@@ -134,6 +167,7 @@ public struct GallerySummary: Identifiable, Hashable, Codable, Sendable {
         self.favoriteCategory = favoriteCategory
         self.uploader = uploader
         self.tags = tags
+        self.metadataCompleteness = metadataCompleteness
     }
 
     public var id: String { key.id }

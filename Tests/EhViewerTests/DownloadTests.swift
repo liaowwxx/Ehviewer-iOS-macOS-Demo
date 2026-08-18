@@ -5,6 +5,35 @@ import EHDownloads
 @testable import EhViewerPreview
 
 struct DownloadTests {
+    @Test("Local download titles follow the Japanese-title preference")
+    func localDownloadTitlePreference() {
+        let key = GalleryKey(gid: 1, token: "local-title")
+        let job = DownloadJob(
+            key: key,
+            title: "English title",
+            japaneseTitle: "日本語タイトル",
+            pages: []
+        )
+
+        #expect(job.displayTitle(showJapaneseTitle: false) == "English title")
+        #expect(job.displayTitle(showJapaneseTitle: true) == "日本語タイトル")
+    }
+
+    @Test("Download search matches raw gallery tags")
+    func downloadTagSearch() {
+        let key = GalleryKey(gid: 2, token: "tag-search")
+        let job = DownloadJob(
+            key: key,
+            title: "Title",
+            tags: ["artist:sample", "female:sub tag"],
+            pages: []
+        )
+
+        #expect(job.containsTag("artist:sample"))
+        #expect(job.containsTag("sub tag"))
+        #expect(job.containsTag("missing") == false)
+    }
+
     @Test("Download coordinator limits a job to bounded page batches")
     func completesJob() async throws {
         let pages = (0..<5).map { index in
@@ -151,6 +180,29 @@ struct DownloadTests {
         #expect(merged.pages.first?.pageURL == localPage.pageURL)
         #expect(merged.completedPageIndexes == [0, 1])
         #expect(merged.state == .completed)
+    }
+
+    @Test("A resolvable page replaces a restored placeholder at the same index")
+    func mergeRestoredReplacesPlaceholderPage() async throws {
+        let key = GalleryKey(gid: 24, token: "placeholder-upgrade")
+        let placeholder = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://example.invalid/g/24/placeholder-upgrade/#restored-1")!
+        )
+        let resolvable = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://example.invalid/s/page-token/24-1")!
+        )
+        let existing = DownloadJob(key: key, title: "Existing", pages: [placeholder])
+        let incoming = DownloadJob(key: key, title: "Incoming", pages: [resolvable])
+
+        let coordinator = DownloadCoordinator(pageLoader: { _ in Data() })
+        await coordinator.restore([existing])
+        await coordinator.mergeRestored([incoming])
+
+        #expect(await coordinator.job(for: key)?.pages.first?.pageURL == resolvable.pageURL)
     }
 
     @Test("A stale persisted reconciliation cannot overwrite a newer user change")

@@ -144,7 +144,12 @@ public struct GalleryHTMLParser: Sendable {
                 rating: rating,
                 ratingCount: ratingCount,
                 uploader: uploader,
-                tags: tags
+                tags: tags,
+                metadataCompleteness: GalleryMetadataCompleteness(
+                    title: title.isEmpty == false,
+                    japaneseTitle: japaneseTitle?.isEmpty == false,
+                    tags: true
+                )
             )
             let previewPage = try parsePreviewPage(from: document, rawHTML: html, key: key, site: site)
             let externalURL = URL(string: "https://\(site.host)/g/\(key.gid)/\(key.token)/")

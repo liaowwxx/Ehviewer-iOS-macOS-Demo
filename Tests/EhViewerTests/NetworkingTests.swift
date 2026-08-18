@@ -255,6 +255,48 @@ struct NetworkingTests {
         #expect(try await iterator.next() == nil)
     }
 
+    @Test("Cancelled detail requests are not retried or reported as empty responses")
+    func cancelledDetailRequestsAreNotRetried() async throws {
+        let transport = CancellationTransport()
+        let client = EHClient(transport: transport)
+        let key = GalleryKey(gid: 1_366_222, token: "sample-token")
+
+        do {
+            _ = try await client.detail(for: key, site: .eHentai)
+            Issue.record("expected cancellation")
+        } catch is CancellationError {
+            // Expected: a cancelled URLSession request is a lifecycle event.
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        #expect(await transport.requestCount() == 1)
+    }
+
+    @Test("Cancelled tasks do not retry ordinary transport errors")
+    func cancelledTasksDoNotRetryOrdinaryTransportErrors() async throws {
+        let transport = CancelledTaskTransport()
+        let client = EHClient(transport: transport)
+        let requestTask = Task {
+            try await client.list(query: GalleryListQuery())
+        }
+
+        await transport.waitUntilStarted()
+        requestTask.cancel()
+        await transport.release()
+
+        do {
+            _ = try await requestTask.value
+            Issue.record("expected cancellation")
+        } catch is CancellationError {
+            // Expected: cancellation takes precedence over transport retries.
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        #expect(await transport.requestCount() == 1)
+    }
+
     @Test("Gallery page parser handles HTML response metadata")
     func pageHTMLParser() throws {
         let fixtureURL = try #require(Bundle.module.url(forResource: "page", withExtension: "html"))
@@ -799,6 +841,50 @@ private struct StubTransport: HTTPTransport {
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         (data, response)
+    }
+}
+
+private actor CancellationTransport: HTTPTransport {
+    private var requests = 0
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests += 1
+        throw URLError(.cancelled)
+    }
+
+    func requestCount() -> Int {
+        requests
+    }
+}
+
+private actor CancelledTaskTransport: HTTPTransport {
+    private var requests = 0
+    private var started = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests += 1
+        started = true
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+        throw EHError.networkFailed("transport failure after cancellation")
+    }
+
+    func waitUntilStarted() async {
+        for _ in 0..<200 {
+            if started { return }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+
+    func requestCount() -> Int {
+        requests
     }
 }
 

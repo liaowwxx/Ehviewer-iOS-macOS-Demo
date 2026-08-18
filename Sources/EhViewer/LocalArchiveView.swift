@@ -112,7 +112,7 @@ struct LocalArchiveImageView: View {
         Group {
             if let media {
                 ScrollView([.vertical, .horizontal]) {
-                    ReaderMediaView(content: media, pageScaling: .fit, fitsViewport: false)
+                    ReaderMediaView(content: media, fitsViewport: false)
                         .scaleEffect(scale)
                         .gesture(
                             MagnifyGesture()

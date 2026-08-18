@@ -29,7 +29,6 @@ struct ReaderPagedView: View {
     let resolution: ImageResolution
     let resetToken: UUID
     let readingDirection: ReadingDirection
-    let pageScaling: ReaderPageScaling
     let source: ReaderContentSource
     @Binding var position: ReaderPositionState
 
@@ -42,7 +41,6 @@ struct ReaderPagedView: View {
             resetToken: resetToken,
             readingDirection: readingDirection,
             navigationOrientation: .horizontal,
-            pageScaling: pageScaling,
             source: source,
             position: $position
         )
@@ -55,7 +53,6 @@ struct ReaderPagedView: View {
                             descriptor: descriptor,
                             resolution: resolution,
                             source: source,
-                            pageScaling: pageScaling,
                             fitsViewport: true
                         )
                         .containerRelativeFrame([.horizontal, .vertical])
@@ -94,7 +91,6 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
     let resetToken: UUID
     let readingDirection: ReadingDirection
     let navigationOrientation: UIPageViewController.NavigationOrientation
-    let pageScaling: ReaderPageScaling
     let source: ReaderContentSource
     @Binding var position: ReaderPositionState
 
@@ -110,7 +106,6 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             resetToken: resetToken,
             readingDirection: readingDirection,
             navigationOrientation: navigationOrientation,
-            pageScaling: pageScaling,
             source: source
         )
     }
@@ -124,7 +119,6 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             resetToken: resetToken,
             readingDirection: readingDirection,
             navigationOrientation: navigationOrientation,
-            pageScaling: pageScaling,
             source: source,
             position: position
         )
@@ -139,7 +133,6 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
         private var resolution: ImageResolution = .preview
         private var readingDirection: ReadingDirection = .rightToLeft
         private var navigationOrientation: UIPageViewController.NavigationOrientation = .horizontal
-        private var pageScaling: ReaderPageScaling = .fit
         private var source: ReaderContentSource = .remote
         private var resetToken: UUID?
         private var lastScrollRequestSequence = -1
@@ -156,7 +149,6 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             resetToken: UUID,
             readingDirection: ReadingDirection,
             navigationOrientation: UIPageViewController.NavigationOrientation,
-            pageScaling: ReaderPageScaling,
             source: ReaderContentSource
         ) -> UIPageViewController {
             self.model = model
@@ -165,7 +157,6 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             self.resetToken = resetToken
             self.readingDirection = readingDirection
             self.navigationOrientation = navigationOrientation
-            self.pageScaling = pageScaling
             self.source = source
             lastScrollRequestSequence = position.wrappedValue.scrollRequestSequence
 
@@ -190,7 +181,6 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             resetToken: UUID,
             readingDirection: ReadingDirection,
             navigationOrientation: UIPageViewController.NavigationOrientation,
-            pageScaling: ReaderPageScaling,
             source: ReaderContentSource,
             position: ReaderPositionState
         ) {
@@ -202,7 +192,6 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             self.resolution = resolution
             self.readingDirection = readingDirection
             self.navigationOrientation = navigationOrientation
-            self.pageScaling = pageScaling
             self.source = source
 
             if descriptorsChanged || directionChanged || orientationChanged {
@@ -288,7 +277,6 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
                 descriptor: descriptor,
                 resolution: resolution,
                 source: source,
-                pageScaling: pageScaling,
                 navigationOrientation: navigationOrientation,
                 model: model
             )
@@ -324,7 +312,6 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
     private let descriptor: GalleryPageDescriptor
     private let resolution: ImageResolution
     private let source: ReaderContentSource
-    private let pageScaling: ReaderPageScaling
     private let navigationOrientation: UIPageViewController.NavigationOrientation
     private let model: AppModel
     private let scrollView = UIScrollView()
@@ -334,7 +321,6 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
         descriptor: GalleryPageDescriptor,
         resolution: ImageResolution,
         source: ReaderContentSource,
-        pageScaling: ReaderPageScaling,
         navigationOrientation: UIPageViewController.NavigationOrientation,
         model: AppModel
     ) {
@@ -342,7 +328,6 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
         self.descriptor = descriptor
         self.resolution = resolution
         self.source = source
-        self.pageScaling = pageScaling
         self.navigationOrientation = navigationOrientation
         self.model = model
         super.init(nibName: nil, bundle: nil)
@@ -385,7 +370,6 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
             descriptor: descriptor,
             resolution: resolution,
             source: source,
-            pageScaling: pageScaling,
             fitsViewport: true
         )
         let hostingController = UIHostingController(rootView: AnyView(page.environment(model)))

@@ -90,8 +90,7 @@ public actor DownloadFileStore {
     @discardableResult
     public func write(_ data: Data, for key: GalleryKey, pageIndex: Int) throws -> URL {
         try DownloadMediaValidator.validate(data)
-        if let available = try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage,
-           available < minimumFreeBytes {
+        if hasSufficientFreeSpace == false {
             throw EHError.diskSpaceLow
         }
 
@@ -125,10 +124,7 @@ public actor DownloadFileStore {
               DownloadMediaValidator.kind(of: data) != nil else {
             throw EHError.parsingFailed(String(localized: "恢复文件不是有效图片或视频"))
         }
-        if let available = try? root.resourceValues(
-            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
-        ).volumeAvailableCapacityForImportantUsage,
-           available < minimumFreeBytes {
+        if hasSufficientFreeSpace == false {
             throw EHError.diskSpaceLow
         }
 
@@ -180,6 +176,26 @@ public actor DownloadFileStore {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "=", with: "")
         return root.appendingPathComponent(encoded, isDirectory: true)
+    }
+
+    /// macOS sandboxed processes can report zero for the important-usage
+    /// capacity while still exposing a valid regular capacity. Only use that
+    /// fallback when it also satisfies the configured safety threshold.
+    private var hasSufficientFreeSpace: Bool {
+        guard let values = try? root.resourceValues(
+            forKeys: [
+                .volumeAvailableCapacityForImportantUsageKey,
+                .volumeAvailableCapacityKey
+            ]
+        ) else { return true }
+        let available: Int64? = if let important = values.volumeAvailableCapacityForImportantUsage,
+                                  important > 0 {
+            important
+        } else {
+            values.volumeAvailableCapacity.map(Int64.init)
+        }
+        guard let available else { return true }
+        return available >= minimumFreeBytes
     }
 
     private static var defaultRoot: URL {

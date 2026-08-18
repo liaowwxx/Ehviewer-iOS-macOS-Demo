@@ -111,4 +111,31 @@ struct PersistenceTests {
         #expect(try await store.gallerySummary(for: missing.key)?.title == "Imported title")
         #expect(try await store.gallerySyncSummaries(for: [existingKey, missing.key]).map(\.key) == [existingKey, missing.key])
     }
+
+    @Test("Gallery sync merges titles and tags without changing local reading state")
+    func gallerySyncMergesTransferMetadata() async throws {
+        let container = try ModelContainerFactory.make(inMemory: true)
+        let store = PersistenceStore(modelContainer: container)
+        let key = GalleryKey(gid: 92, token: "merge")
+        try await store.upsert([GallerySummary(key: key, title: "旧标题", tags: ["old:tag"])])
+        try await store.updateReadingProgress(for: key, page: 6)
+        try await store.setFavorite(for: key, isFavorite: true)
+
+        let incoming = GallerySummary(
+            key: key,
+            title: "普通标题",
+            japaneseTitle: "日本語タイトル",
+            tags: ["artist:sample", "female:sub tag"]
+        )
+        let outcome = try await store.mergeGallerySyncSummaries([incoming])
+
+        #expect(outcome.existingCount == 1)
+        #expect(outcome.insertedCount == 0)
+        let restored = try #require(await store.gallerySummary(for: key))
+        #expect(restored.title == "普通标题")
+        #expect(restored.japaneseTitle == "日本語タイトル")
+        #expect(restored.tags == ["artist:sample", "female:sub tag"])
+        #expect(try await store.readingPage(for: key) == 6)
+        #expect(try await store.isFavorite(for: key) == true)
+    }
 }

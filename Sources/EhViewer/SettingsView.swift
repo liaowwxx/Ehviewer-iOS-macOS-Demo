@@ -75,9 +75,6 @@ struct SettingsView: View {
                         model.persistReadingSettings()
                     }
                     .accessibilityIdentifier("show-tag-translations-toggle")
-                Text("「显示标签翻译」开启时详情页标签显示中文翻译（参考项目默认开启）；关闭时显示英文标签名。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 Toggle("启用详情缓存", isOn: $model.galleryCacheEnabled)
                     .onChange(of: model.galleryCacheEnabled) { _, enabled in
                         model.setGalleryCacheEnabled(enabled)
@@ -89,9 +86,6 @@ struct SettingsView: View {
                 }
                 .disabled(model.galleryCacheByteCount == 0)
                 .accessibilityIdentifier("clear-gallery-cache-action")
-                Text("仅清除详情页元数据和预览图缓存，不会影响下载内容、阅读进度或收藏数据。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             Section("登录") {
                 Button("用户名&密码登录", systemImage: "person.badge.key") { showingPasswordLogin = true }
@@ -100,28 +94,27 @@ struct SettingsView: View {
                 Button("清除Cookie", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                     Task { await model.clearSession() }
                 }
-                Text("密码仅用于本次登录请求；会话 Cookie 由 Keychain 管理。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             Section("About") {
                 LabeledContent("version:", value: appVersion)
-                Text("基于https://github.com/xiaojieonly/Ehviewer_CN_SXJ")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             FilterRulesSection()
             Section("数据迁移/备份") {
+                Button("更新已下载画廊信息", systemImage: "arrow.triangle.2.circlepath") {
+                    Task { await model.refreshDownloadedGalleryMetadata() }
+                }
+                .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
+                .accessibilityIdentifier("refresh-downloaded-gallery-metadata-action")
                 Label("导入", systemImage: "square.and.arrow.down")
                     .font(.subheadline.weight(.semibold))
                 Button("导入元数据(.ehgallery)", systemImage: "square.and.arrow.down") {
                     showingGallerySyncImporter = true
                 }
-                .disabled(model.isMigrating)
+                .disabled(model.isMigrating || model.isRestoringDownloads)
                 Button("导入归档(.eharchive)", systemImage: "arrow.counterclockwise.circle") {
                     showingDownloadRestoreImporter = true
                 }
-                .disabled(model.isRestoringDownloads)
+                .disabled(model.isMigrating || model.isRestoringDownloads)
                 Label("导出", systemImage: "square.and.arrow.up")
                     .font(.subheadline.weight(.semibold))
                 Button("导出元数据(.ehgallery)", systemImage: "square.and.arrow.up") {
@@ -136,7 +129,7 @@ struct SettingsView: View {
 #endif
                     }
                 }
-                .disabled(model.isMigrating)
+                .disabled(model.isMigrating || model.isRestoringDownloads)
                 Button("导出归档(.eharchive)", systemImage: "square.and.arrow.up") {
                     Task {
                         guard let url = await model.exportDownloadArchive() else { return }
@@ -150,7 +143,7 @@ struct SettingsView: View {
 #endif
                     }
                 }
-                .disabled(model.isMigrating)
+                .disabled(model.isMigrating || model.isRestoringDownloads)
             }
         }
         .formStyle(.grouped)
