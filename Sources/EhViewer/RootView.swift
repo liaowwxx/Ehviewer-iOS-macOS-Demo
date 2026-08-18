@@ -23,13 +23,14 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var presentedRootAlert: RootAlert?
-    @State private var compactSelection: AppRoute = .downloads
+    @State private var compactSelection: AppRoute = .local
     @State private var compactBrowsePath: [AppRoute] = []
     @State private var compactDownloadsPath: [AppRoute] = []
+    @State private var compactLocalPath: [AppRoute] = []
     @State private var compactHistoryPath: [AppRoute] = []
     @State private var compactSettingsPath: [AppRoute] = []
     @State private var compactLibraryMode: LibraryView.Mode = .history
-    @State private var splitSelection: AppRoute? = .downloads
+    @State private var splitSelection: AppRoute? = .local
     @State private var splitDetailPath: [AppRoute] = []
 
     var body: some View {
@@ -39,6 +40,7 @@ struct RootView: View {
                     selection: $compactSelection,
                     browsePath: $compactBrowsePath,
                     downloadsPath: $compactDownloadsPath,
+                    localPath: $compactLocalPath,
                     historyPath: $compactHistoryPath,
                     settingsPath: $compactSettingsPath,
                     libraryMode: $compactLibraryMode
@@ -191,6 +193,7 @@ private struct CompactRootView: View {
     @Binding var selection: AppRoute
     @Binding var browsePath: [AppRoute]
     @Binding var downloadsPath: [AppRoute]
+    @Binding var localPath: [AppRoute]
     @Binding var historyPath: [AppRoute]
     @Binding var settingsPath: [AppRoute]
     @Binding var libraryMode: LibraryView.Mode
@@ -211,6 +214,14 @@ private struct CompactRootView: View {
                 }
             } label: {
                 Label("downloads_title", systemImage: "arrow.down.circle")
+            }
+
+            Tab(value: AppRoute.local) {
+                RootNavigationStack(path: $localPath) { _ in
+                    DownloadsView(page: .local)
+                }
+            } label: {
+                Label("本地", systemImage: "books.vertical")
             }
 
             Tab(value: AppRoute.history) {
@@ -244,6 +255,8 @@ private struct CompactRootView: View {
         switch route {
         case .downloads:
             selection = .downloads
+        case .local:
+            selection = .local
         case .history:
             libraryMode = .history
             selection = .history
@@ -277,6 +290,7 @@ private struct SplitRootView: View {
                 }
                 Section("个人") {
                     NavigationLink(value: AppRoute.downloads) { Label("downloads_title", systemImage: "arrow.down.circle") }
+                    NavigationLink(value: AppRoute.local) { Label("本地", systemImage: "books.vertical") }
                     NavigationLink(value: AppRoute.history) { Label("history_title", systemImage: "clock") }
                     NavigationLink(value: AppRoute.favorites) { Label("favorites_title", systemImage: "heart") }
                 }
@@ -325,6 +339,8 @@ struct DestinationView: View {
             BrowseView(model: model, kind: .toplist)
         case .downloads:
             DownloadsView()
+        case .local:
+            DownloadsView(page: .local)
         case .history:
             LibraryView(mode: .history)
         case .favorites:

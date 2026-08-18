@@ -18,13 +18,13 @@
 
 import SwiftUI
 import ImageIO
-import UniformTypeIdentifiers
 import EHDomain
 import EHDownloads
 
 struct DownloadsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private let page: DownloadsPage
     @State private var jobs: [DownloadJob] = []
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
@@ -38,15 +38,19 @@ struct DownloadsView: View {
     @State private var isSelectionMode = false
     @State private var selectedKeys: Set<GalleryKey> = []
     @State private var showingDeleteSelectedConfirmation = false
-    @State private var showingDownloadShareSheet = false
-    @State private var showingDownloadExporter = false
-    @State private var downloadExportDocument: ArchiveExportDocument?
-    @State private var downloadExportFilename = ""
-    @State private var downloadExportError: String?
+    @State private var jobForReader: DownloadJob?
+
+    init(page: DownloadsPage = .downloading) {
+        self.page = page
+    }
+
+    private var pageJobs: [DownloadJob] {
+        jobs.filter { page.contains($0) }
+    }
 
     private var visibleJobs: [DownloadJob] {
-        jobs
-            .filter { model.downloadStatusFilter.matches($0.state) }
+        pageJobs
+            .filter { page == .local || model.downloadStatusFilter.matches($0.state) }
             .filter {
                 searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || $0.containsTitle(searchText)
@@ -54,12 +58,28 @@ struct DownloadsView: View {
                     || $0.tags.contains { model.displayTag($0).localizedCaseInsensitiveContains(searchText) }
                     || ($0.label?.localizedCaseInsensitiveContains(searchText) == true)
             }
-            .sorted(by: model.downloadSortOrder.areInIncreasingOrder)
+            .sorted(by: effectiveSortOrder.areInIncreasingOrder)
+    }
+
+    private var availableSortOrders: [DownloadSortOrder] {
+        if page == .local {
+            return [.addedNewest, .addedOldest, .titleAscending, .titleDescending]
+        }
+        return Array(DownloadSortOrder.allCases)
+    }
+
+    private var effectiveSortOrder: DownloadSortOrder {
+        availableSortOrders.contains(model.downloadSortOrder)
+            ? model.downloadSortOrder
+            : .titleAscending
     }
 
     var body: some View {
         @Bindable var model = model
         content
+            .navigationDestination(item: $jobForReader) { job in
+                ReaderView(downloaded: job, initialPage: 0)
+            }
             .confirmationDialog("重置所有下载内容的阅读进度？", isPresented: $showingResetProgressConfirmation, titleVisibility: .visible) {
                 Button("重置进度", role: .destructive) {
                     Task { await model.resetAllDownloadReadingProgress() }
@@ -124,14 +144,6 @@ struct DownloadsView: View {
             } message: {
                 Text(removalErrorMessage ?? String(localized: "请稍后重试。"))
             }
-            .alert("下载包导出失败", isPresented: Binding(
-                get: { downloadExportError != nil },
-                set: { if $0 == false { downloadExportError = nil } }
-            )) {
-                Button("好", role: .cancel) { downloadExportError = nil }
-            } message: {
-                Text(downloadExportError ?? String(localized: "请稍后重试。"))
-            }
     }
 
     private func displayTitle(for job: DownloadJob?) -> String {
@@ -141,11 +153,15 @@ struct DownloadsView: View {
     private var content: some View {
         @Bindable var model = model
         return Group {
-            if jobs.isEmpty {
+            if pageJobs.isEmpty {
                 if model.isLoadingDownloads {
                     ProgressView("正在加载下载内容…")
                 } else {
-                    ContentUnavailableView("暂无下载", systemImage: "arrow.down.circle", description: Text("从画廊详情页加入下载队列"))
+                    ContentUnavailableView(
+                        page.emptyTitle,
+                        systemImage: page.systemImage,
+                        description: Text(page.emptyDescription)
+                    )
                 }
             } else if visibleJobs.isEmpty {
                 ContentUnavailableView("没有匹配的下载", systemImage: "line.3.horizontal.decrease.circle", description: Text("调整搜索或筛选条件"))
@@ -157,7 +173,7 @@ struct DownloadsView: View {
                 }
             }
         }
-        .navigationTitle("downloads_title")
+        .navigationTitle(page == .downloading ? "downloads_title" : "本地")
         .searchable(text: $searchText, prompt: "搜索下载标题或标签")
         .searchSuggestions {
             if isUpdatingTagSearchSuggestions {
@@ -207,29 +223,17 @@ struct DownloadsView: View {
                         Label("删除(\(selectedKeys.count))", systemImage: "trash")
                     }
                     .disabled(selectedKeys.isEmpty)
-#if os(iOS)
-                    Button {
-                        Task { await shareSelectedDownloads() }
-                    } label: {
-                        Label(String(localized: "分享(\(selectedKeys.count))"), systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(selectedKeys.isEmpty || model.isMigrating || model.isRestoringDownloads)
-#endif
-                    Button {
-                        Task { await saveSelectedDownloadsToFiles() }
-                    } label: {
-                        Label("保存到文件", systemImage: "folder")
-                    }
-                    .disabled(selectedKeys.isEmpty || model.isMigrating || model.isRestoringDownloads)
                 }
             } else {
-                ToolbarItem(placement: selectPlacement) {
-                    Button("选择") {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
                         enterSelectionMode()
+                    } label: {
+                        Image(systemName: "checkmark.circle")
                     }
+                    .accessibilityLabel("选择")
+                    .accessibilityHint("选择要操作的下载项")
                     .disabled(visibleJobs.isEmpty)
-                }
-                ToolbarItem(placement: .primaryAction) {
                     Button {
                         model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
                         model.persistDownloadPreferences()
@@ -244,33 +248,39 @@ struct DownloadsView: View {
                         )
                     }
                     .accessibilityIdentifier("downloads-layout-toggle")
-                }
-                ToolbarItem(placement: .primaryAction) {
                     Menu("下载管理", systemImage: "ellipsis.circle") {
-                        Button("开始全部", systemImage: "play.fill") {
-                            Task { await model.startAllDownloads() }
-                        }
-                        .disabled(canStartAll == false)
-                        Button("暂停全部", systemImage: "pause.fill") {
-                            Task { await model.downloads.stopAll() }
-                        }
-                        .disabled(canStopAll == false)
-                        Divider()
-                        Picker("筛选状态", selection: $model.downloadStatusFilter) {
-                            ForEach(DownloadStatusFilter.allCases) { filter in
-                                Text(filter.title).tag(filter)
+                        if page == .downloading {
+                            Button("开始全部", systemImage: "play.fill") {
+                                Task { await model.startAllDownloads() }
+                            }
+                            .disabled(canStartAll == false)
+                            Button("暂停全部", systemImage: "pause.fill") {
+                                Task { await model.downloads.stopAll() }
+                            }
+                            .disabled(canStopAll == false)
+                            Divider()
+                            Picker("筛选状态", selection: $model.downloadStatusFilter) {
+                                ForEach(DownloadStatusFilter.allCases) { filter in
+                                    Text(filter.title).tag(filter)
+                                }
+                            }
+                            .onChange(of: model.downloadStatusFilter) { _, _ in
+                                model.persistDownloadPreferences()
                             }
                         }
-                        .onChange(of: model.downloadStatusFilter) { _, _ in
-                            model.persistDownloadPreferences()
-                        }
-                        Picker("排序", selection: $model.downloadSortOrder) {
-                            ForEach(DownloadSortOrder.allCases) { order in
+                        Picker(
+                            "排序",
+                            selection: Binding(
+                                get: { effectiveSortOrder },
+                                set: {
+                                    model.downloadSortOrder = $0
+                                    model.persistDownloadPreferences()
+                                }
+                            )
+                        ) {
+                            ForEach(availableSortOrders) { order in
                                 Text(order.title).tag(order)
                             }
-                        }
-                        .onChange(of: model.downloadSortOrder) { _, _ in
-                            model.persistDownloadPreferences()
                         }
                         Divider()
                         Button("重置阅读进度", systemImage: "arrow.counterclockwise", role: .destructive) {
@@ -309,31 +319,6 @@ struct DownloadsView: View {
                 }
             }
             .presentationDetents([.medium])
-        }
-        .sheet(isPresented: $showingDownloadShareSheet, onDismiss: {
-            if let url = model.pendingSharedFileURL {
-                model.discardPendingSharedFile(url)
-            }
-        }) {
-#if os(iOS)
-            if let url = model.pendingSharedFileURL {
-                ShareSheet(items: [url])
-            }
-#endif
-        }
-        .fileExporter(
-            isPresented: $showingDownloadExporter,
-            document: downloadExportDocument,
-            contentTypes: [.ehViewerDownloadArchive],
-            defaultFilename: downloadExportFilename
-        ) { result in
-            if let sourceURL = downloadExportDocument?.sourceURL {
-                model.discardPendingSharedFile(sourceURL)
-            }
-            downloadExportDocument = nil
-            if case let .failure(error) = result {
-                downloadExportError = error.localizedDescription
-            }
         }
     }
 
@@ -415,15 +400,6 @@ struct DownloadsView: View {
             : String(localized: "全选")
     }
 
-    /// 「选择」按钮放在导航栏左上角（iOS）；macOS 无导航栏，使用工具栏前导位置。
-    private var selectPlacement: ToolbarItemPlacement {
-#if os(iOS)
-        .topBarLeading
-#else
-        .navigation
-#endif
-    }
-
     private func deleteSelectedDownloads() {
         let keys = Array(selectedKeys)
         exitSelectionMode()
@@ -436,30 +412,6 @@ struct DownloadsView: View {
         }
     }
 
-    private func shareSelectedDownloads() async {
-        guard await prepareSelectedDownloadsForExport() else { return }
-        showingDownloadShareSheet = true
-    }
-
-    private func saveSelectedDownloadsToFiles() async {
-        guard await prepareSelectedDownloadsForExport() else { return }
-        showingDownloadExporter = true
-    }
-
-    private func prepareSelectedDownloadsForExport() async -> Bool {
-        guard selectedKeys.isEmpty == false else {
-            downloadExportError = String(localized: "请先选择要分享的下载项。")
-            return false
-        }
-        guard let url = await model.exportDownloadArchive(keys: selectedKeys) else {
-            downloadExportError = model.errorMessage ?? String(localized: "下载包导出失败，请稍后重试。")
-            return false
-        }
-        downloadExportFilename = url.lastPathComponent
-        downloadExportDocument = ArchiveExportDocument(sourceURL: url)
-        return true
-    }
-
     private var downloadsList: some View {
 #if os(macOS)
         ScrollView {
@@ -470,7 +422,8 @@ struct DownloadsView: View {
                         isSelectionMode: isSelectionMode,
                         isSelected: selectedKeys.contains(job.key),
                         select: { toggleSelection(job.key) },
-                        requestSelection: { enterSelectionMode(selecting: job.key) }
+                        requestSelection: { enterSelectionMode(selecting: job.key) },
+                        openReader: { jobForReader = job }
                     ) {
                         Task {
                             if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
@@ -497,7 +450,8 @@ struct DownloadsView: View {
                 isSelectionMode: isSelectionMode,
                 isSelected: selectedKeys.contains(job.key),
                 select: { toggleSelection(job.key) },
-                requestSelection: { enterSelectionMode(selecting: job.key) }
+                requestSelection: { enterSelectionMode(selecting: job.key) },
+                openReader: { jobForReader = job }
             ) {
                 Task {
                     if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
@@ -567,11 +521,53 @@ struct DownloadsView: View {
     }
 
     private var canStartAll: Bool {
-        jobs.contains { [.paused, .failed, .authenticationRequired, .rateLimited, .bandwidthLimited].contains($0.state) }
+        pageJobs.contains { [.paused, .failed, .authenticationRequired, .rateLimited, .bandwidthLimited].contains($0.state) }
     }
 
     private var canStopAll: Bool {
-        jobs.contains { $0.state == .running || $0.state == .queued }
+        pageJobs.contains { $0.state == .running || $0.state == .queued }
+    }
+}
+
+enum DownloadsPage: String, CaseIterable, Identifiable, Hashable {
+    case downloading
+    case local
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .downloading: String(localized: "下载中")
+        case .local: String(localized: "本地画廊")
+        }
+    }
+
+    var emptyTitle: String {
+        switch self {
+        case .downloading: String(localized: "暂无下载任务")
+        case .local: String(localized: "暂无本地画廊")
+        }
+    }
+
+    var emptyDescription: String {
+        switch self {
+        case .downloading: String(localized: "从画廊详情页加入下载队列")
+        case .local: String(localized: "完成下载的画廊会显示在这里")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .downloading: "arrow.down.circle"
+        case .local: "books.vertical"
+        }
+    }
+
+    func contains(_ job: DownloadJob) -> Bool {
+        switch self {
+        case .downloading: job.state != .completed
+        case .local: job.state == .completed
+        }
     }
 }
 
@@ -681,6 +677,7 @@ private struct DownloadCard: View {
     let isSelected: Bool
     let select: () -> Void
     let requestSelection: () -> Void
+    let openReader: () -> Void
     let toggle: () -> Void
     let redownload: () -> Void
     let remove: () -> Void
@@ -706,11 +703,10 @@ private struct DownloadCard: View {
             } else {
 #if os(macOS)
                 HStack(alignment: .top, spacing: 8) {
-                    NavigationLink {
-                        ReaderView(downloaded: job, initialPage: 0)
-                    } label: {
+                    Button(action: openReader) {
                         cardContent
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .buttonStyle(.plain)
                     .accessibilityLabel("打开《\(displayTitle)》")
                     .accessibilityHint("使用阅读器打开，优先读取已下载页面")
@@ -734,11 +730,10 @@ private struct DownloadCard: View {
                 }
 #else
                 HStack(alignment: .top, spacing: 8) {
-                    NavigationLink {
-                        ReaderView(downloaded: job, initialPage: 0)
-                    } label: {
+                    Button(action: openReader) {
                         cardContent
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .buttonStyle(.plain)
                     .accessibilityLabel("打开《\(displayTitle)》")
                     .accessibilityHint("使用阅读器打开，优先读取已下载页面")
@@ -791,24 +786,51 @@ private struct DownloadCard: View {
 
     private var cardContent: some View {
         HStack(alignment: .top, spacing: 12) {
-            DownloadCover(job: job, title: displayTitle)
-            VStack(alignment: .leading, spacing: 8) {
+            DownloadCover(
+                job: job,
+                title: displayTitle,
+                size: CGSize(width: 88, height: 120),
+                cornerRadius: 12
+            )
+            VStack(alignment: .leading, spacing: 7) {
                 Text(displayTitle)
                     .font(.headline)
                     .lineLimit(2)
-                if let label = job.label, label.isEmpty == false {
-                    Label(label, systemImage: "tag")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if job.tags.isEmpty == false {
+                    TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
+                        ForEach(Array(job.tags.enumerated()), id: \.offset) { item in
+                            Text(model.displayTag(item.element))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .padding(.horizontal, 7)
+                                .frame(height: 22)
+                                .frame(maxWidth: 160, alignment: .leading)
+                                .background(Color.secondary.opacity(0.14), in: Capsule())
+                                .accessibilityLabel("标签 \(model.displayTag(item.element))")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 48, alignment: .topLeading)
+                    .clipped()
+                }
+                if job.state != .completed {
+                    ProgressView(value: job.progress)
+                }
+                if job.state == .completed {
+                    Label(statusTitle, systemImage: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else {
+                    HStack {
+                        Text(statusTitle)
+                        Spacer()
+                        Text("\(job.completedPageIndexes.count)/\(job.pages.count) 页")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                ProgressView(value: job.progress)
-                HStack {
-                    Text(statusTitle)
-                    Spacer()
-                    Text("\(job.completedPageIndexes.count)/\(job.pages.count) 页")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
                 if let errorMessage = job.errorMessage {
                     Text(errorMessage)
                         .font(.caption)

@@ -40,6 +40,7 @@ struct AppModelTests {
         )
 
         #expect(model.isGuestMode)
+        #expect(model.selectedRoute == .local)
         await model.refreshSessionStatus()
         #expect(model.isGuestMode)
     }
@@ -345,6 +346,28 @@ struct AppModelTests {
         #expect(second.downloadSortOrder == .progress)
         #expect(second.downloadStatusFilter == .completed)
         #expect(second.downloadLayoutMode == .grid)
+    }
+
+    @Test("Download pages separate unfinished jobs from local galleries")
+    func downloadPagesSeparateUnfinishedJobsFromLocalGalleries() {
+        var downloading = DownloadJob(
+            key: GalleryKey(gid: 8101, token: "downloading"),
+            title: "Downloading",
+            pages: []
+        )
+        downloading.state = .paused
+
+        var local = DownloadJob(
+            key: GalleryKey(gid: 8102, token: "local"),
+            title: "Local",
+            pages: []
+        )
+        local.state = .completed
+
+        #expect(DownloadsPage.downloading.contains(downloading))
+        #expect(DownloadsPage.downloading.contains(local) == false)
+        #expect(DownloadsPage.local.contains(local))
+        #expect(DownloadsPage.local.contains(downloading) == false)
     }
 
     @Test("Rapid tag suggestion refresh follows the input and keeps the latest query")

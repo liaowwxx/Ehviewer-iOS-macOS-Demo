@@ -135,7 +135,7 @@ final class AppModel {
     var searchHistorySuggestions: [String] = []
     var tagSearchSuggestions: [SearchTagSuggestion] = []
     var localArchive: LocalArchiveDocument?
-    var selectedRoute: AppRoute? = .downloads
+    var selectedRoute: AppRoute? = .local
     var browseRefreshToken = 0
     var isLoading = false
     var searchText = ""

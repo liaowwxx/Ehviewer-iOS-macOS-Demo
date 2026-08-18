@@ -735,6 +735,7 @@ public enum AppRoute: Hashable, Codable, Sendable {
     case popular
     case toplist
     case downloads
+    case local
     case history
     case favorites
     case settings
