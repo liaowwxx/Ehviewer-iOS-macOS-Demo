@@ -65,6 +65,12 @@
 - 所有数据仅保存在本机；图片缓存与下载文件均位于应用沙盒内。
 - 不包含任何统计、追踪或联网上报组件。
 
+完整文档：
+
+- [使用说明](HELP.md)
+- [隐私说明](PRIVACY.md)
+- [更新日志](CHANGELOG.md)
+
 ## 许可
 
 项目采用 [GNU General Public License v3.0](LICENSE) 许可；

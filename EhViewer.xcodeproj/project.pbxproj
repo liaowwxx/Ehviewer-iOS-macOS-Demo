@@ -65,6 +65,13 @@
 		EHB00000000000000000042 /* ReaderThumbnailStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000042 /* ReaderThumbnailStrip.swift */; };
 		EHB00000000000000000043 /* ReaderThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000043 /* ReaderThumbnailView.swift */; };
 		EHB00000000000000000044 /* ReaderThumbnailLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000044 /* ReaderThumbnailLoader.swift */; };
+		EHB00000000000000000050 /* DocumentationMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000050 /* DocumentationMarkdown.swift */; };
+		EHB00000000000000000051 /* DocumentationWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000051 /* DocumentationWebView.swift */; };
+		EHB00000000000000000052 /* DocumentationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000052 /* DocumentationView.swift */; };
+		EHB00000000000000000053 /* HELP.md in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000053 /* HELP.md */; };
+		EHB00000000000000000054 /* PRIVACY.md in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000054 /* PRIVACY.md */; };
+		EHB00000000000000000055 /* CHANGELOG.md in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000055 /* CHANGELOG.md */; };
+		EHB00000000000000000056 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000056 /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -158,6 +165,13 @@
 		EHF00000000000000000042 /* ReaderThumbnailStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderThumbnailStrip.swift; sourceTree = "<group>"; };
 		EHF00000000000000000043 /* ReaderThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderThumbnailView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000044 /* ReaderThumbnailLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderThumbnailLoader.swift; sourceTree = "<group>"; };
+		EHF00000000000000000050 /* DocumentationMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationMarkdown.swift; sourceTree = "<group>"; };
+		EHF00000000000000000051 /* DocumentationWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationWebView.swift; sourceTree = "<group>"; };
+		EHF00000000000000000052 /* DocumentationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationView.swift; sourceTree = "<group>"; };
+		EHF00000000000000000053 /* HELP.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = HELP.md; sourceTree = "<group>"; };
+		EHF00000000000000000054 /* PRIVACY.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = PRIVACY.md; sourceTree = "<group>"; };
+		EHF00000000000000000055 /* CHANGELOG.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = CHANGELOG.md; sourceTree = "<group>"; };
+		EHF00000000000000000056 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -193,6 +207,10 @@
 			isa = PBXGroup;
 			children = (
 				EHF0000000000000000002D /* icon.icon */,
+				EHF00000000000000000053 /* HELP.md */,
+				EHF00000000000000000054 /* PRIVACY.md */,
+				EHF00000000000000000055 /* CHANGELOG.md */,
+				EHF00000000000000000056 /* README.md */,
 				EHG00000000000000000002 /* Sources/EhViewer */,
 				EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */,
 				EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */,
@@ -252,6 +270,9 @@
 				EHF00000000000000000042 /* ReaderThumbnailStrip.swift */,
 				EHF00000000000000000043 /* ReaderThumbnailView.swift */,
 				EHF00000000000000000044 /* ReaderThumbnailLoader.swift */,
+				EHF00000000000000000050 /* DocumentationMarkdown.swift */,
+				EHF00000000000000000051 /* DocumentationWebView.swift */,
+				EHF00000000000000000052 /* DocumentationView.swift */,
 				EHF00000000000000000047 /* ShareSheet.swift */,
 				EHF00000000000000000048 /* Info.plist */,
 				EHF00000000000000000049 /* Info-macOS.plist */,
@@ -416,6 +437,10 @@
 				EHB00000000000000000013 /* Sources/EhViewer/Resources/fr.lproj/Localizable.strings in Resources */,
 				EHB00000000000000000014 /* Sources/EhViewer/Resources/de.lproj/Localizable.strings in Resources */,
 				EHB00000000000000000015 /* Sources/EhViewer/Resources/th.lproj/Localizable.strings in Resources */,
+				EHB00000000000000000053 /* HELP.md in Resources */,
+				EHB00000000000000000054 /* PRIVACY.md in Resources */,
+				EHB00000000000000000055 /* CHANGELOG.md in Resources */,
+				EHB00000000000000000056 /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -467,6 +492,9 @@
 				EHB00000000000000000043 /* ReaderThumbnailView.swift in Sources */,
 				EHB00000000000000000044 /* ReaderThumbnailLoader.swift in Sources */,
 				EHB00000000000000000047 /* ShareSheet.swift in Sources */,
+				EHB00000000000000000050 /* DocumentationMarkdown.swift in Sources */,
+				EHB00000000000000000051 /* DocumentationWebView.swift in Sources */,
+				EHB00000000000000000052 /* DocumentationView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -532,7 +560,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -561,7 +589,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_PREVIEWS = YES;
@@ -623,7 +651,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;
@@ -643,7 +671,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;

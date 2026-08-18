@@ -77,6 +77,28 @@ final class EhViewerUITests: XCTestCase {
         XCTAssertNotEqual(wasOn, isOn)
     }
 
+    func testSettingsOpensUsageDocumentation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestUseGuestMode", "YES"]
+        app.launch()
+
+        let settings = app.buttons["settings-tab"]
+        if settings.waitForExistence(timeout: 5) {
+            settings.tap()
+        } else if app.buttons["settings-sidebar"].waitForExistence(timeout: 5) {
+            app.buttons["settings-sidebar"].tap()
+        } else if app.tabBars.firstMatch.exists {
+            app.tabBars.buttons.element(boundBy: min(3, app.tabBars.buttons.count - 1)).tap()
+        }
+
+        let documentationLink = app.buttons["usage-documentation-link"]
+        XCTAssertTrue(documentationLink.waitForExistence(timeout: 5))
+        documentationLink.tap()
+
+        XCTAssertTrue(app.navigationBars["使用说明"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["软件介绍"].waitForExistence(timeout: 5))
+    }
+
     func testGalleryDeepLinkPushesDetailOnIPhone() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestUseGuestMode", "YES"]

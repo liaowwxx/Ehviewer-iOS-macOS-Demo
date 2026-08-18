@@ -98,6 +98,12 @@ struct SettingsView: View {
             Section("About") {
                 LabeledContent("version:", value: appVersion)
             }
+            Section("帮助") {
+                NavigationLink(value: AppRoute.documentation) {
+                    Label("使用说明", systemImage: "book.closed")
+                }
+                .accessibilityIdentifier("usage-documentation-link")
+            }
             FilterRulesSection()
             Section("数据迁移/备份") {
                 Button("更新已下载画廊信息", systemImage: "arrow.triangle.2.circlepath") {
