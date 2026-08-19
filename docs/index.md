@@ -10,8 +10,8 @@ permalink: /
   <div class="hero-spot" aria-hidden="true"></div>
   <div class="hero-grid wrap">
     <div class="hero-copy" data-reveal>
-      <p class="kicker">iOS · iPadOS · macOS</p>
-      <h1 class="display"><em>E-Hentai / ExHentai</em><br>客户端</h1>
+      <p class="kicker">E-Hentai / ExHentai 客户端</p>
+      <h1 class="display">EhViewer For<br><em>iOS / macOS</em></h1>
       <p class="hero-sub">浏览画廊、阅读漫画、管理下载，支持 iPhone、iPad 与 Mac。开源，免费。</p>
       <div class="hero-actions" data-reveal style="--d:.14s">
         <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
@@ -31,60 +31,26 @@ permalink: /
     </div>
 
     <div class="hero-stage" data-tilt data-reveal style="--d:.1s">
-      <div class="app-window">
-          <div class="window-bar">
-            <span class="dot" aria-hidden="true"></span>
-            <span class="dot" aria-hidden="true"></span>
-            <span class="dot" aria-hidden="true"></span>
-            <span class="window-title">EhViewer · E-Hentai</span>
-          </div>
-          <div class="app-shell">
-            <div class="app-rail" aria-hidden="true">
-              <span class="rail-glyph is-active">⌕</span>
-              <span class="rail-glyph">★</span>
-              <span class="rail-glyph">↓</span>
-              <span class="rail-glyph">◫</span>
-              <span class="rail-glyph">⚙</span>
-            </div>
-            <div class="app-panes">
-              <div class="gallery-card">
-                <span class="cover c1" aria-hidden="true"></span>
-                <span class="card-lines"><i></i><i></i>
-                  <span class="card-meta"><span class="card-star">★ 4.6</span> · 128 页</span>
-                </span>
-                <span class="card-arrow" aria-hidden="true">→</span>
-              </div>
-              <div class="gallery-card">
-                <span class="cover c2" aria-hidden="true"></span>
-                <span class="card-lines"><i></i><i></i>
-                  <span class="card-meta"><span class="card-star">★ 4.8</span> · 96 页</span>
-                </span>
-                <span class="card-arrow" aria-hidden="true">→</span>
-              </div>
-              <div class="gallery-card">
-                <span class="cover c3" aria-hidden="true"></span>
-                <span class="card-lines"><i></i><i></i>
-                  <span class="card-meta"><span class="card-star">★ 4.9</span> · 1.2k 页</span>
-                </span>
-                <span class="card-arrow" aria-hidden="true">→</span>
-              </div>
-            </div>
-          </div>
+      <div class="device-showcase" id="device-showcase" data-lang="zh">
+        <div class="device-tabs" role="tablist" aria-label="设备预览">
+          <button class="device-tab is-active" data-device="iphone" type="button">iPhone</button>
+          <button class="device-tab" data-device="ipad" type="button">iPad</button>
+          <button class="device-tab" data-device="mac" type="button">macOS</button>
         </div>
-      <div class="float-chip fc-1"><span class="chip-dot ok"></span>ExHentai 已连接</div>
-      <div class="float-chip fc-2"><span class="chip-dot progress"></span>下载完成 · 214 页</div>
-      <div class="float-chip fc-3"><span class="chip-dot"></span>进度已同步</div>
+        <div class="device-stage">
+          <div class="device-frame is-active" data-device-panel="iphone"></div>
+          <div class="device-frame" data-device-panel="ipad" hidden></div>
+          <div class="device-frame" data-device-panel="mac" hidden></div>
+          <div class="float-chip fc-1"><span class="chip-dot ok"></span>ExHentai 已连接</div>
+          <div class="float-chip fc-2"><span class="chip-dot progress"></span>下载完成 · 214 页</div>
+          <div class="float-chip fc-3"><span class="chip-dot"></span>进度已同步</div>
+        </div>
+        <p class="device-hint">点击 Dock / 侧边栏切换页面 · 点画廊看详情</p>
+      </div>
     </div>
   </div>
   <div class="hero-scroll" aria-hidden="true">Scroll</div>
 </section>
-
-<div class="marquee" aria-hidden="true">
-  <div class="marquee-track">
-    <span>标签翻译</span><span>断点续传</span><span>阅读进度</span><span>后台下载</span><span>归档导入</span><span>隐私优先</span><span>开源免费</span><span>多设备同步</span>
-    <span>标签翻译</span><span>断点续传</span><span>阅读进度</span><span>后台下载</span><span>归档导入</span><span>隐私优先</span><span>开源免费</span><span>多设备同步</span>
-  </div>
-</div>
 
 <section class="section features" id="features">
   <div class="wrap">

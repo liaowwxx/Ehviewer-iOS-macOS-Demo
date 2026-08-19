@@ -10,8 +10,8 @@ permalink: /en/
   <div class="hero-spot" aria-hidden="true"></div>
   <div class="hero-grid wrap">
     <div class="hero-copy" data-reveal>
-      <p class="kicker">iOS · iPadOS · macOS</p>
-      <h1 class="display"><em>E-Hentai / ExHentai</em><br>client</h1>
+      <p class="kicker">E-Hentai / ExHentai client</p>
+      <h1 class="display">EhViewer For<br><em>iOS / macOS</em></h1>
       <p class="hero-sub">Browse galleries, read manga, and manage downloads on iPhone, iPad, and Mac. Open source and free.</p>
       <div class="hero-actions" data-reveal style="--d:.14s">
         <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
@@ -31,60 +31,26 @@ permalink: /en/
     </div>
 
     <div class="hero-stage" data-tilt data-reveal style="--d:.1s">
-      <div class="app-window">
-          <div class="window-bar">
-            <span class="dot" aria-hidden="true"></span>
-            <span class="dot" aria-hidden="true"></span>
-            <span class="dot" aria-hidden="true"></span>
-            <span class="window-title">EhViewer · E-Hentai</span>
-          </div>
-          <div class="app-shell">
-            <div class="app-rail" aria-hidden="true">
-              <span class="rail-glyph is-active">⌕</span>
-              <span class="rail-glyph">★</span>
-              <span class="rail-glyph">↓</span>
-              <span class="rail-glyph">◫</span>
-              <span class="rail-glyph">⚙</span>
-            </div>
-            <div class="app-panes">
-              <div class="gallery-card">
-                <span class="cover c1" aria-hidden="true"></span>
-                <span class="card-lines"><i></i><i></i>
-                  <span class="card-meta"><span class="card-star">★ 4.6</span> · 128 pages</span>
-                </span>
-                <span class="card-arrow" aria-hidden="true">→</span>
-              </div>
-              <div class="gallery-card">
-                <span class="cover c2" aria-hidden="true"></span>
-                <span class="card-lines"><i></i><i></i>
-                  <span class="card-meta"><span class="card-star">★ 4.8</span> · 96 pages</span>
-                </span>
-                <span class="card-arrow" aria-hidden="true">→</span>
-              </div>
-              <div class="gallery-card">
-                <span class="cover c3" aria-hidden="true"></span>
-                <span class="card-lines"><i></i><i></i>
-                  <span class="card-meta"><span class="card-star">★ 4.9</span> · 1.2k pages</span>
-                </span>
-                <span class="card-arrow" aria-hidden="true">→</span>
-              </div>
-            </div>
-          </div>
+      <div class="device-showcase" id="device-showcase" data-lang="en">
+        <div class="device-tabs" role="tablist" aria-label="Device preview">
+          <button class="device-tab is-active" data-device="iphone" type="button">iPhone</button>
+          <button class="device-tab" data-device="ipad" type="button">iPad</button>
+          <button class="device-tab" data-device="mac" type="button">macOS</button>
         </div>
-      <div class="float-chip fc-1"><span class="chip-dot ok"></span>ExHentai connected</div>
-      <div class="float-chip fc-2"><span class="chip-dot progress"></span>Downloaded · 214 pages</div>
-      <div class="float-chip fc-3"><span class="chip-dot"></span>Progress synced</div>
+        <div class="device-stage">
+          <div class="device-frame is-active" data-device-panel="iphone"></div>
+          <div class="device-frame" data-device-panel="ipad" hidden></div>
+          <div class="device-frame" data-device-panel="mac" hidden></div>
+          <div class="float-chip fc-1"><span class="chip-dot ok"></span>ExHentai connected</div>
+          <div class="float-chip fc-2"><span class="chip-dot progress"></span>Downloaded · 214 pages</div>
+          <div class="float-chip fc-3"><span class="chip-dot"></span>Progress synced</div>
+        </div>
+        <p class="device-hint">Click Dock / sidebar items to switch pages · click a gallery for details</p>
+      </div>
     </div>
   </div>
   <div class="hero-scroll" aria-hidden="true">Scroll</div>
 </section>
-
-<div class="marquee" aria-hidden="true">
-  <div class="marquee-track">
-    <span>Tag translations</span><span>Resumable downloads</span><span>Reading progress</span><span>Background queue</span><span>Archive import</span><span>Privacy first</span><span>Open source</span><span>Cross-device sync</span>
-    <span>Tag translations</span><span>Resumable downloads</span><span>Reading progress</span><span>Background queue</span><span>Archive import</span><span>Privacy first</span><span>Open source</span><span>Cross-device sync</span>
-  </div>
-</div>
 
 <section class="section features" id="features">
   <div class="wrap">
