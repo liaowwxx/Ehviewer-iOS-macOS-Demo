@@ -51,3 +51,7 @@ _site/
 *.mobileprovision
 *.p12
 *.pfx
+
+# Local preview output
+_preview/
+_preview-server.log

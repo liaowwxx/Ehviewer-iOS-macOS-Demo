@@ -14,11 +14,11 @@ permalink: /
       <h1 class="display">EhViewer For<br><em>iOS / macOS</em></h1>
       <p class="hero-sub">浏览画廊、阅读漫画、管理下载，支持 iPhone、iPad 与 Mac。开源，免费。</p>
       <div class="hero-actions" data-reveal style="--d:.14s">
-        <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
+        <a class="btn btn-primary" href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
           GitHub 仓库
           <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
         </a>
-        <a class="btn btn-ghost" data-magnetic href="{{ '/guide/' | relative_url }}">
+        <a class="btn btn-ghost" href="{{ '/guide/' | relative_url }}">
           使用说明
           <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
         </a>
@@ -33,18 +33,15 @@ permalink: /
     <div class="hero-stage" data-tilt data-reveal style="--d:.1s">
       <div class="device-showcase" id="device-showcase" data-lang="zh">
         <div class="device-tabs" role="tablist" aria-label="设备预览">
-          <button class="device-tab is-active" data-device="iphone" type="button">iPhone</button>
-          <button class="device-tab" data-device="ipad" type="button">iPad</button>
-          <button class="device-tab" data-device="mac" type="button">macOS</button>
+          <button class="device-tab is-active" role="tab" aria-selected="true" data-device="iphone" type="button">iPhone</button>
+          <button class="device-tab" role="tab" aria-selected="false" data-device="ipad" type="button">iPad</button>
+          <button class="device-tab" role="tab" aria-selected="false" data-device="mac" type="button">macOS</button>
         </div>
         <div class="device-stage">
           <div class="device-frame is-active" data-device-panel="iphone"></div>
           <div class="device-frame" data-device-panel="ipad" hidden></div>
           <div class="device-frame" data-device-panel="mac" hidden></div>
-          <div class="float-chip fc-1"><span class="chip-dot ok"></span>ExHentai 已连接</div>
-          <div class="float-chip fc-2"><span class="chip-dot progress"></span>下载完成 · 214 页</div>
-          <div class="float-chip fc-3"><span class="chip-dot"></span>进度已同步</div>
-        </div>
+                                      </div>
         <p class="device-hint">点击 Dock / 侧边栏切换页面 · 点画廊看详情</p>
       </div>
     </div>
@@ -132,17 +129,38 @@ permalink: /
       </ul>
       <a class="text-link" href="{{ '/guide/' | relative_url }}">阅读相关说明 <span aria-hidden="true">→</span></a>
     </div>
-    <div class="reader-stage" data-reveal style="--d:.12s">
-      <div class="reader-mock" aria-hidden="true">
-        <div class="sheet sheet-back"></div>
-        <div class="sheet sheet-front">
-          <div class="sheet-topbar"><span>CHAPTER 12</span><span>12 / 240</span></div>
-          <div class="sheet-body">
-            <div class="sheet-line"></div>
-            <div class="sheet-line short"></div>
-            <div class="sheet-panel">静</div>
-            <div class="sheet-line short"></div>
-            <div class="sheet-line"></div>
+    <div class="reader-stage" data-reader-demo data-lang="zh" data-reveal style="--d:.12s">
+      <div class="reader-ipad">
+        <div class="reader-ipad-screen">
+          <div class="reader-top">
+            <button class="reader-back" type="button" aria-label="返回画廊"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5 7.5 12l7 7"/></svg>画廊</button>
+            <span class="reader-title">夜空下的星屑</span>
+            <button class="reader-more" type="button" aria-label="阅读选项"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg></button>
+          </div>
+          <button class="reader-art" type="button" aria-label="切换阅读控件">
+            <span class="reader-media-sheet" aria-hidden="true"><span></span></span>
+            <span class="reader-loading-state"><i></i><b data-reader-page>13</b><em>页</em></span>
+            <small>轻点页面隐藏控件</small>
+          </button>
+          <div class="reader-controls">
+            <div class="reader-bottom">
+              <output class="reader-page-label" data-reader-label>第 13 / 240 页</output>
+              <input class="reader-slider" data-reader-slider type="range" min="1" max="240" value="13" aria-label="阅读进度">
+              <button class="reader-chevron" data-reader-preview type="button" aria-label="展开预览"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"/></svg></button>
+            </div>
+            <div class="reader-thumbnails" data-reader-thumbnails hidden></div>
+          </div>
+          <div class="reader-menu" data-reader-menu hidden>
+            <p>阅读</p>
+            <button type="button" data-reader-mode="paged"><span>左右翻页</span><b>✓</b></button>
+            <button type="button" data-reader-mode="vertical"><span>上下翻页</span><b></b></button>
+            <button type="button" data-reader-direction><span>翻页方向</span><em>从右到左</em></button>
+            <button type="button" data-reader-start><span>开始位置</span><em>上次阅读位置</em></button>
+            <p>显示</p>
+            <button type="button" data-reader-rotation><span>屏幕旋转</span><em>跟随系统</em></button>
+            <p>控制</p>
+            <button type="button" data-reader-volume><span>音量键翻页</span><i class="reader-switch" aria-hidden="true"></i></button>
+            <button type="button" data-reader-reverse hidden><span>反转音量键方向</span><i class="reader-switch" aria-hidden="true"></i></button>
           </div>
         </div>
       </div>
@@ -177,35 +195,11 @@ permalink: /
     </ol>
 
     <div class="start-actions" data-reveal>
-      <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo/releases" rel="noreferrer" target="_blank">
+      <a class="btn btn-primary" href="https://github.com/liaowwxx/ehviewer-iosdemo/releases" rel="noreferrer" target="_blank">
         下载 .ipa
         <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
       </a>
-      <a class="btn btn-ghost" data-magnetic href="{{ '/guide/' | relative_url }}">使用说明</a>
-    </div>
-  </div>
-</section>
-
-<section class="section faq" id="faq">
-  <div class="wrap faq-wrap">
-    <div class="section-head" data-reveal>
-      <p class="kicker">常见问题</p>
-      <h2 class="display">常见问题</h2>
-      <p class="lede">完整说明见<a href="{{ '/guide/' | relative_url }}">使用说明</a>；如有问题，可在 <a href="https://github.com/liaowwxx/ehviewer-iosdemo/issues" rel="noreferrer">GitHub Issues</a> 反馈。</p>
-    </div>
-    <div class="faq-list" data-reveal>
-      <details class="faq-item" open>
-        <summary>需要登录吗？<span class="plus" aria-hidden="true">+</span></summary>
-        <div class="faq-body"><p>访问收藏、ExHentai 内容或需要账户会话时才需要登录。在「设置 → 登录」中可使用用户名密码、网页登录或 Cookie 登录。</p></div>
-      </details>
-      <details class="faq-item">
-        <summary>换机时，导出元数据还是归档？<span class="plus" aria-hidden="true">+</span></summary>
-        <div class="faq-body"><p>只需同步画廊列表与阅读信息时选择 <code>.ehgallery</code>；需要把已下载的图片或视频一并带走时选择 <code>.eharchive</code>。</p></div>
-      </details>
-      <details class="faq-item">
-        <summary>画廊图片加载失败怎么办？<span class="plus" aria-hidden="true">+</span></summary>
-        <div class="faq-body"><p>可能是站点临时限流、网络不可用或登录会话失效。先检查网络并刷新；使用 ExHentai 时请确认账户具备访问权限。</p></div>
-      </details>
+      <a class="btn btn-ghost" href="{{ '/guide/' | relative_url }}">使用说明</a>
     </div>
   </div>
 </section>

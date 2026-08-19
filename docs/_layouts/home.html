@@ -35,7 +35,6 @@
         <a href="#features">{% if page.lang == 'en' %}Features{% else %}功能{% endif %}</a>
         <a href="#reader">{% if page.lang == 'en' %}Reader{% else %}阅读{% endif %}</a>
         <a href="#start">{% if page.lang == 'en' %}Get started{% else %}开始{% endif %}</a>
-        <a href="#faq">{% if page.lang == 'en' %}FAQ{% else %}常见问题{% endif %}</a>
       </nav>
       <div class="nav-actions">
         <button class="theme-toggle" id="theme-toggle" type="button" aria-label="{% if page.lang == 'en' %}Toggle theme{% else %}切换主题{% endif %}" aria-pressed="false">
@@ -87,7 +86,6 @@
         </div>
       </div>
       <div class="footer-bottom">
-        <span>© {{ 'now' | date: '%Y' }} EhViewer · {% if page.lang == 'en' %}Built with SwiftUI{% else %}SwiftUI 构建{% endif %}</span>
         <span>
           <a href="{{ '/guide/' | relative_url }}">{% if page.lang == 'en' %}Guide{% else %}使用说明{% endif %}</a>
           <span aria-hidden="true"> · </span>

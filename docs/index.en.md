@@ -14,11 +14,11 @@ permalink: /en/
       <h1 class="display">EhViewer For<br><em>iOS / macOS</em></h1>
       <p class="hero-sub">Browse galleries, read manga, and manage downloads on iPhone, iPad, and Mac. Open source and free.</p>
       <div class="hero-actions" data-reveal style="--d:.14s">
-        <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
+        <a class="btn btn-primary" href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
           GitHub
           <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
         </a>
-        <a class="btn btn-ghost" data-magnetic href="{{ '/en/guide/' | relative_url }}">
+        <a class="btn btn-ghost" href="{{ '/en/guide/' | relative_url }}">
           User guide
           <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
         </a>
@@ -33,18 +33,15 @@ permalink: /en/
     <div class="hero-stage" data-tilt data-reveal style="--d:.1s">
       <div class="device-showcase" id="device-showcase" data-lang="en">
         <div class="device-tabs" role="tablist" aria-label="Device preview">
-          <button class="device-tab is-active" data-device="iphone" type="button">iPhone</button>
-          <button class="device-tab" data-device="ipad" type="button">iPad</button>
-          <button class="device-tab" data-device="mac" type="button">macOS</button>
+          <button class="device-tab is-active" role="tab" aria-selected="true" data-device="iphone" type="button">iPhone</button>
+          <button class="device-tab" role="tab" aria-selected="false" data-device="ipad" type="button">iPad</button>
+          <button class="device-tab" role="tab" aria-selected="false" data-device="mac" type="button">macOS</button>
         </div>
         <div class="device-stage">
           <div class="device-frame is-active" data-device-panel="iphone"></div>
           <div class="device-frame" data-device-panel="ipad" hidden></div>
           <div class="device-frame" data-device-panel="mac" hidden></div>
-          <div class="float-chip fc-1"><span class="chip-dot ok"></span>ExHentai connected</div>
-          <div class="float-chip fc-2"><span class="chip-dot progress"></span>Downloaded · 214 pages</div>
-          <div class="float-chip fc-3"><span class="chip-dot"></span>Progress synced</div>
-        </div>
+                                      </div>
         <p class="device-hint">Click Dock / sidebar items to switch pages · click a gallery for details</p>
       </div>
     </div>
@@ -132,17 +129,38 @@ permalink: /en/
       </ul>
       <a class="text-link" href="{{ '/en/guide/' | relative_url }}">Reader guide <span aria-hidden="true">→</span></a>
     </div>
-    <div class="reader-stage" data-reveal style="--d:.12s">
-      <div class="reader-mock" aria-hidden="true">
-        <div class="sheet sheet-back"></div>
-        <div class="sheet sheet-front">
-          <div class="sheet-topbar"><span>CHAPTER 12</span><span>12 / 240</span></div>
-          <div class="sheet-body">
-            <div class="sheet-line"></div>
-            <div class="sheet-line short"></div>
-            <div class="sheet-panel">靜</div>
-            <div class="sheet-line short"></div>
-            <div class="sheet-line"></div>
+    <div class="reader-stage" data-reader-demo data-lang="en" data-reveal style="--d:.12s">
+      <div class="reader-ipad">
+        <div class="reader-ipad-screen">
+          <div class="reader-top">
+            <button class="reader-back" type="button" aria-label="Back to gallery"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5 7.5 12l7 7"/></svg>Gallery</button>
+            <span class="reader-title">Stardust at Night</span>
+            <button class="reader-more" type="button" aria-label="Reader options"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg></button>
+          </div>
+          <button class="reader-art" type="button" aria-label="Toggle reader controls">
+            <span class="reader-media-sheet" aria-hidden="true"><span></span></span>
+            <span class="reader-loading-state"><i></i><em>Page</em><b data-reader-page>13</b></span>
+            <small>Tap page to hide controls</small>
+          </button>
+          <div class="reader-controls">
+            <div class="reader-bottom">
+              <output class="reader-page-label" data-reader-label>Page 13 / 240</output>
+              <input class="reader-slider" data-reader-slider type="range" min="1" max="240" value="13" aria-label="Reading progress">
+              <button class="reader-chevron" data-reader-preview type="button" aria-label="Show previews"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"/></svg></button>
+            </div>
+            <div class="reader-thumbnails" data-reader-thumbnails hidden></div>
+          </div>
+          <div class="reader-menu" data-reader-menu hidden>
+            <p>Reading</p>
+            <button type="button" data-reader-mode="paged"><span>Horizontal paging</span><b>✓</b></button>
+            <button type="button" data-reader-mode="vertical"><span>Vertical paging</span><b></b></button>
+            <button type="button" data-reader-direction><span>Paging direction</span><em>Right to left</em></button>
+            <button type="button" data-reader-start><span>Start position</span><em>Last read position</em></button>
+            <p>Display</p>
+            <button type="button" data-reader-rotation><span>Screen rotation</span><em>Follow system</em></button>
+            <p>Controls</p>
+            <button type="button" data-reader-volume><span>Volume-key paging</span><i class="reader-switch" aria-hidden="true"></i></button>
+            <button type="button" data-reader-reverse hidden><span>Reverse volume direction</span><i class="reader-switch" aria-hidden="true"></i></button>
           </div>
         </div>
       </div>
@@ -177,35 +195,11 @@ permalink: /en/
     </ol>
 
     <div class="start-actions" data-reveal>
-      <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo/releases" rel="noreferrer" target="_blank">
+      <a class="btn btn-primary" href="https://github.com/liaowwxx/ehviewer-iosdemo/releases" rel="noreferrer" target="_blank">
         Download .ipa
         <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
       </a>
-      <a class="btn btn-ghost" data-magnetic href="{{ '/en/guide/' | relative_url }}">User guide</a>
-    </div>
-  </div>
-</section>
-
-<section class="section faq" id="faq">
-  <div class="wrap faq-wrap">
-    <div class="section-head" data-reveal>
-      <p class="kicker">FAQ</p>
-      <h2 class="display">FAQ</h2>
-      <p class="lede">Full details are in the <a href="{{ '/en/guide/' | relative_url }}">user guide</a>. For anything else, open an <a href="https://github.com/liaowwxx/ehviewer-iosdemo/issues" rel="noreferrer">issue on GitHub</a>.</p>
-    </div>
-    <div class="faq-list" data-reveal>
-      <details class="faq-item" open>
-        <summary>Do I need to sign in?<span class="plus" aria-hidden="true">+</span></summary>
-        <div class="faq-body"><p>Only for favorites, ExHentai content, or when an account session is required. Use <strong>Settings → Login</strong> with username and password, web login, or cookies.</p></div>
-      </details>
-      <details class="faq-item">
-        <summary>Should I export metadata or an archive?<span class="plus" aria-hidden="true">+</span></summary>
-        <div class="faq-body"><p>Choose <code>.ehgallery</code> to sync gallery lists and reading info; choose <code>.eharchive</code> when downloaded images or videos should come along.</p></div>
-      </details>
-      <details class="faq-item">
-        <summary>Gallery images fail to load — why?<span class="plus" aria-hidden="true">+</span></summary>
-        <div class="faq-body"><p>The site may be rate-limiting, the network unavailable, or the session invalid. Check the network and refresh; for ExHentai, confirm the account has access.</p></div>
-      </details>
+      <a class="btn btn-ghost" href="{{ '/en/guide/' | relative_url }}">User guide</a>
     </div>
   </div>
 </section>
