@@ -1,6 +1,7 @@
 ---
 layout: default
 title: 使用说明
+lang: zh-Hans
 ---
 # 使用说明
 

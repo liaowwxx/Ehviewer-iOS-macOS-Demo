@@ -13,6 +13,16 @@
   const searchCount = document.querySelector("#search-count");
   const pageNav = document.querySelector("#page-nav");
   const themeToggle = document.querySelector("#theme-toggle");
+  const isEnglish = document.documentElement.lang.toLowerCase().startsWith("en");
+  const ui = {
+    previous: isEnglish ? "Previous page" : "上一页",
+    next: isEnglish ? "Next page" : "下一页",
+    overview: isEnglish ? "Document overview" : "文档概览",
+    noResults: isEnglish ? "No matching content found." : "没有找到匹配内容。",
+    resultCount: (count) => isEnglish ? `${count} result${count === 1 ? "" : "s"}` : `${count} 个结果`,
+    theme: isEnglish ? "Theme" : "主题",
+    themeValues: isEnglish ? { dark: "Dark", light: "Light", auto: "Auto" } : { dark: "深色", light: "浅色", auto: "自动" },
+  };
 
   if (!article) return;
 
@@ -79,7 +89,7 @@
       .replace(/\s+/g, " ")
       .trim();
     if (introText) {
-      records.unshift({ anchor: firstHeading.id, title: "文档概览", text: introText });
+      records.unshift({ anchor: firstHeading.id, title: ui.overview, text: introText });
     }
     return records;
   }
@@ -91,7 +101,7 @@
     previous.className = "page-nav-placeholder";
     const next = document.createElement("a");
     next.href = `#${sections[currentIndex + 1].id}`;
-    next.innerHTML = `<small>下一页</small><span>${sections[currentIndex + 1].textContent}</span>`;
+    next.innerHTML = `<small>${ui.next}</small><span>${sections[currentIndex + 1].textContent}</span>`;
     pageNav.replaceChildren(previous, next);
 
     const updateNavigation = () => {
@@ -104,7 +114,7 @@
       if (index > 0) {
         const link = document.createElement("a");
         link.href = `#${sections[index - 1].id}`;
-        link.innerHTML = `<small>上一页</small><span>${sections[index - 1].textContent}</span>`;
+        link.innerHTML = `<small>${ui.previous}</small><span>${sections[index - 1].textContent}</span>`;
         links.push(link);
       } else {
         links.push(document.createElement("span"));
@@ -112,7 +122,7 @@
       if (index < sections.length - 1) {
         const link = document.createElement("a");
         link.href = `#${sections[index + 1].id}`;
-        link.innerHTML = `<small>下一页</small><span>${sections[index + 1].textContent}</span>`;
+        link.innerHTML = `<small>${ui.next}</small><span>${sections[index + 1].textContent}</span>`;
         links.push(link);
       } else {
         links.push(document.createElement("span"));
@@ -136,13 +146,13 @@
     const matches = searchRecords().filter((entry) => entry.text.toLocaleLowerCase().includes(normalizedQuery));
 
     searchPanel.hidden = false;
-    searchCount.textContent = `${matches.length} 个结果`;
+    searchCount.textContent = ui.resultCount(matches.length);
     searchResults.replaceChildren();
 
     if (matches.length === 0) {
       const empty = document.createElement("p");
       empty.className = "search-empty";
-      empty.textContent = "没有找到匹配内容。";
+      empty.textContent = ui.noResults;
       searchResults.append(empty);
       return;
     }
@@ -181,7 +191,7 @@
 
     const updateLabel = () => {
       const current = root.dataset.theme || "auto";
-      themeToggle.textContent = `主题：${current === "dark" ? "深色" : current === "light" ? "浅色" : "自动"}`;
+      themeToggle.textContent = `${ui.theme}: ${ui.themeValues[current]}`;
       themeToggle.setAttribute("aria-pressed", current === "dark" ? "true" : "false");
     };
 

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hans" data-theme="auto">
+<html lang="{{ page.lang | default: 'zh-Hans' }}" data-theme="auto">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,31 +10,31 @@
     <script src="{{ '/assets/js/docs.js' | relative_url }}" defer></script>
   </head>
   <body>
-    <a class="skip-link" href="#main-content">跳到正文</a>
+    <a class="skip-link" href="#main-content">{% if page.lang == 'en' %}Skip to content{% else %}跳到正文{% endif %}</a>
     <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
     <div class="site-shell">
-      <aside class="sidebar" id="sidebar" aria-label="文档侧边栏">
+      <aside class="sidebar" id="sidebar" aria-label="{% if page.lang == 'en' %}Documentation sidebar{% else %}文档侧边栏{% endif %}">
         <div class="sidebar-inner">
-          <a class="brand" href="{{ '/' | relative_url }}" aria-label="EhViewer 使用说明首页">
+          <a class="brand" href="{{ '/' | relative_url }}" aria-label="{% if page.lang == 'en' %}EhViewer documentation home{% else %}EhViewer 使用说明首页{% endif %}">
             <span class="brand-mark" aria-hidden="true">EH</span>
             <span>
               <strong>EhViewer</strong>
-              <small>使用说明</small>
+              <small>{% if page.lang == 'en' %}Documentation{% else %}使用说明{% endif %}</small>
             </span>
           </a>
 
           <div class="search-box">
-            <label for="doc-search">全文搜索</label>
-            <input id="doc-search" class="doc-search" type="search" placeholder="搜索文档…" autocomplete="off">
+            <label for="doc-search">{% if page.lang == 'en' %}Full-text search{% else %}全文搜索{% endif %}</label>
+            <input id="doc-search" class="doc-search" type="search" placeholder="{% if page.lang == 'en' %}Search documentation…{% else %}搜索文档…{% endif %}" autocomplete="off">
           </div>
 
-          <div class="toc-title">目录</div>
+          <div class="toc-title">{% if page.lang == 'en' %}Contents{% else %}目录{% endif %}</div>
           <nav id="sidebar-toc" class="toc" aria-label="文档目录"></nav>
 
           <div class="sidebar-meta">
             <span>Markdown → GitHub Pages</span>
-            <a href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo" rel="noreferrer">查看项目源代码</a>
+            <a href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo" rel="noreferrer">{% if page.lang == 'en' %}View source code{% else %}查看项目源代码{% endif %}</a>
           </div>
         </div>
       </aside>
@@ -42,20 +42,25 @@
       <main class="main" id="main-content">
         <header class="topbar">
           <button class="menu-button" id="sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded="false">
-            菜单
+            {% if page.lang == 'en' %}Menu{% else %}菜单{% endif %}
           </button>
           <div class="breadcrumbs" aria-label="当前位置">
             <span>EhViewer</span><span aria-hidden="true">/</span><strong>{{ page.title | default: '使用说明' }}</strong>
           </div>
           <div class="top-actions">
-            <button class="theme-button" id="theme-toggle" type="button" aria-pressed="false">主题：自动</button>
+            <button class="theme-button" id="theme-toggle" type="button" aria-pressed="false">{% if page.lang == 'en' %}Theme: Auto{% else %}主题：自动{% endif %}</button>
+            {% if page.lang == 'en' %}
+              <a class="language-link" href="{{ '/' | relative_url }}">中文</a>
+            {% else %}
+              <a class="language-link" href="{{ '/en/' | relative_url }}">English</a>
+            {% endif %}
             <a class="github-link" href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo" rel="noreferrer">GitHub</a>
           </div>
         </header>
 
         <section class="search-panel" id="search-panel" hidden aria-live="polite">
           <div class="search-panel-heading">
-            <h2>搜索结果</h2>
+            <h2>{% if page.lang == 'en' %}Search results{% else %}搜索结果{% endif %}</h2>
             <span id="search-count"></span>
           </div>
           <div id="search-results"></div>
@@ -69,8 +74,8 @@
           <nav class="page-nav" id="page-nav" aria-label="页面导航"></nav>
 
           <footer class="site-footer">
-            <span>EhViewer 文档</span>
-            <a href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo/issues" rel="noreferrer">反馈问题</a>
+            <span>{% if page.lang == 'en' %}EhViewer Documentation{% else %}EhViewer 文档{% endif %}</span>
+            <a href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo/issues" rel="noreferrer">{% if page.lang == 'en' %}Report an issue{% else %}反馈问题{% endif %}</a>
           </footer>
         </div>
       </main>

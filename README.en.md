@@ -60,6 +60,10 @@ An **E-Hentai / ExHentai** gallery browser for iOS / iPadOS / macOS, natively bu
 
 - iOS / iPadOS 26.0 or later; macOS 26.0 or later.
 
+## Documentation
+
+- [Online User Guide](https://liaowwxx.github.io/Ehviewer-iOS-macOS-Demo/)
+
 ## Privacy
 
 - All data is stored locally; image caches and downloaded files remain inside the app sandbox.

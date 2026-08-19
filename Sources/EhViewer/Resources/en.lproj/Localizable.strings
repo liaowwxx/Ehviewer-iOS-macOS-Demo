@@ -430,3 +430,37 @@
 "选择《%@》" = "Select %@";
 "正在恢复下载项…" = "Restoring downloads…";
 "没有可导出的下载内容。" = "There is no exportable download content.";
+
+/* Core settings, downloads, browsing, reader, and detail UI */
+"启用详情缓存" = "Enable Detail Cache";
+"详情缓存占用" = "Detail Cache Size";
+"清除详情缓存" = "Clear Detail Cache";
+"帮助" = "Help";
+"使用说明" = "User Guide";
+"数据迁移/备份" = "Data Migration/Backup";
+"更新已下载画廊信息" = "Refresh Downloaded Gallery Metadata";
+"导入" = "Import";
+"导入元数据(.ehgallery)" = "Import Metadata (.ehgallery)";
+"导入归档(.eharchive)" = "Import Archive (.eharchive)";
+"导出" = "Export";
+"导出元数据(.ehgallery)" = "Export Metadata (.ehgallery)";
+"导出归档(.eharchive)" = "Export Archive (.eharchive)";
+"清除详情缓存？" = "Clear Detail Cache?";
+"清除缓存" = "Clear Cache";
+"这不会删除下载文件或其他应用数据。" = "This does not delete downloaded files or other app data.";
+"重新下载" = "Redownload";
+"重新下载《%@》？" = "Redownload “%@”?";
+"将删除已下载的 %lld 个页面，并重新开始下载。" = "This will delete %lld downloaded pages and start the download again.";
+"删除选中的 %lld 项下载？" = "Delete %lld selected downloads?";
+"将移除所选下载的本地图片，并从下载列表中移除。" = "This will remove local images for the selected downloads and remove them from the download list.";
+"本地" = "Local";
+"删除(%lld)" = "Delete (%lld)";
+"选择要操作的下载项" = "Select downloads to manage";
+"切换到卡片" = "Switch to Cards";
+"切换到列表" = "Switch to List";
+"本地画廊" = "Local Galleries";
+"暂无下载任务" = "No Download Tasks";
+"暂无本地画廊" = "No Local Galleries";
+"完成下载的画廊会显示在这里" = "Completed galleries appear here";
+"列表" = "List";
+"卡片" = "Cards";
