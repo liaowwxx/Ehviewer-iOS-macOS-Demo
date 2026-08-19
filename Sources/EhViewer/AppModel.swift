@@ -1805,12 +1805,17 @@ final class AppModel {
         defaults.set(downloadLayoutMode.rawValue, forKey: "downloadLayoutMode")
     }
 
-    func exportGallerySync() async -> URL? {
+    func exportGallerySync(keys: Set<GalleryKey>? = nil) async -> URL? {
         guard beginMigration(status: String(localized: "正在准备画廊同步包…")) else { return nil }
         defer { finishMigration() }
 
+        let archiveName = if let keys {
+            "EhViewer-Galleries-\(keys.count)items-\(Self.timestampForExportFilename()).ehgallery"
+        } else {
+            "EhViewer-Galleries-\(Self.timestampForExportFilename()).ehgallery"
+        }
         let archiveURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("EhViewer-Galleries-\(Self.timestampForExportFilename()).ehgallery")
+            .appendingPathComponent(archiveName)
         var archiveReady = false
         defer {
             // 导出失败或取消时清理未完成的压缩包，避免残留占用存储。
@@ -1827,12 +1832,24 @@ final class AppModel {
                 return nil
             }
 
-            let storedSummaries = try await persistence.gallerySyncSummaries(for: Set(jobs.map(\.key)))
+            let selectedJobs = if let keys {
+                jobs.filter { keys.contains($0.key) }
+            } else {
+                jobs
+            }
+            guard selectedJobs.isEmpty == false else {
+                errorMessage = keys == nil
+                    ? String(localized: "下载列表中没有可导出的画廊。")
+                    : String(localized: "所选项目没有可导出的画廊。")
+                return nil
+            }
+
+            let storedSummaries = try await persistence.gallerySyncSummaries(for: Set(selectedJobs.map(\.key)))
             let summariesByKey = try await transferSummaries(
-                for: Set(jobs.map(\.key)),
+                for: Set(selectedJobs.map(\.key)),
                 stored: storedSummaries
             )
-            let galleries = jobs.map { job in
+            let galleries = selectedJobs.map { job in
                 summariesByKey[job.key] ?? GallerySummary(
                     key: job.key,
                     title: job.title,

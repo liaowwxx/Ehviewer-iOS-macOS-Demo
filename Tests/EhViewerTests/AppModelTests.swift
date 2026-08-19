@@ -1214,6 +1214,49 @@ struct AppModelTests {
         #expect(snapshot.galleries.map(\.key) == [downloaded.key])
     }
 
+    @Test("Selected gallery sync export uses the shared .ehgallery format")
+    func selectedGallerySyncExportUsesSharedFormat() async throws {
+        let suiteName = "EhViewerSelectedGallerySyncTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        let firstKey = GalleryKey(gid: 111, token: "selected-first")
+        let secondKey = GalleryKey(gid: 112, token: "selected-second")
+        let first = GallerySummary(
+            key: firstKey,
+            title: "Selected first",
+            tags: ["language:english"],
+            metadataCompleteness: .complete
+        )
+        let second = GallerySummary(
+            key: secondKey,
+            title: "Selected second",
+            tags: ["language:chinese"],
+            metadataCompleteness: .complete
+        )
+        try await model.persistence.upsert([first, second])
+
+        var firstJob = DownloadJob(key: firstKey, title: first.title, pages: [])
+        firstJob.state = .completed
+        var secondJob = DownloadJob(key: secondKey, title: second.title, pages: [])
+        secondJob.state = .completed
+        await model.downloads.restore([firstJob, secondJob])
+
+        let archiveURL = try #require(await model.exportGallerySync(keys: [firstKey]))
+        defer { model.discardPendingSharedFile(archiveURL) }
+        #expect(archiveURL.pathExtension == "ehgallery")
+
+        let snapshot = try GallerySyncArchive.read(from: archiveURL)
+        #expect(snapshot.galleries == [first])
+    }
+
     @Test("Selected download export only contains the requested gallery keys")
     func selectedDownloadArchiveExportContainsOnlyRequestedKeys() async throws {
         let suiteName = "EhViewerSelectedDownloadExportTests-\(UUID().uuidString)"
@@ -1265,6 +1308,7 @@ struct AppModelTests {
 
         let archiveURL = try #require(await model.exportDownloadArchive(keys: [firstKey]))
         defer { model.discardPendingSharedFile(archiveURL) }
+        #expect(archiveURL.pathExtension == "eharchive")
 
         let inspection = try await LegacyDownloadArchive.inspect(archiveURL)
         #expect(inspection.candidates.map(\.key) == [firstKey])

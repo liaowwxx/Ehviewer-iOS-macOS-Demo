@@ -21,6 +21,11 @@ import ImageIO
 import EHDomain
 import EHDownloads
 
+private enum SelectedGalleryShareFormat {
+    case gallerySync
+    case downloadArchive
+}
+
 struct DownloadsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -38,7 +43,18 @@ struct DownloadsView: View {
     @State private var isSelectionMode = false
     @State private var selectedKeys: Set<GalleryKey> = []
     @State private var showingDeleteSelectedConfirmation = false
+    @State private var showingShareFormatDialog = false
     @State private var jobForReader: DownloadJob?
+#if os(iOS)
+    @State private var showingShareSheet = false
+#else
+    @State private var showingGallerySyncExporter = false
+    @State private var gallerySyncExportDocument: GallerySyncExportDocument?
+    @State private var gallerySyncExportFilename = "EhViewer-Galleries.ehgallery"
+    @State private var showingArchiveExporter = false
+    @State private var archiveExportDocument: ArchiveExportDocument?
+    @State private var archiveExportFilename = "EhViewer-Downloads.eharchive"
+#endif
 
     init(page: DownloadsPage = .downloading) {
         self.page = page
@@ -136,6 +152,21 @@ struct DownloadsView: View {
             } message: {
                 Text("将移除所选下载的本地图片，并从下载列表中移除。")
             }
+            .confirmationDialog(
+                "选择分享格式",
+                isPresented: $showingShareFormatDialog,
+                titleVisibility: .visible
+            ) {
+                Button("元数据(.ehgallery)", systemImage: "doc.text") {
+                    shareSelectedGalleries(as: .gallerySync)
+                }
+                Button("下载归档(.eharchive)", systemImage: "archivebox") {
+                    shareSelectedGalleries(as: .downloadArchive)
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("元数据只包含画廊信息；下载归档包含本地图片。")
+            }
             .alert("删除下载失败", isPresented: Binding(
                 get: { removalErrorMessage != nil },
                 set: { if $0 == false { removalErrorMessage = nil } }
@@ -144,6 +175,42 @@ struct DownloadsView: View {
             } message: {
                 Text(removalErrorMessage ?? String(localized: "请稍后重试。"))
             }
+#if os(iOS)
+            .sheet(isPresented: $showingShareSheet, onDismiss: discardPendingSharedFileIfAny) {
+                if let url = model.pendingSharedFileURL {
+                    ShareSheet(items: [url])
+                }
+            }
+#else
+            .fileExporter(
+                isPresented: $showingGallerySyncExporter,
+                document: gallerySyncExportDocument,
+                contentTypes: [.ehViewerGallerySync],
+                defaultFilename: gallerySyncExportFilename
+            ) { result in
+                if let sourceURL = gallerySyncExportDocument?.sourceURL {
+                    model.discardPendingSharedFile(sourceURL)
+                }
+                gallerySyncExportDocument = nil
+                if case let .failure(error) = result {
+                    model.errorMessage = error.localizedDescription
+                }
+            }
+            .fileExporter(
+                isPresented: $showingArchiveExporter,
+                document: archiveExportDocument,
+                contentTypes: [.ehViewerDownloadArchive],
+                defaultFilename: archiveExportFilename
+            ) { result in
+                if let sourceURL = archiveExportDocument?.sourceURL {
+                    model.discardPendingSharedFile(sourceURL)
+                }
+                archiveExportDocument = nil
+                if case let .failure(error) = result {
+                    model.errorMessage = error.localizedDescription
+                }
+            }
+#endif
     }
 
     private func displayTitle(for job: DownloadJob?) -> String {
@@ -216,6 +283,15 @@ struct DownloadsView: View {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button(selectAllTitle) {
                         toggleSelectAll()
+                    }
+                    if page == .local {
+                        Button {
+                            showingShareFormatDialog = true
+                        } label: {
+                            Label("分享(\(selectedKeys.count))", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(selectedKeys.isEmpty || model.isMigrating || model.isRestoringDownloads)
+                        .accessibilityIdentifier("downloads-share-selected")
                     }
                     Button {
                         showingDeleteSelectedConfirmation = true
@@ -409,6 +485,41 @@ struct DownloadsView: View {
                     removalErrorMessage = message
                 }
             }
+        }
+    }
+
+    private func shareSelectedGalleries(as format: SelectedGalleryShareFormat) {
+        let keys = selectedKeys
+        Task {
+            let url: URL?
+            switch format {
+            case .gallerySync:
+                url = await model.exportGallerySync(keys: keys)
+            case .downloadArchive:
+                url = await model.exportDownloadArchive(keys: keys)
+            }
+            guard let url else { return }
+            exitSelectionMode()
+#if os(iOS)
+            showingShareSheet = true
+#else
+            switch format {
+            case .gallerySync:
+                gallerySyncExportFilename = url.lastPathComponent
+                gallerySyncExportDocument = GallerySyncExportDocument(sourceURL: url)
+                showingGallerySyncExporter = true
+            case .downloadArchive:
+                archiveExportFilename = url.lastPathComponent
+                archiveExportDocument = ArchiveExportDocument(sourceURL: url)
+                showingArchiveExporter = true
+            }
+#endif
+        }
+    }
+
+    private func discardPendingSharedFileIfAny() {
+        if let url = model.pendingSharedFileURL {
+            model.discardPendingSharedFile(url)
         }
     }
 
