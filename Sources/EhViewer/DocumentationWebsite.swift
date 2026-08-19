@@ -6,5 +6,5 @@
 import Foundation
 
 enum DocumentationWebsite {
-    static let url = URL(string: "https://liaowwxx.github.io/ehviewer-iosdemo/")
+    static let url = URL(string: "https://liaowwxx.github.io/Ehviewer-iOS-macOS-Demo/")
 }

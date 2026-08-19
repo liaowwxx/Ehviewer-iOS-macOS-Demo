@@ -1,8 +1,8 @@
 title: EhViewer 使用说明
 description: EhViewer iOS、iPadOS 与 macOS 使用说明
 url: https://liaowwxx.github.io
-baseurl: /ehviewer-iosdemo
-repository: liaowwxx/ehviewer-iosdemo
+baseurl: /Ehviewer-iOS-macOS-Demo
+repository: liaowwxx/Ehviewer-iOS-macOS-Demo
 
 markdown: kramdown
 kramdown:

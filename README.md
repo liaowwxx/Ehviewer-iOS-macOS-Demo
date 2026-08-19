@@ -52,6 +52,10 @@
 
 - iOS / iPadOS 26.0 及以上；macOS 26.0 及以上。
 
+## 使用说明
+
+- [在线使用说明](https://liaowwxx.github.io/Ehviewer-iOS-macOS-Demo/)
+
 ## 许可
 
 项目采用 [GNU General Public License v3.0](LICENSE) 许可；
