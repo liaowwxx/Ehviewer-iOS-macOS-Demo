@@ -31,6 +31,11 @@ release/
 *.profdata
 *.coverage
 
+# Jekyll generated files
+_site/
+.jekyll-cache/
+.sass-cache/
+
 # Temporary/editor files
 *.swp
 *.swo

@@ -347,8 +347,6 @@ struct DestinationView: View {
             LibraryView(mode: .favorites)
         case .settings:
             SettingsView()
-        case .documentation:
-            DocumentationView()
         case .gallery(let key):
             GalleryDetailView(key: key)
         case .comments(let key):

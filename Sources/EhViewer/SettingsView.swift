@@ -99,10 +99,12 @@ struct SettingsView: View {
                 LabeledContent("version:", value: appVersion)
             }
             Section("帮助") {
-                NavigationLink(value: AppRoute.documentation) {
-                    Label("使用说明", systemImage: "book.closed")
+                if let documentationURL = DocumentationWebsite.url {
+                    Link(destination: documentationURL) {
+                        Label("使用说明", systemImage: "book.closed")
+                    }
+                    .accessibilityIdentifier("usage-documentation-link")
                 }
-                .accessibilityIdentifier("usage-documentation-link")
             }
             FilterRulesSection()
             Section("数据迁移/备份") {

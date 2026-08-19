@@ -739,7 +739,6 @@ public enum AppRoute: Hashable, Codable, Sendable {
     case history
     case favorites
     case settings
-    case documentation
     case gallery(GalleryKey)
     case comments(GalleryKey)
     case reader(GalleryKey, page: Int)

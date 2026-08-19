@@ -74,5 +74,3 @@ Reference implementation: [Ehviewer_CN_SXJ](https://github.com/xiaojieonly/Ehvie
 Third-party component licenses are available in [NOTICE](NOTICE) and [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 The tag translation database comes from [EhTagTranslation](https://github.com/EhTagTranslation/Database) (CC-BY-NC-SA-3.0).
-
-> *This project is developed with the assistance of Codex.*

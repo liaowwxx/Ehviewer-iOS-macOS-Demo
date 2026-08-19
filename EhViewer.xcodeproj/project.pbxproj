@@ -72,6 +72,7 @@
 		EHB00000000000000000054 /* PRIVACY.md in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000054 /* PRIVACY.md */; };
 		EHB00000000000000000055 /* CHANGELOG.md in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000055 /* CHANGELOG.md */; };
 		EHB00000000000000000056 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000056 /* README.md */; };
+		EHB00000000000000000057 /* DocumentationWebsite.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000057 /* DocumentationWebsite.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -172,6 +173,7 @@
 		EHF00000000000000000054 /* PRIVACY.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = PRIVACY.md; sourceTree = "<group>"; };
 		EHF00000000000000000055 /* CHANGELOG.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = CHANGELOG.md; sourceTree = "<group>"; };
 		EHF00000000000000000056 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = README.md; sourceTree = "<group>"; };
+		EHF00000000000000000057 /* DocumentationWebsite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationWebsite.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -273,6 +275,7 @@
 				EHF00000000000000000050 /* DocumentationMarkdown.swift */,
 				EHF00000000000000000051 /* DocumentationWebView.swift */,
 				EHF00000000000000000052 /* DocumentationView.swift */,
+				EHF00000000000000000057 /* DocumentationWebsite.swift */,
 				EHF00000000000000000047 /* ShareSheet.swift */,
 				EHF00000000000000000048 /* Info.plist */,
 				EHF00000000000000000049 /* Info-macOS.plist */,
@@ -495,6 +498,7 @@
 				EHB00000000000000000050 /* DocumentationMarkdown.swift in Sources */,
 				EHB00000000000000000051 /* DocumentationWebView.swift in Sources */,
 				EHB00000000000000000052 /* DocumentationView.swift in Sources */,
+				EHB00000000000000000057 /* DocumentationWebsite.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
