@@ -1,125 +1,245 @@
 ---
-layout: default
-title: 使用说明
+layout: home
+title: EhViewer
+description: 面向 iPhone、iPad 与 Mac 的开源 E-Hentai / ExHentai 画廊客户端。浏览、阅读、下载与数据迁移。
 lang: zh-Hans
+permalink: /
 ---
-# 使用说明
 
-EhViewer 是一个面向 iPhone、iPad 和 Mac 的 E-Hentai / ExHentai 画廊浏览与阅读应用。
+<section class="hero" id="hero">
+  <div class="hero-spot" aria-hidden="true"></div>
+  <div class="hero-grid wrap">
+    <div class="hero-copy" data-reveal>
+      <p class="kicker">iOS · iPadOS · macOS</p>
+      <h1 class="display"><em>E-Hentai / ExHentai</em><br>客户端</h1>
+      <p class="hero-sub">浏览画廊、阅读漫画、管理下载，支持 iPhone、iPad 与 Mac。开源，免费。</p>
+      <div class="hero-actions" data-reveal style="--d:.14s">
+        <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
+          GitHub 仓库
+          <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
+        </a>
+        <a class="btn btn-ghost" data-magnetic href="{{ '/guide/' | relative_url }}">
+          使用说明
+          <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
+        </a>
+      </div>
+      <ul class="hero-meta">
+        <li>GPL-3.0 开源</li>
+        <li>iOS / iPadOS / macOS 26+</li>
+        <li>SwiftUI 构建</li>
+      </ul>
+    </div>
 
-本说明介绍常用功能和数据迁移方式。
+    <div class="hero-stage" data-tilt data-reveal style="--d:.1s">
+      <div class="app-window">
+          <div class="window-bar">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="dot" aria-hidden="true"></span>
+            <span class="dot" aria-hidden="true"></span>
+            <span class="window-title">EhViewer · E-Hentai</span>
+          </div>
+          <div class="app-shell">
+            <div class="app-rail" aria-hidden="true">
+              <span class="rail-glyph is-active">⌕</span>
+              <span class="rail-glyph">★</span>
+              <span class="rail-glyph">↓</span>
+              <span class="rail-glyph">◫</span>
+              <span class="rail-glyph">⚙</span>
+            </div>
+            <div class="app-panes">
+              <div class="gallery-card">
+                <span class="cover c1" aria-hidden="true"></span>
+                <span class="card-lines"><i></i><i></i>
+                  <span class="card-meta"><span class="card-star">★ 4.6</span> · 128 页</span>
+                </span>
+                <span class="card-arrow" aria-hidden="true">→</span>
+              </div>
+              <div class="gallery-card">
+                <span class="cover c2" aria-hidden="true"></span>
+                <span class="card-lines"><i></i><i></i>
+                  <span class="card-meta"><span class="card-star">★ 4.8</span> · 96 页</span>
+                </span>
+                <span class="card-arrow" aria-hidden="true">→</span>
+              </div>
+              <div class="gallery-card">
+                <span class="cover c3" aria-hidden="true"></span>
+                <span class="card-lines"><i></i><i></i>
+                  <span class="card-meta"><span class="card-star">★ 4.9</span> · 1.2k 页</span>
+                </span>
+                <span class="card-arrow" aria-hidden="true">→</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      <div class="float-chip fc-1"><span class="chip-dot ok"></span>ExHentai 已连接</div>
+      <div class="float-chip fc-2"><span class="chip-dot progress"></span>下载完成 · 214 页</div>
+      <div class="float-chip fc-3"><span class="chip-dot"></span>进度已同步</div>
+    </div>
+  </div>
+  <div class="hero-scroll" aria-hidden="true">Scroll</div>
+</section>
 
-*部分地区需要使用代理才能正常访问在线内容*
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track">
+    <span>标签翻译</span><span>断点续传</span><span>阅读进度</span><span>后台下载</span><span>归档导入</span><span>隐私优先</span><span>开源免费</span><span>多设备同步</span>
+    <span>标签翻译</span><span>断点续传</span><span>阅读进度</span><span>后台下载</span><span>归档导入</span><span>隐私优先</span><span>开源免费</span><span>多设备同步</span>
+  </div>
+</div>
 
-## 浏览与搜索
+<section class="section features" id="features">
+  <div class="wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">功能</p>
+      <h2 class="display">主要功能</h2>
+      <p class="lede">浏览、搜索、下载、阅读与数据迁移。</p>
+    </div>
 
-- 首页、订阅、热门、排行和收藏页面都支持下拉刷新。
-- 使用顶部搜索框查找画廊或标签；输入标签时可以从候选项中选择，多个标签可以组合查询。
-- 首页的高级搜索可以按分类、评分、页数等条件筛选结果。
-- 点击画廊卡片可以进入详情页；点击标签可以直接跳转到对应的搜索结果。
+    <div class="feature-grid">
+      <article class="feature-card" data-tilt data-reveal>
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/><path d="M8.5 11h5"/></svg>
+        </div>
+        <h3>浏览与搜索</h3>
+        <p>首页、订阅、热门、排行、收藏；支持标签联想、多标签组合与高级搜索。</p>
+      </article>
 
-## 快速开始
+      <article class="feature-card" data-tilt data-reveal style="--d:.06s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16.5H6.5A2.5 2.5 0 0 0 4 22Z"/><path d="M4 5.5v14A2.5 2.5 0 0 1 6.5 17H20"/></svg>
+        </div>
+        <h3>阅读</h3>
+        <p>连续滚动与翻页、缩放旋转、音量键翻页；自动保存阅读进度。</p>
+      </article>
 
-1. 打开应用后，在首页选择站点或直接使用搜索框查找画廊。
-2. 点开画廊查看详情；点击封面或阅读按钮进入阅读页面。
-3. 如果需要登录，前往“设置 → 登录”，选择用户名密码、网页登录或 Cookie 登录。
-4. 在“设置 → 浏览”中可以调整标题显示、标签翻译和详情缓存。
+      <article class="feature-card" data-tilt data-reveal style="--d:.12s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 16v3.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V16"/></svg>
+        </div>
+        <h3>下载</h3>
+        <p>队列、断点续传、失败重试、后台恢复；支持状态筛选、排序与标签管理。</p>
+      </article>
 
-*只有在需要账户会话、收藏或 ExHentai 内容时才需要登录。*
+      <article class="feature-card" data-tilt data-reveal>
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h9.5A2.5 2.5 0 0 1 20 9.5v0A2.5 2.5 0 0 1 17.5 12H8"/><path d="m11.5 4.5-3.5 3 3.5 3"/><path d="M16 17H6.5A2.5 2.5 0 0 1 4 14.5v0A2.5 2.5 0 0 1 6.5 12H16"/><path d="m12.5 20.5 3.5-3-3.5-3"/></svg>
+        </div>
+        <h3>数据迁移</h3>
+        <p>导出 .ehgallery 元数据或 .eharchive 归档，隔空投送即可换机；支持导入 Android 归档。</p>
+      </article>
 
-## 漫画下载
+      <article class="feature-card" data-tilt data-reveal style="--d:.06s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 3 8.4 7 10 4-1.6 7-5.4 7-10V6Z"/><path d="m9.2 11.8 2 2 3.6-3.9"/></svg>
+        </div>
+        <h3>隐私</h3>
+        <p>数据保存在本机，登录会话存入系统钥匙串；网络请求仅访问你主动选择的内容。</p>
+      </article>
 
-在画廊详情页开始下载后，任务会出现在“下载”页面：
+      <article class="feature-card" data-tilt data-reveal style="--d:.12s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8-4.5 4L8 16"/><path d="m16 8 4.5 4L16 16"/><path d="M13.5 5.5 10.5 18.5"/></svg>
+        </div>
+        <h3>开源</h3>
+        <p>SwiftUI + SwiftData 编写，GPL-3.0 许可，可自行构建与修改。</p>
+      </article>
+    </div>
+  </div>
+</section>
 
-- 下载支持排队、暂停、继续、失败重试和后台恢复。
-- 支持多种排序方式，点击工具栏的
-  <img class="inline-app-icon" src="{{ '/assets/icons/ellipsis-circle.svg' | relative_url }}" alt="下载管理" title="下载管理">
-  图标打开菜单，再在“排序”中选择添加时间、标题、完成度或状态。
-- 下载页面有列表和卡片两种显示方式：在列表视图中点击
-  <img class="inline-app-icon" src="{{ '/assets/icons/square-grid-2x2.svg' | relative_url }}" alt="切换到卡片视图" title="切换到卡片视图">
-  切换到卡片视图；在卡片视图中点击
-  <img class="inline-app-icon" src="{{ '/assets/icons/list-bullet.svg' | relative_url }}" alt="切换到列表视图" title="切换到列表视图">
-  切换回列表视图。
-- 可以在下载页面搜索标题或标签，也可以按全部、进行中、暂停、已完成和失败筛选任务。
-- 进入选择模式后，可以批量删除或对选中的下载进行管理；单个任务还支持查看详情、暂停/继续、重新下载、设置标签和删除。
+<section class="section reader-band" id="reader">
+  <div class="wrap reader-grid">
+    <div class="reader-copy" data-reveal>
+      <p class="kicker">阅读器</p>
+      <h2 class="display">阅读器</h2>
+      <p>支持连续阅读与翻页阅读，翻页方向、屏幕旋转与音量键手势都可以按习惯设置。</p>
+      <ul class="check-list">
+        <li>连续滚动与左右翻页，支持缩放与旋转</li>
+        <li>自动保存阅读进度</li>
+        <li>媒体可保存到系统相册</li>
+        <li>Mac 支持方向键与触控板翻页</li>
+      </ul>
+      <a class="text-link" href="{{ '/guide/' | relative_url }}">阅读相关说明 <span aria-hidden="true">→</span></a>
+    </div>
+    <div class="reader-stage" data-reveal style="--d:.12s">
+      <div class="reader-mock" aria-hidden="true">
+        <div class="sheet sheet-back"></div>
+        <div class="sheet sheet-front">
+          <div class="sheet-topbar"><span>CHAPTER 12</span><span>12 / 240</span></div>
+          <div class="sheet-body">
+            <div class="sheet-line"></div>
+            <div class="sheet-line short"></div>
+            <div class="sheet-panel">静</div>
+            <div class="sheet-line short"></div>
+            <div class="sheet-line"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-## 画廊详情
+<section class="section start" id="start">
+  <div class="wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">安装</p>
+      <h2 class="display">安装</h2>
+      <p class="lede">使用 AltStore 侧载安装。</p>
+    </div>
 
-- 详情页会显示封面、标题、上传者、分类、页数、评分和标签。
-- 使用“阅读”直接打开阅读器；使用“加入下载”将画廊加入下载队列。
-- 可以收藏、评分、分享画廊，或打开相似画廊。
-- 预览缩略图会优先显示已下载内容；点击标签可以继续查找相同标签的画廊。
+    <ol class="steps">
+      <li class="step" data-reveal>
+        <div class="step-num">01</div>
+        <h3>获取 .ipa</h3>
+        <p>在 GitHub Releases 下载最新 .ipa 文件，无需越狱。</p>
+      </li>
+      <li class="step" data-reveal style="--d:.1s">
+        <div class="step-num">02</div>
+        <h3>用 AltStore 安装</h3>
+        <p>隔空投送或从文件 App 打开 .ipa，用 AltStore 安装；首次使用请信任开发者证书。</p>
+      </li>
+      <li class="step" data-reveal style="--d:.2s">
+        <div class="step-num">03</div>
+        <h3>开始使用</h3>
+        <p>选择站点、搜索或登录，即可开始浏览画廊。</p>
+      </li>
+    </ol>
 
-## 在 Apple 设备间传输数据
+    <div class="start-actions" data-reveal>
+      <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo/releases" rel="noreferrer" target="_blank">
+        下载 .ipa
+        <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
+      </a>
+      <a class="btn btn-ghost" data-magnetic href="{{ '/guide/' | relative_url }}">使用说明</a>
+    </div>
+  </div>
+</section>
 
-在“设置 → 数据迁移/备份”中：
-
-1. 在原设备选择“导出元数据(.ehgallery)”或“导出归档(.eharchive)”。
-2. 使用隔空投送、文件 App 或其他分享方式发送文件。
-3. 在新设备选择对应的“导入”操作，并从文件 App 选取文件。
-
-`.ehgallery` 只包含画廊元数据，适合快速同步列表和详情；
-
-`.eharchive` 还包含已经下载的媒体文件，适合完整迁移下载内容。
-
-## 从 Android 设备迁移
-
-请在 Android 设备上找到下载目录，并且按照以下**结构**打包：
-
-```
-download.zip
-└─download
-	├─xxx
-	├─xxx
-	├─xxx
-	└─xxx
-```
-
-1. 将归档文件传到 iPhone、iPad 或 Mac，可以使用文件 App、隔空投送或云盘。
-2. 在 EhViewer 打开“设置 → 数据迁移/备份 → 导入归档(.eharchive)”。
-3. 选取归档并等待导入完成，再到“下载”页面检查结果。
-
-导入时不会覆盖现有的同名下载项；如果归档结构不完整或包含不受支持的文件，应用会报告导入结果。
-
-## 阅读页面
-
-- 点击阅读页面可以显示或隐藏阅读控件；右上角的“阅读选项”可以调整分页/连续阅读、翻页方向和开始位置。
-- 在 iPhone 和 iPad 上还可以设置屏幕旋转、音量键翻页以及音量键方向。
-- 阅读页面会保存当前画廊的阅读进度，下次打开时可以从上次位置继续。
-- 长按媒体或使用“保存媒体”可以将当前媒体保存到系统照片图库；Mac 端保存到系统下载文件夹。
-- Mac 端可以使用方向键或触控板手势翻页。
-
-## 设置与账号
-
-- 在“设置 → 站点”中切换 E-Hentai 或 ExHentai；ExHentai 需要有效的账户会话。
-- 在“设置 → 登录”中可以使用用户名密码、网页登录或 Cookie 登录，也可以清除当前 Cookie。
-- 在“设置 → 浏览”中可以控制日文标题、标签翻译和详情缓存；清除详情缓存不会删除下载文件。
-- “设置 → About”可以查看当前应用构建版本；遇到问题时，请同时提供系统版本、应用版本和复现步骤。
-
-## 常见问题
-
-### 为什么首页可以打开，但画廊图片加载失败？
-
-站点可能临时限流、网络不可用或需要有效登录会话。请先检查网络，再尝试刷新；如果使用 ExHentai，请确认账户具备访问权限。
-
-### 我应该导出元数据还是归档？
-
-只想同步画廊列表和阅读信息时选择 `.ehgallery`；
-
-需要把已下载图片或视频一并带到另一台设备时选择 `.eharchive`。
-
-### 导入后为什么没有看到画廊？
-
-请先等待导入完成，再打开“下载”页面。元数据导入不会自动下载缺失媒体；如果导入的是外部归档，请确认归档内包含应用支持的文件结构。
-
-### 如何清理缓存？
-
-在“设置 → 浏览”中关闭详情缓存或选择“清除详情缓存”。这不会删除已下载的图片、视频或归档。
-
-### 如何反馈问题？
-
-请在 GitHub Issue 中描述设备系统版本、应用版本和可复现步骤。不要在问题中粘贴密码、Cookie 或其他账户凭据。
-
-## 隐私说明
-
-应用数据保存在本机，网络请求只用于访问用户选择的站点和下载用户主动请求的内容。
+<section class="section faq" id="faq">
+  <div class="wrap faq-wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">常见问题</p>
+      <h2 class="display">常见问题</h2>
+      <p class="lede">完整说明见<a href="{{ '/guide/' | relative_url }}">使用说明</a>；如有问题，可在 <a href="https://github.com/liaowwxx/ehviewer-iosdemo/issues" rel="noreferrer">GitHub Issues</a> 反馈。</p>
+    </div>
+    <div class="faq-list" data-reveal>
+      <details class="faq-item" open>
+        <summary>需要登录吗？<span class="plus" aria-hidden="true">+</span></summary>
+        <div class="faq-body"><p>访问收藏、ExHentai 内容或需要账户会话时才需要登录。在「设置 → 登录」中可使用用户名密码、网页登录或 Cookie 登录。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary>换机时，导出元数据还是归档？<span class="plus" aria-hidden="true">+</span></summary>
+        <div class="faq-body"><p>只需同步画廊列表与阅读信息时选择 <code>.ehgallery</code>；需要把已下载的图片或视频一并带走时选择 <code>.eharchive</code>。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary>画廊图片加载失败怎么办？<span class="plus" aria-hidden="true">+</span></summary>
+        <div class="faq-body"><p>可能是站点临时限流、网络不可用或登录会话失效。先检查网络并刷新；使用 ExHentai 时请确认账户具备访问权限。</p></div>
+      </details>
+    </div>
+  </div>
+</section>

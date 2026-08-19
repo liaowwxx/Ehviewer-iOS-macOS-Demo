@@ -1,8 +1,10 @@
-title: EhViewer 使用说明
-description: EhViewer iOS、iPadOS 与 macOS 使用说明
+title: EhViewer
+description: 面向 iPhone、iPad 与 Mac 的开源 E-Hentai / ExHentai 画廊浏览器
 url: https://liaowwxx.github.io
 baseurl: /Ehviewer-iOS-macOS-Demo
-repository: liaowwxx/Ehviewer-iOS-macOS-Demo
+repository: liaowwxx/ehviewer-iosdemo
+
+lang: zh-Hans
 
 markdown: kramdown
 kramdown:
@@ -16,3 +18,4 @@ exclude:
   - Gemfile
   - Gemfile.lock
   - node_modules
+  - _preview

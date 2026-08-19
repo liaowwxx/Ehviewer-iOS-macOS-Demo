@@ -1,119 +1,245 @@
 ---
-layout: default
-title: User Guide
-description: EhViewer user guide for iOS, iPadOS, and macOS
+layout: home
+title: EhViewer
+description: An open-source E-Hentai / ExHentai client for iPhone, iPad, and Mac. Browse, read, download, and migrate.
 lang: en
 permalink: /en/
 ---
-# User Guide
 
-EhViewer is a gallery browsing and reading app for E-Hentai and ExHentai on iPhone, iPad, and Mac.
+<section class="hero" id="hero">
+  <div class="hero-spot" aria-hidden="true"></div>
+  <div class="hero-grid wrap">
+    <div class="hero-copy" data-reveal>
+      <p class="kicker">iOS · iPadOS · macOS</p>
+      <h1 class="display"><em>E-Hentai / ExHentai</em><br>client</h1>
+      <p class="hero-sub">Browse galleries, read manga, and manage downloads on iPhone, iPad, and Mac. Open source and free.</p>
+      <div class="hero-actions" data-reveal style="--d:.14s">
+        <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
+          GitHub
+          <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
+        </a>
+        <a class="btn btn-ghost" data-magnetic href="{{ '/en/guide/' | relative_url }}">
+          User guide
+          <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
+        </a>
+      </div>
+      <ul class="hero-meta">
+        <li>Open source · GPL-3.0</li>
+        <li>iOS / iPadOS / macOS 26+</li>
+        <li>Built with SwiftUI</li>
+      </ul>
+    </div>
 
-This guide covers common features, downloads, reading, and data migration.
+    <div class="hero-stage" data-tilt data-reveal style="--d:.1s">
+      <div class="app-window">
+          <div class="window-bar">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="dot" aria-hidden="true"></span>
+            <span class="dot" aria-hidden="true"></span>
+            <span class="window-title">EhViewer · E-Hentai</span>
+          </div>
+          <div class="app-shell">
+            <div class="app-rail" aria-hidden="true">
+              <span class="rail-glyph is-active">⌕</span>
+              <span class="rail-glyph">★</span>
+              <span class="rail-glyph">↓</span>
+              <span class="rail-glyph">◫</span>
+              <span class="rail-glyph">⚙</span>
+            </div>
+            <div class="app-panes">
+              <div class="gallery-card">
+                <span class="cover c1" aria-hidden="true"></span>
+                <span class="card-lines"><i></i><i></i>
+                  <span class="card-meta"><span class="card-star">★ 4.6</span> · 128 pages</span>
+                </span>
+                <span class="card-arrow" aria-hidden="true">→</span>
+              </div>
+              <div class="gallery-card">
+                <span class="cover c2" aria-hidden="true"></span>
+                <span class="card-lines"><i></i><i></i>
+                  <span class="card-meta"><span class="card-star">★ 4.8</span> · 96 pages</span>
+                </span>
+                <span class="card-arrow" aria-hidden="true">→</span>
+              </div>
+              <div class="gallery-card">
+                <span class="cover c3" aria-hidden="true"></span>
+                <span class="card-lines"><i></i><i></i>
+                  <span class="card-meta"><span class="card-star">★ 4.9</span> · 1.2k pages</span>
+                </span>
+                <span class="card-arrow" aria-hidden="true">→</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      <div class="float-chip fc-1"><span class="chip-dot ok"></span>ExHentai connected</div>
+      <div class="float-chip fc-2"><span class="chip-dot progress"></span>Downloaded · 214 pages</div>
+      <div class="float-chip fc-3"><span class="chip-dot"></span>Progress synced</div>
+    </div>
+  </div>
+  <div class="hero-scroll" aria-hidden="true">Scroll</div>
+</section>
 
-*Some regions may require a proxy to access online content normally.*
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track">
+    <span>Tag translations</span><span>Resumable downloads</span><span>Reading progress</span><span>Background queue</span><span>Archive import</span><span>Privacy first</span><span>Open source</span><span>Cross-device sync</span>
+    <span>Tag translations</span><span>Resumable downloads</span><span>Reading progress</span><span>Background queue</span><span>Archive import</span><span>Privacy first</span><span>Open source</span><span>Cross-device sync</span>
+  </div>
+</div>
 
-## Browsing and Search
+<section class="section features" id="features">
+  <div class="wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">Features</p>
+      <h2 class="display">Key features</h2>
+      <p class="lede">Browse, search, download, read, and migrate.</p>
+    </div>
 
-- Home, Subscriptions, Popular, Toplist, and Favorites support pull-to-refresh.
-- Use the search field to find galleries or tags. Tag suggestions appear as you type, and multiple tags can be combined.
-- Advanced Search can filter results by category, rating, page count, and other conditions.
-- Open a gallery card to view its details. Select a tag to jump directly to its search results.
+    <div class="feature-grid">
+      <article class="feature-card" data-tilt data-reveal>
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/><path d="M8.5 11h5"/></svg>
+        </div>
+        <h3>Browse &amp; Search</h3>
+        <p>Home, subscriptions, popular, toplists, and favorites. Tag suggestions, multi-tag queries, and advanced search.</p>
+      </article>
 
-## Quick Start
+      <article class="feature-card" data-tilt data-reveal style="--d:.06s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16.5H6.5A2.5 2.5 0 0 0 4 22Z"/><path d="M4 5.5v14A2.5 2.5 0 0 1 6.5 17H20"/></svg>
+        </div>
+        <h3>Reader</h3>
+        <p>Continuous or paged reading, zoom, rotation, and volume-key paging. Reading progress is saved automatically.</p>
+      </article>
 
-1. Open the app, choose a site on the Home page, or search for a gallery.
-2. Open a gallery to view its details, then select the cover or reading action to open the reader.
-3. If an account session is required, go to **Settings → Login** and choose username and password, web login, or cookie login.
-4. Use **Settings → Browse** to configure title display, tag translations, and gallery-detail caching.
+      <article class="feature-card" data-tilt data-reveal style="--d:.12s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 16v3.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V16"/></svg>
+        </div>
+        <h3>Downloads</h3>
+        <p>Queuing, resumable transfers, automatic retries, and background recovery. Filter, sort, and tag your library.</p>
+      </article>
 
-*You only need to sign in for account sessions, favorites, or ExHentai content.*
+      <article class="feature-card" data-tilt data-reveal>
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h9.5A2.5 2.5 0 0 1 20 9.5v0A2.5 2.5 0 0 1 17.5 12H8"/><path d="m11.5 4.5-3.5 3 3.5 3"/><path d="M16 17H6.5A2.5 2.5 0 0 1 4 14.5v0A2.5 2.5 0 0 1 6.5 12H16"/><path d="m12.5 20.5 3.5-3-3.5-3"/></svg>
+        </div>
+        <h3>Migration</h3>
+        <p>Export .ehgallery metadata or .eharchive archives and AirDrop them to a new device. Android archives are supported too.</p>
+      </article>
 
-## Downloads
+      <article class="feature-card" data-tilt data-reveal style="--d:.06s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 3 8.4 7 10 4-1.6 7-5.4 7-10V6Z"/><path d="m9.2 11.8 2 2 3.6-3.9"/></svg>
+        </div>
+        <h3>Privacy</h3>
+        <p>Data stays on your device and sessions live in the system keychain. Network requests only go where you choose.</p>
+      </article>
 
-After starting a download from a gallery detail page, the task appears on the Downloads page:
+      <article class="feature-card" data-tilt data-reveal style="--d:.12s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8-4.5 4L8 16"/><path d="m16 8 4.5 4L16 16"/><path d="M13.5 5.5 10.5 18.5"/></svg>
+        </div>
+        <h3>Open Source</h3>
+        <p>Built with SwiftUI and SwiftData, licensed under GPL-3.0. Build it yourself and make it yours.</p>
+      </article>
+    </div>
+  </div>
+</section>
 
-- Downloads support queuing, pausing, resuming, retrying failed tasks, and restoring background work after relaunch.
-- Select the <img class="inline-app-icon" src="{{ '/assets/icons/ellipsis-circle.svg' | relative_url }}" alt="Download management" title="Download management"> icon to open the menu, then choose **Sort** by date added, title, progress, or status.
-- The Downloads page supports list and card layouts. In list view, select <img class="inline-app-icon" src="{{ '/assets/icons/square-grid-2x2.svg' | relative_url }}" alt="Switch to card view" title="Switch to card view"> to switch to cards; in card view, select <img class="inline-app-icon" src="{{ '/assets/icons/list-bullet.svg' | relative_url }}" alt="Switch to list view" title="Switch to list view"> to return to the list.
-- Search download titles or tags, and filter tasks by All, Active, Paused, Completed, or Failed.
-- Selection mode supports batch deletion. Individual tasks support viewing details, pausing/resuming, retrying, labeling, and deletion.
+<section class="section reader-band" id="reader">
+  <div class="wrap reader-grid">
+    <div class="reader-copy" data-reveal>
+      <p class="kicker">Reader</p>
+      <h2 class="display">Reader</h2>
+      <p>Supports continuous and paged reading. Paging direction, screen rotation, and volume-key gestures are configurable.</p>
+      <ul class="check-list">
+        <li>Continuous scroll or left/right paging, with zoom and rotation</li>
+        <li>Reading progress saved automatically</li>
+        <li>Save media to the system photo library</li>
+        <li>Arrow keys and trackpad gestures on Mac</li>
+      </ul>
+      <a class="text-link" href="{{ '/en/guide/' | relative_url }}">Reader guide <span aria-hidden="true">→</span></a>
+    </div>
+    <div class="reader-stage" data-reveal style="--d:.12s">
+      <div class="reader-mock" aria-hidden="true">
+        <div class="sheet sheet-back"></div>
+        <div class="sheet sheet-front">
+          <div class="sheet-topbar"><span>CHAPTER 12</span><span>12 / 240</span></div>
+          <div class="sheet-body">
+            <div class="sheet-line"></div>
+            <div class="sheet-line short"></div>
+            <div class="sheet-panel">靜</div>
+            <div class="sheet-line short"></div>
+            <div class="sheet-line"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-## Gallery Details
+<section class="section start" id="start">
+  <div class="wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">Install</p>
+      <h2 class="display">Install</h2>
+      <p class="lede">Sideload with AltStore.</p>
+    </div>
 
-- The detail page shows the cover, title, uploader, category, page count, rating, and tags.
-- Select **Read** to open the reader, or **Add to Download** to add the gallery to the download queue.
-- You can favorite, rate, share, or open similar galleries.
-- Preview thumbnails prefer downloaded pages when available. Select a tag to search for other galleries with the same tag.
+    <ol class="steps">
+      <li class="step" data-reveal>
+        <div class="step-num">01</div>
+        <h3>Get the .ipa</h3>
+        <p>Download the latest .ipa from GitHub Releases. No jailbreak needed.</p>
+      </li>
+      <li class="step" data-reveal style="--d:.1s">
+        <div class="step-num">02</div>
+        <h3>Install with AltStore</h3>
+        <p>AirDrop the .ipa or open it from Files with AltStore. Trust your developer certificate on first launch.</p>
+      </li>
+      <li class="step" data-reveal style="--d:.2s">
+        <div class="step-num">03</div>
+        <h3>Start using it</h3>
+        <p>Pick a site, search, or sign in — then start browsing galleries.</p>
+      </li>
+    </ol>
 
-## Data Transfer Between Apple Devices
+    <div class="start-actions" data-reveal>
+      <a class="btn btn-primary" data-magnetic href="https://github.com/liaowwxx/ehviewer-iosdemo/releases" rel="noreferrer" target="_blank">
+        Download .ipa
+        <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
+      </a>
+      <a class="btn btn-ghost" data-magnetic href="{{ '/en/guide/' | relative_url }}">User guide</a>
+    </div>
+  </div>
+</section>
 
-In **Settings → Data Migration/Backup**:
-
-1. On the original device, choose **Export Metadata (.ehgallery)** or **Export Archive (.eharchive)**.
-2. Send the file with AirDrop, Files, or another sharing method.
-3. On the new device, choose the matching import action and select the file from Files.
-
-`.ehgallery` contains gallery metadata and is suitable for synchronizing lists and details.
-
-`.eharchive` also contains downloaded media and is suitable for a complete download migration.
-
-## Migrating from Android
-
-Locate the Android download directory and package it with this structure:
-
-```text
-download.zip
-└─download
-   ├─xxx
-   ├─xxx
-   ├─xxx
-   └─xxx
-```
-
-1. Transfer the archive to iPhone, iPad, or Mac using Files, AirDrop, or a cloud drive.
-2. In EhViewer, open **Settings → Data Migration/Backup → Import Archive (.eharchive)**.
-3. Select the archive, wait for the import to finish, and check the Downloads page.
-
-Existing downloads with the same name are not overwritten. If the archive is incomplete or contains unsupported files, the app reports the import result.
-
-## Reader
-
-- Tap the reader to show or hide controls. **Reading Options** lets you choose paged or continuous reading, page-turn direction, and the start position.
-- On iPhone and iPad, you can also configure screen rotation, volume-button paging, and reversed volume-button direction.
-- Reading progress is saved automatically, so you can continue from the previous position.
-- Long-press media or choose **Save Media** to save it to the system photo library. On Mac, media is saved to the Downloads folder.
-- On Mac, use the arrow keys or trackpad gestures to turn pages.
-
-## Settings and Account
-
-- Use **Settings → Site** to switch between E-Hentai and ExHentai. ExHentai requires a valid account session.
-- **Settings → Login** supports username and password, web login, and cookie login. You can also clear the current cookie.
-- **Settings → Browse** controls Japanese titles, tag translations, and detail caching. Clearing the detail cache does not delete downloaded files.
-- **Settings → About** shows the current app build version.
-
-## Frequently Asked Questions
-
-### The home page works, but gallery images fail to load. Why?
-
-The site may be rate-limiting requests, the network may be unavailable, or the account session may be invalid. Check the network, refresh the page, and confirm that an ExHentai account has access if needed.
-
-### Should I export metadata or an archive?
-
-Choose `.ehgallery` when you only need gallery lists and reading information. Choose `.eharchive` when downloaded images or videos should be transferred as well.
-
-### Why is a gallery not visible after import?
-
-Wait for the import to finish, then open Downloads. Metadata import does not download missing media. For external archives, make sure the archive contains the supported directory structure.
-
-### How do I clear the cache?
-
-In **Settings → Browse**, disable detail caching or select **Clear Detail Cache**. This does not delete downloaded images, videos, or archives.
-
-### How do I report a problem?
-
-Open a GitHub Issue with the OS version, app version, and reproducible steps. Do not include passwords, cookies, or other account credentials.
-
-## Privacy
-
-App data is stored locally. Network requests are used only to access the sites selected by the user and to download content explicitly requested by the user.
+<section class="section faq" id="faq">
+  <div class="wrap faq-wrap">
+    <div class="section-head" data-reveal>
+      <p class="kicker">FAQ</p>
+      <h2 class="display">FAQ</h2>
+      <p class="lede">Full details are in the <a href="{{ '/en/guide/' | relative_url }}">user guide</a>. For anything else, open an <a href="https://github.com/liaowwxx/ehviewer-iosdemo/issues" rel="noreferrer">issue on GitHub</a>.</p>
+    </div>
+    <div class="faq-list" data-reveal>
+      <details class="faq-item" open>
+        <summary>Do I need to sign in?<span class="plus" aria-hidden="true">+</span></summary>
+        <div class="faq-body"><p>Only for favorites, ExHentai content, or when an account session is required. Use <strong>Settings → Login</strong> with username and password, web login, or cookies.</p></div>
+      </details>
+      <details class="faq-item">
+        <summary>Should I export metadata or an archive?<span class="plus" aria-hidden="true">+</span></summary>
+        <div class="faq-body"><p>Choose <code>.ehgallery</code> to sync gallery lists and reading info; choose <code>.eharchive</code> when downloaded images or videos should come along.</p></div>
+      </details>
+      <details class="faq-item">
+        <summary>Gallery images fail to load — why?<span class="plus" aria-hidden="true">+</span></summary>
+        <div class="faq-body"><p>The site may be rate-limiting, the network unavailable, or the session invalid. Check the network and refresh; for ExHentai, confirm the account has access.</p></div>
+      </details>
+    </div>
+  </div>
+</section>

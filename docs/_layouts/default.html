@@ -4,23 +4,34 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f4f1ec" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#171410" media="(prefers-color-scheme: dark)">
     <meta name="description" content="{{ page.description | default: site.description | escape }}">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{{ page.title | default: site.title | escape }}">
+    <meta property="og:description" content="{{ page.description | default: site.description | escape }}">
+    <meta property="og:url" content="{{ page.url | absolute_url }}">
+    <meta property="og:image" content="{{ '/assets/icon.png' | absolute_url }}">
+    <link rel="icon" type="image/png" href="{{ '/assets/favicon.png' | relative_url }}">
+    <link rel="apple-touch-icon" href="{{ '/assets/icon-180.png' | relative_url }}">
     <title>{{ page.title | default: site.title | escape }} · {{ site.title | escape }}</title>
     <link rel="stylesheet" href="{{ '/assets/css/docs.css' | relative_url }}">
     <script src="{{ '/assets/js/docs.js' | relative_url }}" defer></script>
   </head>
-  <body>
+  <body class="docs-page">
     <a class="skip-link" href="#main-content">{% if page.lang == 'en' %}Skip to content{% else %}跳到正文{% endif %}</a>
+    <div class="grain" aria-hidden="true"></div>
+    <div class="cursor-aura" id="cursor-aura" aria-hidden="true"></div>
     <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
-    <div class="site-shell">
+    <div class="docs-shell">
       <aside class="sidebar" id="sidebar" aria-label="{% if page.lang == 'en' %}Documentation sidebar{% else %}文档侧边栏{% endif %}">
         <div class="sidebar-inner">
-          <a class="brand" href="{{ '/' | relative_url }}" aria-label="{% if page.lang == 'en' %}EhViewer documentation home{% else %}EhViewer 使用说明首页{% endif %}">
-            <span class="brand-mark" aria-hidden="true">EH</span>
+          <a class="brand" href="{{ '/' | relative_url }}" aria-label="{% if page.lang == 'en' %}EhViewer home{% else %}EhViewer 首页{% endif %}">
+            <img src="{{ '/assets/icon-180.png' | relative_url }}" alt="" width="38" height="38">
             <span>
-              <strong>EhViewer</strong>
-              <small>{% if page.lang == 'en' %}Documentation{% else %}使用说明{% endif %}</small>
+              <span class="brand-name">EhViewer</span>
+              <span class="brand-tag">{% if page.lang == 'en' %}Documentation{% else %}使用说明{% endif %}</span>
             </span>
           </a>
 
@@ -30,31 +41,34 @@
           </div>
 
           <div class="toc-title">{% if page.lang == 'en' %}Contents{% else %}目录{% endif %}</div>
-          <nav id="sidebar-toc" class="toc" aria-label="文档目录"></nav>
+          <nav id="sidebar-toc" class="toc" aria-label="{% if page.lang == 'en' %}Table of contents{% else %}文档目录{% endif %}"></nav>
 
           <div class="sidebar-meta">
-            <span>Markdown → GitHub Pages</span>
-            <a href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo" rel="noreferrer">{% if page.lang == 'en' %}View source code{% else %}查看项目源代码{% endif %}</a>
+            <span>{% if page.lang == 'en' %}Hosted on GitHub Pages{% else %}托管于 GitHub Pages{% endif %}</span>
+            <a href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer">{% if page.lang == 'en' %}View source{% else %}查看项目源代码{% endif %}</a>
           </div>
         </div>
       </aside>
 
-      <main class="main" id="main-content">
+      <main class="docs-main" id="main-content">
         <header class="topbar">
           <button class="menu-button" id="sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded="false">
             {% if page.lang == 'en' %}Menu{% else %}菜单{% endif %}
           </button>
-          <div class="breadcrumbs" aria-label="当前位置">
+          <div class="breadcrumbs" aria-label="{% if page.lang == 'en' %}Breadcrumb{% else %}当前位置{% endif %}">
             <span>EhViewer</span><span aria-hidden="true">/</span><strong>{{ page.title | default: '使用说明' }}</strong>
           </div>
           <div class="top-actions">
-            <button class="theme-button" id="theme-toggle" type="button" aria-pressed="false">{% if page.lang == 'en' %}Theme: Auto{% else %}主题：自动{% endif %}</button>
+            <button class="theme-toggle" id="theme-toggle" type="button" aria-label="{% if page.lang == 'en' %}Toggle theme{% else %}切换主题{% endif %}" aria-pressed="false">
+              <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"></circle><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5 5l1.7 1.7M17.3 17.3 19 19M19 5l-1.7 1.7M6.7 17.3 5 19"></path></svg>
+              <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13.5A8.2 8.2 0 0 1 10.5 4a8.2 8.2 0 1 0 9.5 9.5Z"></path></svg>
+            </button>
             {% if page.lang == 'en' %}
-              <a class="language-link" href="{{ '/' | relative_url }}">中文</a>
+              <a class="lang-link" href="{{ '/guide/' | relative_url }}" hreflang="zh-Hans">中文</a>
             {% else %}
-              <a class="language-link" href="{{ '/en/' | relative_url }}">English</a>
+              <a class="lang-link" href="{{ '/en/guide/' | relative_url }}" hreflang="en">EN</a>
             {% endif %}
-            <a class="github-link" href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo" rel="noreferrer">GitHub</a>
+            <a class="github-link" href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer">GitHub</a>
           </div>
         </header>
 
@@ -71,11 +85,11 @@
             {{ content }}
           </article>
 
-          <nav class="page-nav" id="page-nav" aria-label="页面导航"></nav>
+          <nav class="page-nav" id="page-nav" aria-label="{% if page.lang == 'en' %}Page navigation{% else %}页面导航{% endif %}"></nav>
 
           <footer class="site-footer">
             <span>{% if page.lang == 'en' %}EhViewer Documentation{% else %}EhViewer 文档{% endif %}</span>
-            <a href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo/issues" rel="noreferrer">{% if page.lang == 'en' %}Report an issue{% else %}反馈问题{% endif %}</a>
+            <a href="https://github.com/liaowwxx/ehviewer-iosdemo/issues" rel="noreferrer">{% if page.lang == 'en' %}Report an issue{% else %}反馈问题{% endif %}</a>
           </footer>
         </div>
       </main>
