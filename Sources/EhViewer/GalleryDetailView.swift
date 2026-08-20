@@ -844,6 +844,19 @@ struct GalleryPreviewRevealState: Hashable, Sendable {
     }
 }
 
+enum GalleryPreviewLoadPolicy {
+    static let immediateCount = 12
+    static let maximumDelayMilliseconds = 500
+
+    /// Mirrors the reference client's staggered preview loading schedule.
+    /// The first twelve tasks start immediately; later tasks are queued on
+    /// the event loop and then spread out in 50 ms steps, capped at 500 ms.
+    static func delayMilliseconds(for ordinal: Int) -> Int {
+        guard ordinal >= immediateCount else { return 0 }
+        return min((ordinal - immediateCount) * 50, maximumDelayMilliseconds)
+    }
+}
+
 /// Preview thumbnail grid with page numbers, mirroring the reference detail
 /// scene's `bindPreviews`: only the first 27 previews render initially and a
 /// "more previews" action reveals the rest in batches of 20.
@@ -858,7 +871,7 @@ private struct GalleryPreviewGrid: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(visiblePages) { page in
+                ForEach(Array(visiblePages.enumerated()), id: \.element.id) { ordinal, page in
                     NavigationLink {
                         ReaderView(key: key, initialPage: page.index)
                     } label: {
@@ -868,7 +881,8 @@ private struct GalleryPreviewGrid: View {
                                 .overlay {
                                     GalleryPreviewThumbnail(
                                         descriptor: page,
-                                        prefersLocalMedia: prefersLocalMedia
+                                        prefersLocalMedia: prefersLocalMedia,
+                                        loadOrdinal: ordinal
                                     )
                                 }
                                 .clipped()
@@ -917,6 +931,7 @@ private struct GalleryPreviewThumbnail: View {
     @Environment(AppModel.self) private var model
     let descriptor: GalleryPageDescriptor
     let prefersLocalMedia: Bool
+    let loadOrdinal: Int
     @State private var image: Image?
 
     var body: some View {
@@ -951,6 +966,19 @@ private struct GalleryPreviewThumbnail: View {
                 return
             }
             guard let url = descriptor.previewURL else { return }
+            let delayMilliseconds = GalleryPreviewLoadPolicy.delayMilliseconds(for: loadOrdinal)
+            if loadOrdinal >= GalleryPreviewLoadPolicy.immediateCount {
+                if delayMilliseconds > 0 {
+                    do {
+                        try await Task.sleep(for: .milliseconds(delayMilliseconds))
+                    } catch {
+                        return
+                    }
+                } else {
+                    await Task.yield()
+                }
+                guard Task.isCancelled == false else { return }
+            }
             do {
                 let page = GalleryPageImage(galleryKey: descriptor.galleryKey, index: descriptor.index, imageURL: url)
                 let data = try await model.galleryImageData(for: page)

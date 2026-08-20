@@ -31,6 +31,7 @@ struct DownloadsView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let page: DownloadsPage
     @State private var jobs: [DownloadJob] = []
+    @State private var localSummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
     @State private var searchText = ""
@@ -351,6 +352,9 @@ struct DownloadsView: View {
             }
         }
         .task(id: model.isLoadingDownloads) { jobs = await model.downloads.snapshot() }
+        .task(id: localSummaryTaskID) {
+            await loadLocalSummaries()
+        }
         .task(id: searchText) {
             await refreshTagSearchSuggestions(for: searchText)
         }
@@ -520,26 +524,7 @@ struct DownloadsView: View {
         ScrollView {
             LazyVStack(spacing: 6) {
                 ForEach(visibleJobs) { job in
-                    DownloadCard(
-                        job: job,
-                        isSelectionMode: isSelectionMode,
-                        isSelected: selectedKeys.contains(job.key),
-                        select: { toggleSelection(job.key) },
-                        requestSelection: { enterSelectionMode(selecting: job.key) },
-                        openReader: { jobForReader = job }
-                    ) {
-                        Task {
-                            if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
-                            else { await model.resumeDownload(job.key) }
-                        }
-                    } redownload: {
-                        jobPendingRedownload = job
-                    } remove: {
-                        jobPendingRemoval = job
-                    } label: {
-                        labelInput = job.label ?? ""
-                        editingJob = job
-                    }
+                    listCard(for: job)
                 }
             }
             .padding(.vertical, 6)
@@ -548,6 +533,35 @@ struct DownloadsView: View {
         .background(.secondary.opacity(0.08))
 #else
         List(visibleJobs) { job in
+            listCard(for: job)
+            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(.secondary.opacity(0.08))
+#endif
+    }
+
+    @ViewBuilder
+    private func listCard(for job: DownloadJob) -> some View {
+        if page == .local {
+            LocalDownloadCard(
+                job: job,
+                gallery: localGallerySummary(for: job),
+                isSelectionMode: isSelectionMode,
+                isSelected: selectedKeys.contains(job.key),
+                select: { toggleSelection(job.key) },
+                requestSelection: { enterSelectionMode(selecting: job.key) },
+                openReader: { jobForReader = job },
+                remove: { jobPendingRemoval = job },
+                label: {
+                    labelInput = job.label ?? ""
+                    editingJob = job
+                }
+            )
+        } else {
             DownloadCard(
                 job: job,
                 isSelectionMode: isSelectionMode,
@@ -568,14 +582,54 @@ struct DownloadsView: View {
                 labelInput = job.label ?? ""
                 editingJob = job
             }
-            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(.secondary.opacity(0.08))
-#endif
+    }
+
+    private var localSummaryTaskID: String {
+        guard page == .local else { return "not-local" }
+        return jobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
+            .joined(separator: "\u{1E}")
+    }
+
+    private func loadLocalSummaries() async {
+        guard page == .local else {
+            localSummariesByKey = [:]
+            return
+        }
+        let keys = Set(jobs.map(\.key))
+        guard keys.isEmpty == false else {
+            localSummariesByKey = [:]
+            return
+        }
+        guard let summaries = try? await model.persistence.gallerySyncSummaries(for: keys),
+              Task.isCancelled == false else { return }
+        localSummariesByKey = Dictionary(
+            summaries.map { ($0.key, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    private func localGallerySummary(for job: DownloadJob) -> GallerySummary {
+        var summary = localSummariesByKey[job.key] ?? GallerySummary(
+            key: job.key,
+            title: job.title,
+            japaneseTitle: job.japaneseTitle,
+            pageCount: job.pages.isEmpty ? nil : job.pages.count,
+            tags: job.tags
+        )
+        if summary.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            summary.title = job.title
+        }
+        if summary.japaneseTitle == nil {
+            summary.japaneseTitle = job.japaneseTitle
+        }
+        if summary.tags.isEmpty {
+            summary.tags = job.tags
+        }
+        if summary.pageCount == nil, job.pages.isEmpty == false {
+            summary.pageCount = job.pages.count
+        }
+        return summary
     }
 
     private var downloadsGrid: some View {
@@ -770,6 +824,119 @@ enum DownloadsLayoutMode: String, CaseIterable, Identifiable {
         case .list: "list.bullet"
         case .grid: "square.grid.2x2"
         }
+    }
+}
+
+private struct LocalDownloadCard: View {
+    @Environment(AppModel.self) private var model
+    let job: DownloadJob
+    let gallery: GallerySummary
+    let isSelectionMode: Bool
+    let isSelected: Bool
+    let select: () -> Void
+    let requestSelection: () -> Void
+    let openReader: () -> Void
+    let remove: () -> Void
+    let label: () -> Void
+
+    var body: some View {
+        Group {
+            if isSelectionMode {
+                Button(action: select) {
+                    HStack(alignment: .top, spacing: 10) {
+                        selectionIndicator
+                        galleryCard
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isSelected ? String(localized: "取消选择《\(displayTitle)》") : String(localized: "选择《\(displayTitle)》"))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            } else {
+#if os(macOS)
+                HStack(alignment: .top, spacing: 8) {
+                    Button(action: openReader) {
+                        galleryCard
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("打开《\(displayTitle)》")
+                    .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+
+                    VStack(spacing: 6) {
+                        NavigationLink(value: AppRoute.gallery(job.key)) {
+                            Label("查看详情", systemImage: "info.circle")
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .frame(width: 32, height: 32)
+                        .help("查看详情")
+
+                        Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .frame(width: 32, height: 32)
+                            .help("删除下载")
+                    }
+                    .accessibilityElement(children: .contain)
+                }
+#else
+                ZStack(alignment: .topTrailing) {
+                    Button(action: openReader) {
+                        galleryCard
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("打开《\(displayTitle)》")
+                    .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+
+                    Menu("本地画廊操作", systemImage: "ellipsis.circle") {
+                        NavigationLink(value: AppRoute.gallery(job.key)) {
+                            Label("查看详情", systemImage: "info.circle")
+                        }
+                        Button("设置标签", systemImage: "tag", action: label)
+                        Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
+                    }
+                    .labelStyle(.iconOnly)
+                    .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
+                    .padding(.top, 2)
+                    .padding(.trailing, 2)
+                    .accessibilityLabel("《\(displayTitle)》本地画廊操作")
+                }
+#endif
+            }
+        }
+        .contextMenu {
+#if os(macOS)
+            if isSelectionMode == false {
+                Button("选择", systemImage: "checkmark.circle", action: requestSelection)
+            }
+            Button("设置标签", systemImage: "tag", action: label)
+            Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
+#else
+            if isSelectionMode == false {
+                Button("选择", systemImage: "checkmark.circle", action: requestSelection)
+            }
+#endif
+        }
+    }
+
+    private var galleryCard: some View {
+        GalleryCard(gallery: gallery, showsTags: true, localJob: job)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var selectionIndicator: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.title2)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .frame(minWidth: 28, minHeight: 44, alignment: .top)
+            .accessibilityLabel(isSelected ? String(localized: "已选择") : String(localized: "未选择"))
+    }
+
+    private var displayTitle: String {
+        job.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
     }
 }
 
@@ -1080,10 +1247,11 @@ private struct DownloadGridCard: View {
     }
 }
 
-private struct DownloadCover: View {
+struct DownloadCover: View {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
     let title: String
+    var fallbackPreviewURL: URL?
     var size: CGSize? = CGSize(width: 72, height: 96)
     var cornerRadius: CGFloat = 10
     @State private var image: Image?
@@ -1188,7 +1356,7 @@ private struct DownloadCover: View {
     }
 
     private var previewURL: URL? {
-        job.pages.lazy.compactMap(\.previewURL).first
+        job.pages.lazy.compactMap(\.previewURL).first ?? fallbackPreviewURL
     }
 
     private var coverTaskID: String {

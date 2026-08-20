@@ -35,22 +35,31 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        List {
-            Section(selectedMode == .history ? "最近阅读" : "本地收藏") {
+        ScrollView {
+            LazyVStack(spacing: 4) {
+                HStack {
+                    Text(selectedMode == .history ? "最近阅读" : "本地收藏")
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
                 ForEach(items) { gallery in
                     NavigationLink(value: AppRoute.gallery(gallery.key)) {
-                        VStack(alignment: .leading) {
-                            Text(gallery.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle))
-                                .font(.headline)
-                            if selectedMode == .history {
-                                Text(progressText(for: gallery))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                        GalleryCard(
+                            gallery: gallery,
+                            supplementalText: selectedMode == .history ? progressText(for: gallery) : nil,
+                            showsTags: true
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .id(gallery.key)
                 }
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
         }
         .navigationTitle(selectedMode == .history ? "history_title" : "favorites_title")
         .toolbar {
@@ -60,6 +69,7 @@ struct LibraryView: View {
                     Text("favorites_title").tag(Mode.favorites)
                 }
                 .pickerStyle(.segmented)
+                .frame(minWidth: 220, maxWidth: .infinity)
             }
         }
         .overlay {

@@ -20,6 +20,7 @@ import SwiftUI
 import Foundation
 import ImageIO
 import EHDomain
+import EHDownloads
 
 struct BrowseView: View {
     let model: AppModel
@@ -293,22 +294,58 @@ private struct BrowseLoadID: Hashable {
     let refreshToken: Int
 }
 
-private struct GalleryCard: View {
+struct GalleryCard: View {
     @Environment(AppModel.self) private var model
     let gallery: GallerySummary
+    var supplementalText: String?
+    var showsTags = false
+    var localJob: DownloadJob?
+    @State private var titleHeight: CGFloat = 0
 
     var body: some View {
         HStack(spacing: 10) {
-            GalleryThumbnail(url: gallery.thumbnailURL, key: gallery.key)
+            if let localJob {
+                DownloadCover(
+                    job: localJob,
+                    title: displayTitle,
+                    fallbackPreviewURL: gallery.thumbnailURL,
+                    size: CGSize(width: 78, height: 108),
+                    cornerRadius: 10
+                )
+            } else {
+                GalleryThumbnail(url: gallery.thumbnailURL, key: gallery.key)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayTitle)
                     .font(.headline)
                     .lineLimit(2)
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { newHeight in
+                        guard abs(titleHeight - newHeight) > 0.5 else { return }
+                        titleHeight = newHeight
+                    }
                 if let uploader = gallery.uploader {
                     Label(uploader, systemImage: "person")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                }
+                if let supplementalText {
+                    Text(supplementalText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if showsTags, gallery.tags.isEmpty == false {
+                    TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
+                        ForEach(Array(gallery.tags.enumerated()), id: \.offset) { item in
+                            GalleryTagChip(title: model.displayTag(item.element))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(height: tagHeight, alignment: .topLeading)
+                    .clipped()
                 }
                 HStack(spacing: 6) {
                     if let category = gallery.category {
@@ -344,7 +381,7 @@ private struct GalleryCard: View {
             Spacer(minLength: 0)
         }
         .padding(6)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityTitle)
     }
@@ -353,11 +390,42 @@ private struct GalleryCard: View {
         gallery.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
     }
 
+    private var tagHeight: CGFloat {
+        titleHeight > 30 ? 22 : 48
+    }
+
     private var accessibilityTitle: String {
+        var details = [String]()
         if let pageCount = gallery.pageCount {
-            return String(localized: "\(displayTitle)，\(pageCount) 页")
+            details.append(String(localized: "\(pageCount) 页"))
+        } else {
+            details.append(String(localized: "页数未知"))
         }
-        return String(localized: "\(displayTitle)，页数未知")
+        if let supplementalText {
+            details.append(supplementalText)
+        }
+        if showsTags, gallery.tags.isEmpty == false {
+            let tags = gallery.tags.prefix(3).map(model.displayTag).joined(separator: "、")
+            details.append(String(localized: "标签：\(tags)"))
+        }
+        return "\(displayTitle)，" + details.joined(separator: "，")
+    }
+}
+
+private struct GalleryTagChip: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 7)
+            .frame(height: 22)
+            .frame(maxWidth: 160, alignment: .leading)
+            .background(Color.secondary.opacity(0.14), in: Capsule())
+            .accessibilityLabel("标签 \(title)")
     }
 }
 

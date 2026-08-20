@@ -24,6 +24,17 @@ struct AppModelTests {
         #expect(state.visibleCount == 27)
     }
 
+    @Test("Preview loading staggers after the first twelve thumbnails")
+    func previewLoadPolicy() {
+        #expect(GalleryPreviewLoadPolicy.delayMilliseconds(for: 0) == 0)
+        #expect(GalleryPreviewLoadPolicy.delayMilliseconds(for: 11) == 0)
+        #expect(GalleryPreviewLoadPolicy.delayMilliseconds(for: 12) == 0)
+        #expect(GalleryPreviewLoadPolicy.delayMilliseconds(for: 13) == 50)
+        #expect(GalleryPreviewLoadPolicy.delayMilliseconds(for: 21) == 450)
+        #expect(GalleryPreviewLoadPolicy.delayMilliseconds(for: 22) == 500)
+        #expect(GalleryPreviewLoadPolicy.delayMilliseconds(for: 100) == 500)
+    }
+
     @Test("App starts in guest mode without a saved session")
     func defaultsToGuestMode() async throws {
         let suiteName = "EhViewerGuestModeTests-\(UUID().uuidString)"
