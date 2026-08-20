@@ -18,6 +18,9 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 extension UTType {
     static let ehViewerDownloadArchive = UTType(
@@ -107,3 +110,23 @@ struct GallerySyncExportDocument: FileDocument {
         return FileWrapper(regularFileWithContents: data)
     }
 }
+
+#if os(macOS)
+@MainActor
+enum DownloadArchiveSavePanel {
+    static func save(_ sourceURL: URL) async throws -> Bool {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.ehViewerDownloadArchive]
+        panel.nameFieldStringValue = sourceURL.lastPathComponent
+
+        guard await panel.begin() == .OK, let destinationURL = panel.url else {
+            return false
+        }
+
+        try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        }.value
+        return true
+    }
+}
+#endif

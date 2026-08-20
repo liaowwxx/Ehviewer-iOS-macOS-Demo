@@ -1,7 +1,7 @@
 ---
 layout: home
 title: EhViewer
-description: 面向 iPhone、iPad 与 Mac 的开源 E-Hentai / ExHentai 画廊客户端。浏览、阅读、下载与数据迁移。
+description: 面向 iPhone、iPad 与 Mac 的 E-Hentai / ExHentai 画廊客户端。
 lang: zh-Hans
 permalink: /
 ---
@@ -10,11 +10,11 @@ permalink: /
   <div class="hero-spot" aria-hidden="true"></div>
   <div class="hero-grid wrap">
     <div class="hero-copy" data-reveal>
-      <p class="kicker">E-Hentai / ExHentai 客户端</p>
+      <p class="kicker">E-Hentai 浏览器</p>
       <h1 class="display">EhViewer For<br><em>iOS / macOS</em></h1>
-      <p class="hero-sub">浏览画廊、阅读漫画、管理下载，支持 iPhone、iPad 与 Mac。开源，免费。</p>
+      <p class="hero-sub">浏览画廊、阅读漫画、管理下载，支持 iPhone、iPad 与 Mac(M系列芯片)。</p>
       <div class="hero-actions" data-reveal style="--d:.14s">
-        <a class="btn btn-primary" href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
+        <a class="btn btn-primary" href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo" rel="noreferrer" target="_blank">
           GitHub 仓库
           <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
         </a>
@@ -24,9 +24,7 @@ permalink: /
         </a>
       </div>
       <ul class="hero-meta">
-        <li>GPL-3.0 开源</li>
         <li>iOS / iPadOS / macOS 26+</li>
-        <li>SwiftUI 构建</li>
       </ul>
     </div>
 
@@ -42,7 +40,7 @@ permalink: /
           <div class="device-frame" data-device-panel="ipad" hidden></div>
           <div class="device-frame" data-device-panel="mac" hidden></div>
                                       </div>
-        <p class="device-hint">点击 Dock / 侧边栏切换页面 · 点画廊看详情</p>
+        <p class="device-hint">页面仅供参考</p>
       </div>
     </div>
   </div>
@@ -94,23 +92,6 @@ permalink: /
         <p>导出 .ehgallery 元数据或 .eharchive 归档，隔空投送即可换机；支持导入 Android 归档。</p>
       </article>
 
-      <article class="feature-card" data-tilt data-reveal style="--d:.06s">
-        <div class="glare" aria-hidden="true"></div>
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 3 8.4 7 10 4-1.6 7-5.4 7-10V6Z"/><path d="m9.2 11.8 2 2 3.6-3.9"/></svg>
-        </div>
-        <h3>隐私</h3>
-        <p>数据保存在本机，登录会话存入系统钥匙串；网络请求仅访问你主动选择的内容。</p>
-      </article>
-
-      <article class="feature-card" data-tilt data-reveal style="--d:.12s">
-        <div class="glare" aria-hidden="true"></div>
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8-4.5 4L8 16"/><path d="m16 8 4.5 4L16 16"/><path d="M13.5 5.5 10.5 18.5"/></svg>
-        </div>
-        <h3>开源</h3>
-        <p>SwiftUI + SwiftData 编写，GPL-3.0 许可，可自行构建与修改。</p>
-      </article>
     </div>
   </div>
 </section>
@@ -118,7 +99,7 @@ permalink: /
 <section class="section reader-band" id="reader">
   <div class="wrap reader-grid">
     <div class="reader-copy" data-reveal>
-      <p class="kicker">阅读器</p>
+      <p class="kicker">阅读</p>
       <h2 class="display">阅读器</h2>
       <p>支持连续阅读与翻页阅读，翻页方向、屏幕旋转与音量键手势都可以按习惯设置。</p>
       <ul class="check-list">
@@ -134,7 +115,7 @@ permalink: /
         <div class="reader-ipad-screen">
           <div class="reader-top">
             <button class="reader-back" type="button" aria-label="返回画廊"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5 7.5 12l7 7"/></svg>画廊</button>
-            <span class="reader-title">夜空下的星屑</span>
+            <span class="reader-title">示例内容</span>
             <button class="reader-more" type="button" aria-label="阅读选项"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg></button>
           </div>
           <button class="reader-art" type="button" aria-label="切换阅读控件">

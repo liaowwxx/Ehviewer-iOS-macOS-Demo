@@ -24,10 +24,7 @@ struct SettingsView: View {
     @State private var showingCookieSheet = false
     @State private var showingWebLogin = false
     @State private var showingPasswordLogin = false
-    @State private var showingArchiveExporter = false
     @State private var showingArchiveShareSheet = false
-    @State private var archiveExportDocument: ArchiveExportDocument?
-    @State private var archiveExportFilename = "EhViewer-Downloads.eharchive"
     @State private var showingGallerySyncExporter = false
     @State private var showingGallerySyncShareSheet = false
     @State private var showingGallerySyncImporter = false
@@ -142,12 +139,9 @@ struct SettingsView: View {
                     Task {
                         guard let url = await model.exportDownloadArchive() else { return }
 #if os(iOS)
-                        archiveExportDocument = ArchiveExportDocument(sourceURL: url)
                         showingArchiveShareSheet = true
 #else
-                        archiveExportFilename = url.lastPathComponent
-                        archiveExportDocument = ArchiveExportDocument(sourceURL: url)
-                        showingArchiveExporter = true
+                        await saveDownloadArchive(url)
 #endif
                     }
                 }
@@ -189,20 +183,6 @@ struct SettingsView: View {
                 ShareSheet(items: [url])
             }
 #endif
-        }
-        .fileExporter(
-            isPresented: $showingArchiveExporter,
-            document: archiveExportDocument,
-            contentTypes: [.ehViewerDownloadArchive],
-            defaultFilename: archiveExportFilename
-        ) { result in
-            if let sourceURL = archiveExportDocument?.sourceURL {
-                model.discardPendingSharedFile(sourceURL)
-            }
-            archiveExportDocument = nil
-            if case let .failure(error) = result {
-                model.errorMessage = error.localizedDescription
-            }
         }
         .fileExporter(
             isPresented: $showingGallerySyncExporter,
@@ -268,6 +248,17 @@ struct SettingsView: View {
             model.discardPendingSharedFile(url)
         }
     }
+
+#if os(macOS)
+    private func saveDownloadArchive(_ sourceURL: URL) async {
+        defer { model.discardPendingSharedFile(sourceURL) }
+        do {
+            _ = try await DownloadArchiveSavePanel.save(sourceURL)
+        } catch {
+            model.errorMessage = error.localizedDescription
+        }
+    }
+#endif
 
     private var appVersion: String {
         guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,

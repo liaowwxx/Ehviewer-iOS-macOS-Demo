@@ -51,9 +51,6 @@ struct DownloadsView: View {
     @State private var showingGallerySyncExporter = false
     @State private var gallerySyncExportDocument: GallerySyncExportDocument?
     @State private var gallerySyncExportFilename = "EhViewer-Galleries.ehgallery"
-    @State private var showingArchiveExporter = false
-    @State private var archiveExportDocument: ArchiveExportDocument?
-    @State private var archiveExportFilename = "EhViewer-Downloads.eharchive"
 #endif
 
     init(page: DownloadsPage = .downloading) {
@@ -192,20 +189,6 @@ struct DownloadsView: View {
                     model.discardPendingSharedFile(sourceURL)
                 }
                 gallerySyncExportDocument = nil
-                if case let .failure(error) = result {
-                    model.errorMessage = error.localizedDescription
-                }
-            }
-            .fileExporter(
-                isPresented: $showingArchiveExporter,
-                document: archiveExportDocument,
-                contentTypes: [.ehViewerDownloadArchive],
-                defaultFilename: archiveExportFilename
-            ) { result in
-                if let sourceURL = archiveExportDocument?.sourceURL {
-                    model.discardPendingSharedFile(sourceURL)
-                }
-                archiveExportDocument = nil
                 if case let .failure(error) = result {
                     model.errorMessage = error.localizedDescription
                 }
@@ -509,9 +492,7 @@ struct DownloadsView: View {
                 gallerySyncExportDocument = GallerySyncExportDocument(sourceURL: url)
                 showingGallerySyncExporter = true
             case .downloadArchive:
-                archiveExportFilename = url.lastPathComponent
-                archiveExportDocument = ArchiveExportDocument(sourceURL: url)
-                showingArchiveExporter = true
+                await saveDownloadArchive(url)
             }
 #endif
         }
@@ -522,6 +503,17 @@ struct DownloadsView: View {
             model.discardPendingSharedFile(url)
         }
     }
+
+#if os(macOS)
+    private func saveDownloadArchive(_ sourceURL: URL) async {
+        defer { model.discardPendingSharedFile(sourceURL) }
+        do {
+            _ = try await DownloadArchiveSavePanel.save(sourceURL)
+        } catch {
+            model.errorMessage = error.localizedDescription
+        }
+    }
+#endif
 
     private var downloadsList: some View {
 #if os(macOS)

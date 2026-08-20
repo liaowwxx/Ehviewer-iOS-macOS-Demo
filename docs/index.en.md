@@ -1,7 +1,7 @@
 ---
 layout: home
 title: EhViewer
-description: An open-source E-Hentai / ExHentai client for iPhone, iPad, and Mac. Browse, read, download, and migrate.
+description: An E-Hentai / ExHentai client for iPhone, iPad, and Mac.
 lang: en
 permalink: /en/
 ---
@@ -12,7 +12,7 @@ permalink: /en/
     <div class="hero-copy" data-reveal>
       <p class="kicker">E-Hentai / ExHentai client</p>
       <h1 class="display">EhViewer For<br><em>iOS / macOS</em></h1>
-      <p class="hero-sub">Browse galleries, read manga, and manage downloads on iPhone, iPad, and Mac. Open source and free.</p>
+      <p class="hero-sub">Browse galleries, read manga, and manage downloads on iPhone, iPad, and Mac.</p>
       <div class="hero-actions" data-reveal style="--d:.14s">
         <a class="btn btn-primary" href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
           GitHub
@@ -24,9 +24,7 @@ permalink: /en/
         </a>
       </div>
       <ul class="hero-meta">
-        <li>Open source · GPL-3.0</li>
         <li>iOS / iPadOS / macOS 26+</li>
-        <li>Built with SwiftUI</li>
       </ul>
     </div>
 
@@ -42,7 +40,7 @@ permalink: /en/
           <div class="device-frame" data-device-panel="ipad" hidden></div>
           <div class="device-frame" data-device-panel="mac" hidden></div>
                                       </div>
-        <p class="device-hint">Click Dock / sidebar items to switch pages · click a gallery for details</p>
+        <p class="device-hint">For reference only</p>
       </div>
     </div>
   </div>
@@ -94,23 +92,6 @@ permalink: /en/
         <p>Export .ehgallery metadata or .eharchive archives and AirDrop them to a new device. Android archives are supported too.</p>
       </article>
 
-      <article class="feature-card" data-tilt data-reveal style="--d:.06s">
-        <div class="glare" aria-hidden="true"></div>
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 3 8.4 7 10 4-1.6 7-5.4 7-10V6Z"/><path d="m9.2 11.8 2 2 3.6-3.9"/></svg>
-        </div>
-        <h3>Privacy</h3>
-        <p>Data stays on your device and sessions live in the system keychain. Network requests only go where you choose.</p>
-      </article>
-
-      <article class="feature-card" data-tilt data-reveal style="--d:.12s">
-        <div class="glare" aria-hidden="true"></div>
-        <div class="feature-icon">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8-4.5 4L8 16"/><path d="m16 8 4.5 4L16 16"/><path d="M13.5 5.5 10.5 18.5"/></svg>
-        </div>
-        <h3>Open Source</h3>
-        <p>Built with SwiftUI and SwiftData, licensed under GPL-3.0. Build it yourself and make it yours.</p>
-      </article>
     </div>
   </div>
 </section>
@@ -118,7 +99,7 @@ permalink: /en/
 <section class="section reader-band" id="reader">
   <div class="wrap reader-grid">
     <div class="reader-copy" data-reveal>
-      <p class="kicker">Reader</p>
+      <p class="kicker">Reading</p>
       <h2 class="display">Reader</h2>
       <p>Supports continuous and paged reading. Paging direction, screen rotation, and volume-key gestures are configurable.</p>
       <ul class="check-list">
@@ -134,7 +115,7 @@ permalink: /en/
         <div class="reader-ipad-screen">
           <div class="reader-top">
             <button class="reader-back" type="button" aria-label="Back to gallery"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5 7.5 12l7 7"/></svg>Gallery</button>
-            <span class="reader-title">Stardust at Night</span>
+            <span class="reader-title">Example content</span>
             <button class="reader-more" type="button" aria-label="Reader options"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></svg></button>
           </div>
           <button class="reader-art" type="button" aria-label="Toggle reader controls">

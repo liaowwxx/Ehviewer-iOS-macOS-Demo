@@ -259,7 +259,7 @@ if (showcase) {
           { id: "settings", label: "设置", icon: "gear" },
         ]},
       ],
-      search: "搜索画廊或标签",
+      search: "搜索示例内容",
       panels: {
         home: { title: "浏览" }, subscriptions: { title: "订阅" }, popular: { title: "热门" },
         toplist: { title: "排行" }, favorites: { title: "收藏" },
@@ -267,33 +267,32 @@ if (showcase) {
         history: { title: "历史" }, settings: { title: "设置" },
       },
       galleries: [
-        { id: "g1", letter: "夜", mc: "mc-1", cat: "Doujinshi", catColor: "#f44336", title: "夜空下的星屑", uploader: "sora_1123", lang: "CN", pages: 128, rating: "4.6", ratingCount: 1284, time: "3小时前", fav: false },
-        { id: "g2", letter: "春", mc: "mc-2", cat: "Manga", catColor: "#ff9800", title: "春日的午后", uploader: "hana_momo", lang: "JP", pages: 96, rating: "4.8", ratingCount: 963, time: "昨天", fav: true },
-        { id: "g3", letter: "街", mc: "mc-3", cat: "Artist CG", catColor: "#fbc02d", title: "城市速写簿", uploader: "ink_studio", lang: "EN", pages: 240, rating: "4.2", ratingCount: 512, time: "2天前", fav: false },
-        { id: "g4", letter: "港", mc: "mc-4", cat: "Game CG", catColor: "#4caf50", title: "港湾灯火", uploader: "night_pixel", lang: "JP", pages: 320, rating: "4.9", ratingCount: 2310, time: "3天前", fav: false },
+        { id: "g1", letter: "示", mc: "mc-1", cat: "示例", catColor: "#f44336", title: "示例 01", uploader: "example", lang: "—", pages: "—", rating: "—", ratingCount: "—", time: "—", fav: false },
+        { id: "g2", letter: "示", mc: "mc-2", cat: "示例", catColor: "#ff9800", title: "示例 02", uploader: "example", lang: "—", pages: "—", rating: "—", ratingCount: "—", time: "—", fav: true },
+        { id: "g3", letter: "示", mc: "mc-3", cat: "示例", catColor: "#fbc02d", title: "示例 03", uploader: "example", lang: "—", pages: "—", rating: "—", ratingCount: "—", time: "—", fav: false },
+        { id: "g4", letter: "示", mc: "mc-4", cat: "示例", catColor: "#4caf50", title: "示例 04", uploader: "example", lang: "—", pages: "—", rating: "—", ratingCount: "—", time: "—", fav: false },
       ],
       downloads: [
-        { letter: "夜", mc: "mc-1", title: "夜空下的星屑", sub: "82 / 128 页", pct: 64, status: "doing", statusText: "下载中", tags: ["doujinshi", "原创"] },
-        { letter: "港", mc: "mc-4", title: "港湾灯火", sub: "320 / 320 页", pct: 100, status: "done", statusText: "已完成", tags: ["game cg", "夜景"] },
-        { letter: "春", mc: "mc-2", title: "春日的午后", sub: "40 / 96 页", pct: 42, status: "paused", statusText: "已暂停", tags: ["manga", "治愈"] },
+        { letter: "示", mc: "mc-1", title: "示例 01", sub: "示例进度", pct: 64, status: "doing", statusText: "进行中", tags: ["example"] },
+        { letter: "示", mc: "mc-4", title: "示例 04", sub: "示例进度", pct: 100, status: "done", statusText: "已完成", tags: ["example"] },
+        { letter: "示", mc: "mc-2", title: "示例 02", sub: "示例进度", pct: 42, status: "paused", statusText: "已暂停", tags: ["example"] },
       ],
       history: [
-        { letter: "夜", mc: "mc-1", title: "夜空下的星屑", sub: "阅读到 45/128 页", time: "3小时前" },
-        { letter: "港", mc: "mc-4", title: "港湾灯火", sub: "阅读到 12/320 页", time: "昨天" },
-        { letter: "街", mc: "mc-3", title: "城市速写簿", sub: "阅读到 200/240 页", time: "4天前" },
+        { letter: "示", mc: "mc-1", title: "示例 01", sub: "示例阅读进度", time: "—" },
+        { letter: "示", mc: "mc-4", title: "示例 04", sub: "示例阅读进度", time: "—" },
+        { letter: "示", mc: "mc-3", title: "示例 03", sub: "示例阅读进度", time: "—" },
       ],
       detail: {
         read: "阅读", add: "加入下载", back: "画廊",
         tagGroups: [
-          { group: "female", items: ["schoolgirl uniform", "blonde hair"] },
-          { group: "misc", items: ["原创", "治愈", "星空"] },
+          { group: "示例", items: ["example"] },
         ],
         info: {
           languageLabel: "语言", pagesLabel: "页数", sizeLabel: "大小",
           favoritesLabel: "收藏次数", postedLabel: "发布于",
-          language: "CN", size: "128.4 MB", favorites: "5.2k", posted: "2026/01/12"
+          language: "—", size: "—", favorites: "—", posted: "—"
         },
-        description: "夜空下，少女们的故事徐徐展开——星屑与夏夜，温柔而明亮。",
+        description: "示例内容。",
         previews: "预览",
       },
       reader: { title: "阅读", pageLabel: "第 13/240 页", pageHint: "第 13 页" },
@@ -325,7 +324,7 @@ if (showcase) {
           { id: "settings", label: "Settings", icon: "gear" },
         ]},
       ],
-      search: "Search galleries or tags",
+      search: "Search examples",
       panels: {
         home: { title: "Browse" }, subscriptions: { title: "Subscriptions" }, popular: { title: "Popular" },
         toplist: { title: "Toplist" }, favorites: { title: "Favorites" },
@@ -333,33 +332,32 @@ if (showcase) {
         history: { title: "History" }, settings: { title: "Settings" },
       },
       galleries: [
-        { id: "g1", letter: "N", mc: "mc-1", cat: "Doujinshi", catColor: "#f44336", title: "Stardust at Night", uploader: "sora_1123", lang: "EN", pages: 128, rating: "4.6", ratingCount: 1284, time: "3h ago", fav: false },
-        { id: "g2", letter: "S", mc: "mc-2", cat: "Manga", catColor: "#ff9800", title: "Spring Afternoon", uploader: "hana_momo", lang: "JP", pages: 96, rating: "4.8", ratingCount: 963, time: "yesterday", fav: true },
-        { id: "g3", letter: "C", mc: "mc-3", cat: "Artist CG", catColor: "#fbc02d", title: "City Sketchbook", uploader: "ink_studio", lang: "EN", pages: 240, rating: "4.2", ratingCount: 512, time: "2d ago", fav: false },
-        { id: "g4", letter: "H", mc: "mc-4", cat: "Game CG", catColor: "#4caf50", title: "Harbor Lights", uploader: "night_pixel", lang: "JP", pages: 320, rating: "4.9", ratingCount: 2310, time: "3d ago", fav: false },
+        { id: "g1", letter: "E", mc: "mc-1", cat: "Example", catColor: "#f44336", title: "Example 01", uploader: "example", lang: "—", pages: "—", rating: "—", ratingCount: "—", time: "—", fav: false },
+        { id: "g2", letter: "E", mc: "mc-2", cat: "Example", catColor: "#ff9800", title: "Example 02", uploader: "example", lang: "—", pages: "—", rating: "—", ratingCount: "—", time: "—", fav: true },
+        { id: "g3", letter: "E", mc: "mc-3", cat: "Example", catColor: "#fbc02d", title: "Example 03", uploader: "example", lang: "—", pages: "—", rating: "—", ratingCount: "—", time: "—", fav: false },
+        { id: "g4", letter: "E", mc: "mc-4", cat: "Example", catColor: "#4caf50", title: "Example 04", uploader: "example", lang: "—", pages: "—", rating: "—", ratingCount: "—", time: "—", fav: false },
       ],
       downloads: [
-        { letter: "N", mc: "mc-1", title: "Stardust at Night", sub: "82 / 128 pages", pct: 64, status: "doing", statusText: "Downloading", tags: ["doujinshi", "original"] },
-        { letter: "H", mc: "mc-4", title: "Harbor Lights", sub: "320 / 320 pages", pct: 100, status: "done", statusText: "Completed", tags: ["game cg", "night"] },
-        { letter: "S", mc: "mc-2", title: "Spring Afternoon", sub: "40 / 96 pages", pct: 42, status: "paused", statusText: "Paused", tags: ["manga", "slice of life"] },
+        { letter: "E", mc: "mc-1", title: "Example 01", sub: "Example progress", pct: 64, status: "doing", statusText: "In progress", tags: ["example"] },
+        { letter: "E", mc: "mc-4", title: "Example 04", sub: "Example progress", pct: 100, status: "done", statusText: "Complete", tags: ["example"] },
+        { letter: "E", mc: "mc-2", title: "Example 02", sub: "Example progress", pct: 42, status: "paused", statusText: "Paused", tags: ["example"] },
       ],
       history: [
-        { letter: "N", mc: "mc-1", title: "Stardust at Night", sub: "Read to page 45/128", time: "3h ago" },
-        { letter: "H", mc: "mc-4", title: "Harbor Lights", sub: "Read to page 12/320", time: "yesterday" },
-        { letter: "C", mc: "mc-3", title: "City Sketchbook", sub: "Read to page 200/240", time: "4d ago" },
+        { letter: "E", mc: "mc-1", title: "Example 01", sub: "Example reading progress", time: "—" },
+        { letter: "E", mc: "mc-4", title: "Example 04", sub: "Example reading progress", time: "—" },
+        { letter: "E", mc: "mc-3", title: "Example 03", sub: "Example reading progress", time: "—" },
       ],
       detail: {
         read: "Read", add: "Add to Download", back: "Gallery",
         tagGroups: [
-          { group: "female", items: ["schoolgirl uniform", "blonde hair"] },
-          { group: "misc", items: ["original", "slice of life", "stars"] },
+          { group: "Example", items: ["example"] },
         ],
         info: {
           languageLabel: "Language", pagesLabel: "Pages", sizeLabel: "Size",
           favoritesLabel: "Favorites", postedLabel: "Posted",
-          language: "EN", size: "128.4 MB", favorites: "5.2k", posted: "2026/01/12"
+          language: "—", size: "—", favorites: "—", posted: "—"
         },
-        description: "Under the night sky, a gentle story of girls unfolds — starlight and summer evenings, warm and bright.",
+        description: "Example content.",
         previews: "Previews",
       },
       reader: { title: "Reader", pageLabel: "Page 13/240", pageHint: "Page 13" },
@@ -373,6 +371,65 @@ if (showcase) {
 
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const galleryById = (id) => T.galleries.find((g) => g.id === id) || T.galleries[0];
+
+  function coverArtwork(index) {
+    const palette = [
+      ["#ddc4bc", "#765b83", "#f7e1c7"],
+      ["#bed6d2", "#3b6c75", "#ecbe84"],
+      ["#d7c8e6", "#5d4f82", "#f0db9d"],
+      ["#c8d3a2", "#4f7763", "#e9a1a0"],
+    ][index % 4];
+    const canvas = document.createElement("canvas");
+    canvas.width = 180;
+    canvas.height = 260;
+    const ctx = canvas.getContext("2d");
+    const gradient = ctx.createLinearGradient(0, 0, 180, 260);
+    gradient.addColorStop(0, palette[0]);
+    gradient.addColorStop(1, palette[1]);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 180, 260);
+    ctx.globalAlpha = .46;
+    ctx.fillStyle = palette[2];
+    ctx.beginPath();
+    ctx.arc(140, 54, 63, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = .8;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(14, 18, 82, 6);
+    ctx.fillRect(14, 31, 55, 3);
+    ctx.globalAlpha = .52;
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(10, 205);
+    ctx.bezierCurveTo(52, 156, 112, 241, 174, 168);
+    ctx.stroke();
+    ctx.globalAlpha = .96;
+    ctx.fillStyle = "rgba(255,255,255,.84)";
+    ctx.beginPath();
+    ctx.arc(91, 126, 31, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = palette[1];
+    ctx.beginPath();
+    ctx.arc(91, 113, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(91, 163, 29, 36, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = .68;
+    ctx.fillStyle = "#fff";
+    ctx.font = "700 12px system-ui";
+    ctx.fillText("EXAMPLE " + String(index + 1).padStart(2, "0"), 14, 244);
+    return canvas.toDataURL("image/png");
+  }
+
+  function applyPhoneArtwork(frame) {
+    frame.querySelectorAll(".m-cover, .dl-cover, .d-cover, .preview-cell").forEach((cover, index) => {
+      const artIndex = Number((cover.className.match(/mc-(\d)/) || [])[1] || index + 1) - 1;
+      cover.style.setProperty("--cover-art", 'url("' + coverArtwork(artIndex) + '")');
+      cover.classList.add("has-art");
+    });
+  }
 
   function galleryCardHTML(g) {
     return '<div class="m-card" data-gallery="' + g.id + '" data-title="' + esc(g.title) + '">' +
@@ -419,8 +476,8 @@ if (showcase) {
     ).join("") + '</div>';
   }
 
-  function historyPanelHTML() {
-    return '<div class="dl-list">' + T.history.map((h) =>
+  function historyPanelHTML(isPhone) {
+    const entries = '<div class="dl-list">' + T.history.map((h) =>
       '<div class="d-row has-time">' +
         '<span class="dl-cover ' + h.mc + '" data-letter="' + h.letter + '"></span>' +
         '<div class="d-info">' +
@@ -430,23 +487,33 @@ if (showcase) {
         '<span class="h-time">' + h.time + '</span>' +
       '</div>'
     ).join("") + '</div>';
+    if (!isPhone) return entries;
+    return phoneSegmentHTML("history") + '<p class="phone-list-label">' + (lang === "en" ? "Recently read" : "最近阅读") + '</p>' + entries;
+  }
+
+  function phoneSegmentHTML(active) {
+    const labels = lang === "en" ? { history: "History", favorites: "Favorites" } : { history: "历史", favorites: "收藏" };
+    return '<div class="phone-segment" role="tablist">' +
+      ["history", "favorites"].map((id) => '<button class="' + (id === active ? "is-active" : "") + '" data-panel="' + id + '" type="button">' + labels[id] + '</button>').join("") +
+    '</div>';
   }
 
   function favoritesPanelHTML() {
-    return '<div class="gal-list">' + T.galleries.slice(2).map(galleryCardHTML).join("") + '</div>';
+    const saved = T.galleries.slice(2);
+    return '<div class="gal-list">' + saved.map(galleryCardHTML).join("") + '</div>';
   }
 
-  function settingsPanelHTML() {
+  function settingsPanelHTML(isPhone) {
     const isEn = lang === "en";
     const rows = [
       { section: isEn ? "Site" : "站点" },
-      { label: isEn ? "Gallery site" : "画廊站点", value: "E-Hentai", icon: "forward" },
+      { label: isEn ? "Gallery site" : "画廊站点", value: "Example", icon: "forward" },
       { label: isEn ? "Session" : "会话状态", value: isEn ? "Guest" : "游客模式", icon: "person" },
       { section: isEn ? "Browsing" : "浏览" },
       { label: isEn ? "Japanese titles" : "显示日文标题", toggle: true, on: true },
       { label: isEn ? "Tag translations" : "显示标签翻译", toggle: true, on: true },
       { label: isEn ? "Detail cache" : "启用详情缓存", toggle: true, on: false },
-      { label: isEn ? "Cache size" : "详情缓存占用", value: "12.4 MB" },
+      { label: isEn ? "Cache size" : "详情缓存占用", value: "—" },
       { label: isEn ? "Clear detail cache" : "清除详情缓存", destructive: true, icon: "trash" },
       { section: isEn ? "Login" : "登录" },
       { label: isEn ? "Username & password" : "用户名&密码登录", icon: "person" },
@@ -454,7 +521,7 @@ if (showcase) {
       { label: isEn ? "Cookie login" : "Cookie登录", icon: "key" },
       { label: isEn ? "Clear cookies" : "清除Cookie", destructive: true, icon: "xmark" },
       { section: "About" },
-      { label: isEn ? "Version" : "版本", value: "1.0.0" },
+      { label: isEn ? "Version" : "版本", value: "Example" },
       { section: isEn ? "Help" : "帮助" },
       { label: isEn ? "User guide" : "使用说明", icon: "book" },
       { section: isEn ? "Migration / Backup" : "数据迁移/备份" },
@@ -464,8 +531,7 @@ if (showcase) {
       { label: isEn ? "Export metadata (.ehgallery)" : "导出元数据(.ehgallery)", icon: "forward" },
       { label: isEn ? "Export archive (.eharchive)" : "导出归档(.eharchive)", icon: "forward" },
     ];
-    return '<div class="s-list">' + rows.map((r) => {
-      if (r.section) return '<div class="s-section">' + r.section + '</div>';
+    const rowHTML = (r) => {
       const icon = r.icon ? '<span class="s-icon">' + ICONS[r.icon] + '</span>' : "";
       const value = r.value != null
         ? '<span class="s-val">' + esc(r.value) + '</span>'
@@ -473,7 +539,16 @@ if (showcase) {
           ? '<span class="toggle' + (r.on ? " on" : "") + '"></span>'
           : '<span class="s-chev' + (r.destructive ? " destructive" : "") + '">' + (r.icon ? ICONS[r.icon] : ICONS.forward) + '</span>';
       return '<div class="s-row"><span>' + icon + esc(r.label) + '</span>' + value + '</div>';
-    }).join("") + '</div>';
+    };
+    if (!isPhone) return '<div class="s-list">' + rows.map((r) => r.section ? '<div class="s-section">' + r.section + '</div>' : rowHTML(r)).join("") + '</div>';
+    const groups = [];
+    rows.forEach((row) => {
+      if (row.section) groups.push({ title: row.section, rows: [] });
+      else groups[groups.length - 1].rows.push(row);
+    });
+    return '<div class="s-list">' + groups.map((group) =>
+      '<section class="s-group"><div class="s-section">' + group.title + '</div><div class="s-group-rows">' + group.rows.map(rowHTML).join("") + '</div></section>'
+    ).join("") + '</div>';
   }
 
   function detailPanelHTML(g) {
@@ -524,7 +599,7 @@ if (showcase) {
       '<div class="d-previews">' +
         '<div class="d-previews-title">' + T.detail.previews + '</div>' +
         '<div class="preview-grid">' +
-          Array.from({ length: Math.min(12, g.pages) }).map((_, i) =>
+          Array.from({ length: Math.min(12, Number(g.pages) || 6) }).map((_, i) =>
             '<span class="preview-cell ' + g.mc + '"><i>' + (i + 1) + '</i></span>'
           ).join("") +
         '</div>' +
@@ -554,7 +629,7 @@ if (showcase) {
 
   function sidebarHTML() {
     return '<div class="side">' +
-      '<div class="side-header"><span class="side-app-icon">' + ICONS.books + '</span><span class="side-app-name">EhViewer</span></div>' +
+      '<div class="side-header"><span class="window-controls" aria-hidden="true"><i></i><i></i><i></i></span><span class="side-app-icon">' + ICONS.books + '</span><span class="side-app-name">EhViewer</span><button class="side-collapse-toggle" data-split-sidebar-toggle type="button" aria-label="' + (lang === "en" ? "Collapse sidebar" : "收起侧边栏") + '" aria-expanded="true">' + ICONS.sidebar + '</button></div>' +
       T.side.map((sec) =>
         (sec.label ? '<div class="side-label">' + sec.label + '</div>' : "") +
         sec.items.map((it) => '<button class="side-item" data-panel="' + it.id + '" type="button">' + ICONS[it.icon] + '<span>' + it.label + '</span></button>').join("")
@@ -562,13 +637,7 @@ if (showcase) {
   }
 
   function statusBarHTML() {
-    return '<div class="status-bar" aria-label="9:41，信号已连接，电池已充满">' +
-      '<time datetime="09:41">9:41</time>' +
-      '<span class="status-icons" aria-hidden="true">' +
-        '<svg class="status-signal" viewBox="0 0 18 12"><path d="M1 10h3V7H1Zm5 0h3V5H6Zm5 0h3V2H11Zm5 0h2V0h-2Z"/></svg>' +
-        '<svg class="status-wifi" viewBox="0 0 16 12"><path d="M1 4.5C4.8 1.1 11.2 1.1 15 4.5M3.8 7.2c2.4-2.1 6-2.1 8.4 0M6.7 10.1c.8-.7 1.8-.7 2.6 0"/></svg>' +
-        '<svg class="status-battery" viewBox="0 0 23 12"><rect x="1" y="2" width="18" height="8" rx="2"/><path d="M21 4.2v3.6"/><rect x="3" y="4" width="12" height="4" rx=".8"/></svg>' +
-      '</span></div>';
+    return '<div class="status-bar" aria-hidden="true"></div>';
   }
 
   function phoneHTML() {
@@ -599,10 +668,7 @@ if (showcase) {
   }
 
   function macHTML() {
-    return '<div class="mac">' +
-      '<div class="mac-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="mac-title">EhViewer</span></div>' +
-      '<div class="mac-screen">' + splitHTML() + '</div>' +
-    '</div>';
+    return '<div class="mac"><div class="mac-screen">' + splitHTML() + '</div></div>';
   }
 
   function renderPanel(frame, device, panelId) {
@@ -625,14 +691,27 @@ if (showcase) {
     } else {
       title = panel.title || "";
       if (panelId === "downloads" || panelId === "local") html = downloadsPanelHTML(panelId === "local");
-      else if (panelId === "history") html = historyPanelHTML();
+      else if (panelId === "history") html = historyPanelHTML(device === "iphone");
       else if (panelId === "favorites") html = favoritesPanelHTML();
-      else if (panelId === "settings") html = settingsPanelHTML();
+      else if (panelId === "settings") html = settingsPanelHTML(true);
       else html = galleryPanelHTML(panelId);
     }
     if (navTitle) navTitle.textContent = title;
-    if (search) search.style.display = isDetail || isReader ? "none" : "";
+    if (search) search.style.display = isDetail || isReader || (device === "ipad" && panelId === "settings") ? "none" : "";
     body.innerHTML = html;
+    if (device === "iphone" || device === "ipad" || device === "mac") applyPhoneArtwork(frame);
+    const phone = frame.querySelector(".phone");
+    phone?.classList.toggle("is-settings", panelId === "settings");
+    phone?.classList.toggle("is-history", panelId === "history");
+    phone?.classList.toggle("is-detail", isDetail);
+    phone?.classList.toggle("is-downloads", panelId === "downloads");
+    phone?.classList.toggle("is-local", panelId === "local");
+    const ipadScreen = frame.querySelector(".ipad-screen");
+    ipadScreen?.classList.toggle("is-settings", panelId === "settings");
+    ipadScreen?.classList.toggle("is-library", panelId === "local" || panelId === "downloads");
+    const macScreen = frame.querySelector(".mac-screen");
+    macScreen?.classList.toggle("is-settings", panelId === "settings");
+    macScreen?.classList.toggle("is-library", panelId === "local" || panelId === "downloads");
     frame.querySelector("[data-app-more-menu]")?.remove();
     frame.querySelectorAll(".dock-item, .side-item").forEach((el) => {
       el.classList.toggle("is-active", !isDetail && !isReader && el.dataset.panel === panelId);
@@ -645,6 +724,11 @@ if (showcase) {
 
   function pushPanel(device, panelId) {
     state[device].push(panelId);
+    renderPanel(frameOf(device), device, panelId);
+  }
+
+  function selectRootPanel(device, panelId) {
+    state[device] = [panelId];
     renderPanel(frameOf(device), device, panelId);
   }
 
@@ -679,7 +763,7 @@ if (showcase) {
       if (splitToggle) {
         const splitScreen = frame.querySelector(device === "mac" ? ".mac-screen" : ".ipad-screen");
         const isCollapsed = splitScreen?.classList.toggle("sidebar-is-collapsed");
-        splitToggle.setAttribute("aria-expanded", String(!isCollapsed));
+        frame.querySelectorAll("[data-split-sidebar-toggle]").forEach((toggle) => toggle.setAttribute("aria-expanded", String(!isCollapsed)));
         return;
       }
       const readerControls = event.target.closest("[data-reader-controls]");
@@ -723,6 +807,7 @@ if (showcase) {
         return;
       }
       const panelBtn = event.target.closest("[data-panel]");
+      if (panelBtn?.classList.contains("side-item")) { selectRootPanel(device, panelBtn.dataset.panel); return; }
       if (panelBtn) { pushPanel(device, panelBtn.dataset.panel); return; }
     });
 
