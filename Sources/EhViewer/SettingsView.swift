@@ -34,6 +34,7 @@ struct SettingsView: View {
     @State private var showingDownloadRestoreResult = false
     @State private var downloadRestoreMessage = ""
     @State private var showingGalleryCacheClearConfirmation = false
+    @State private var showingDownloadReadingProgressResetConfirmation = false
 
     private var settingsForm: some View {
         @Bindable var model = model
@@ -72,6 +73,10 @@ struct SettingsView: View {
                         model.persistReadingSettings()
                     }
                     .accessibilityIdentifier("show-tag-translations-toggle")
+                Button("重置下载内容的阅读进度", systemImage: "arrow.counterclockwise", role: .destructive) {
+                    showingDownloadReadingProgressResetConfirmation = true
+                }
+                .accessibilityIdentifier("reset-download-reading-progress-action")
                 LabeledContent("缓存占用", value: galleryCacheSize)
                 Button("清除缓存", systemImage: "trash", role: .destructive) {
                     showingGalleryCacheClearConfirmation = true
@@ -156,6 +161,16 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("不会删除下载文件或下载任务，但会清除收藏和历史记录。")
+        }
+        .confirmationDialog(
+            "重置所有下载内容的阅读进度？",
+            isPresented: $showingDownloadReadingProgressResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("重置进度", role: .destructive) {
+                Task { await model.resetAllDownloadReadingProgress() }
+            }
+            Button("取消", role: .cancel) {}
         }
     }
 

@@ -349,6 +349,7 @@ struct GalleryCard: View {
     var showsTags = false
     var localJob: DownloadJob?
     var metadataIsLoading = false
+    var showsBackground = true
     @State private var titleHeight: CGFloat = 0
 
     var body: some View {
@@ -464,7 +465,12 @@ struct GalleryCard: View {
             Spacer(minLength: 0)
         }
         .padding(6)
-        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        .background {
+            if showsBackground {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.secondary.opacity(0.12))
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityTitle)
     }

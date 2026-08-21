@@ -129,6 +129,7 @@ final class AppModel {
     var downloadSortOrder: DownloadSortOrder
     var downloadStatusFilter: DownloadStatusFilter
     var downloadLayoutMode: DownloadsLayoutMode
+    var downloadCategoryFilter: Set<GalleryCategory>
     private(set) var galleryCacheByteCount: Int64 = 0
     var galleries: [GallerySummary] = []
     var historyGalleries: [GallerySummary] = []
@@ -192,6 +193,7 @@ final class AppModel {
         downloadLayoutMode = DownloadsLayoutMode(
             rawValue: defaults.string(forKey: "downloadLayoutMode") ?? ""
         ) ?? .list
+        downloadCategoryFilter = Self.loadDownloadCategoryFilter(from: defaults)
         if forceGuestModeForUITest {
             isGuestMode = true
         }
@@ -1881,6 +1883,17 @@ final class AppModel {
         defaults.set(downloadSortOrder.rawValue, forKey: "downloadSortOrder")
         defaults.set(downloadStatusFilter.rawValue, forKey: "downloadStatusFilter")
         defaults.set(downloadLayoutMode.rawValue, forKey: "downloadLayoutMode")
+        if let data = try? JSONEncoder().encode(downloadCategoryFilter) {
+            defaults.set(data, forKey: "downloadCategoryFilter")
+        }
+    }
+
+    private static func loadDownloadCategoryFilter(from defaults: UserDefaults) -> Set<GalleryCategory> {
+        guard let data = defaults.data(forKey: "downloadCategoryFilter"),
+              let categories = try? JSONDecoder().decode(Set<GalleryCategory>.self, from: data) else {
+            return Set(GalleryCategory.allCases)
+        }
+        return categories
     }
 
     func exportGallerySync(keys: Set<GalleryKey>? = nil) async -> URL? {

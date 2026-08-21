@@ -58,6 +58,35 @@ struct DownloadTests {
         ) == false)
     }
 
+    @Test("Downloads sort by rating with missing ratings last")
+    func downloadSortByRating() {
+        let lower = DownloadJob(
+            key: GalleryKey(gid: 4, token: "lower-rating"),
+            title: "Lower rating",
+            pages: []
+        )
+        let higher = DownloadJob(
+            key: GalleryKey(gid: 5, token: "higher-rating"),
+            title: "Higher rating",
+            pages: []
+        )
+        let missing = DownloadJob(
+            key: GalleryKey(gid: 6, token: "missing-rating"),
+            title: "Missing rating",
+            pages: []
+        )
+        let summaries = [
+            lower.key: GallerySummary(key: lower.key, title: lower.title, rating: 3.5),
+            higher.key: GallerySummary(key: higher.key, title: higher.title, rating: 4.5)
+        ]
+
+        let sorted = [lower, missing, higher].sorted {
+            DownloadSortOrder.rating.areInIncreasingOrder($0, $1, summaries: summaries)
+        }
+
+        #expect(sorted.map(\.key) == [higher.key, lower.key, missing.key])
+    }
+
     @Test("Download coordinator limits a job to bounded page batches")
     func completesJob() async throws {
         let pages = (0..<5).map { index in

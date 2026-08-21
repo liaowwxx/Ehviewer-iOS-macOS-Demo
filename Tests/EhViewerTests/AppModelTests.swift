@@ -339,7 +339,7 @@ struct AppModelTests {
         #expect(defaults.string(forKey: "tagTranslationImportLocale") == AppModel.tagTranslationLocale)
     }
 
-    @Test("Download sort and status filters persist across launches")
+    @Test("Download sort, status, and category filters persist across launches")
     func downloadPreferencesPersist() async throws {
         let suiteName = "EhViewerDownloadPreferencesTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -354,9 +354,11 @@ struct AppModelTests {
         #expect(first.downloadSortOrder == .titleAscending)
         #expect(first.downloadStatusFilter == .all)
         #expect(first.downloadLayoutMode == .list)
+        #expect(first.downloadCategoryFilter == Set(GalleryCategory.allCases))
         first.downloadSortOrder = .progress
         first.downloadStatusFilter = .completed
         first.downloadLayoutMode = .grid
+        first.downloadCategoryFilter = [.doujinshi, .manga]
         first.persistDownloadPreferences()
 
         let second = AppModel(
@@ -368,6 +370,7 @@ struct AppModelTests {
         #expect(second.downloadSortOrder == .progress)
         #expect(second.downloadStatusFilter == .completed)
         #expect(second.downloadLayoutMode == .grid)
+        #expect(second.downloadCategoryFilter == [.doujinshi, .manga])
     }
 
     @Test("Download pages separate unfinished jobs from local galleries")

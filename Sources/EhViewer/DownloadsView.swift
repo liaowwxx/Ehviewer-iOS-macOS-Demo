@@ -26,6 +26,18 @@ private enum SelectedGalleryShareFormat {
     case downloadArchive
 }
 
+private enum DownloadDeletionConfirmation: Identifiable {
+    case single(DownloadJob)
+    case multiple(Int)
+
+    var id: String {
+        switch self {
+        case .single(let job): "single-\(job.key.id)"
+        case .multiple(let count): "multiple-\(count)"
+        }
+    }
+}
+
 struct DownloadsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -33,19 +45,20 @@ struct DownloadsView: View {
     @State private var jobs: [DownloadJob] = []
     @State private var hasLoadedJobs = false
     @State private var localSearchSummariesByKey: [GalleryKey: GallerySummary] = [:]
+    @State private var downloadGallerySummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
     @State private var searchText = ""
     @State private var submittedSearchText = ""
     @State private var suppressNextSearchSubmission = false
     @State private var suppressSearchSuggestions = false
-    @State private var showingResetProgressConfirmation = false
-    @State private var jobPendingRemoval: DownloadJob?
+    @State private var showingDownloadManagementSheet = false
+    @State private var showingDownloadCategoryFilter = false
+    @State private var deletionConfirmation: DownloadDeletionConfirmation?
     @State private var removalErrorMessage: String?
     @State private var jobPendingRedownload: DownloadJob?
     @State private var isSelectionMode = false
     @State private var selectedKeys: Set<GalleryKey> = []
-    @State private var showingDeleteSelectedConfirmation = false
     @State private var bulkRemovalProgress: DownloadRemovalProgress?
     @State private var bulkRemovalTask: Task<Void, Never>?
     @State private var showingShareFormatDialog = false
@@ -69,8 +82,29 @@ struct DownloadsView: View {
     private var visibleJobs: [DownloadJob] {
         pageJobs
             .filter { page == .local || model.downloadStatusFilter.matches($0.state) }
+            .filter(matchesDownloadFilters)
             .filter(matchesSearch)
-            .sorted(by: effectiveSortOrder.areInIncreasingOrder)
+            .sorted {
+                effectiveSortOrder.areInIncreasingOrder(
+                    $0,
+                    $1,
+                    summaries: downloadGallerySummariesByKey
+                )
+            }
+    }
+
+    private var needsDownloadGallerySummaries: Bool {
+        effectiveSortOrder == .rating
+            || model.downloadCategoryFilter != Set(GalleryCategory.allCases)
+    }
+
+    private func matchesDownloadFilters(_ job: DownloadJob) -> Bool {
+        guard model.downloadCategoryFilter != Set(GalleryCategory.allCases) else { return true }
+        guard let category = downloadGallerySummariesByKey[job.key]?.category,
+              let galleryCategory = GalleryCategory(rawValue: category) else {
+            return false
+        }
+        return model.downloadCategoryFilter.contains(galleryCategory)
     }
 
     private func matchesSearch(_ job: DownloadJob) -> Bool {
@@ -83,7 +117,7 @@ struct DownloadsView: View {
 
     private var availableSortOrders: [DownloadSortOrder] {
         if page == .local {
-            return [.addedNewest, .addedOldest, .titleAscending, .titleDescending]
+            return [.addedNewest, .addedOldest, .titleAscending, .titleDescending, .progress, .rating]
         }
         return Array(DownloadSortOrder.allCases)
     }
@@ -105,33 +139,27 @@ struct DownloadsView: View {
             .navigationDestination(item: $jobForReader) { job in
                 ReaderView(downloaded: job, initialPage: 0)
             }
-            .confirmationDialog("重置所有下载内容的阅读进度？", isPresented: $showingResetProgressConfirmation, titleVisibility: .visible) {
-                Button("重置进度", role: .destructive) {
-                    Task { await model.resetAllDownloadReadingProgress() }
+            .alert(item: $deletionConfirmation) { confirmation in
+                switch confirmation {
+                case .single(let job):
+                    Alert(
+                        title: Text("删除《\(displayTitle(for: job))》？"),
+                        message: Text("将移除 \(job.completedPageIndexes.count) 个已下载页面，并从下载列表中移除。"),
+                        primaryButton: .destructive(Text("删除下载及本地图片")) {
+                            deleteDownload(job)
+                        },
+                        secondaryButton: .cancel(Text("取消"))
+                    )
+                case .multiple(let count):
+                    Alert(
+                        title: Text("删除选中的 \(count) 项下载？"),
+                        message: Text("将移除所选下载的本地图片，并从下载列表中移除。"),
+                        primaryButton: .destructive(Text("删除下载及本地图片")) {
+                            deleteSelectedDownloads()
+                        },
+                        secondaryButton: .cancel(Text("取消"))
+                    )
                 }
-                Button("取消", role: .cancel) {}
-            }
-            .confirmationDialog(
-                "删除《\(displayTitle(for: jobPendingRemoval))》？",
-                isPresented: Binding(
-                    get: { jobPendingRemoval != nil },
-                    set: { if $0 == false { jobPendingRemoval = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("删除下载及本地图片", role: .destructive) {
-                    guard let job = jobPendingRemoval else { return }
-                    jobPendingRemoval = nil
-                    Task {
-                        if case let .failed(message) = await model.downloads.remove(job.key) {
-                            removalErrorMessage = message
-                        }
-                    }
-                }
-                .disabled(bulkRemovalProgress != nil)
-                Button("取消", role: .cancel) { jobPendingRemoval = nil }
-            } message: {
-                Text("将移除 \(jobPendingRemoval?.completedPageIndexes.count ?? 0) 个已下载页面，并从下载列表中移除。")
             }
             .confirmationDialog(
                 "重新下载《\(displayTitle(for: jobPendingRedownload))》？",
@@ -150,18 +178,6 @@ struct DownloadsView: View {
                 Button("取消", role: .cancel) { jobPendingRedownload = nil }
             } message: {
                 Text("将删除已下载的 \(jobPendingRedownload?.completedPageIndexes.count ?? 0) 个页面，并重新开始下载。")
-            }
-            .confirmationDialog(
-                "删除选中的 \(selectedKeys.count) 项下载？",
-                isPresented: $showingDeleteSelectedConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("删除下载及本地图片", role: .destructive) {
-                    deleteSelectedDownloads()
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("将移除所选下载的本地图片，并从下载列表中移除。")
             }
             .confirmationDialog(
                 "选择分享格式",
@@ -262,6 +278,7 @@ struct DownloadsView: View {
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
+        .tint(AppTheme.accent)
         .searchable(text: $searchText, placement: .toolbar, prompt: "搜索下载标题或标签")
         .onSubmit(of: .search, submitSearch)
         .onChange(of: searchText) { _, newValue in
@@ -276,9 +293,15 @@ struct DownloadsView: View {
         }
         .toolbar {
             if isSelectionMode {
+#if os(macOS)
+                ToolbarItem(placement: .navigation) {
+                    Button("完成") { exitSelectionMode() }
+                }
+#else
                 ToolbarItem(placement: .cancellationAction) {
                     Button("完成") { exitSelectionMode() }
                 }
+#endif
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button(selectAllTitle) {
                         toggleSelectAll()
@@ -292,78 +315,51 @@ struct DownloadsView: View {
                         .disabled(selectedKeys.isEmpty || model.isMigrating || model.isRestoringDownloads)
                         .accessibilityIdentifier("downloads-share-selected")
                     }
-                    Button {
-                        showingDeleteSelectedConfirmation = true
+                    Button(role: .destructive) {
+                        deletionConfirmation = .multiple(selectedKeys.count)
                     } label: {
                         Label("删除(\(selectedKeys.count))", systemImage: "trash")
                     }
                     .disabled(selectedKeys.isEmpty || bulkRemovalProgress != nil)
                 }
             } else {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        enterSelectionMode()
-                    } label: {
-                        Image(systemName: "checkmark.circle")
-                    }
-                    .accessibilityLabel("选择")
-                    .accessibilityHint("选择要操作的下载项")
-                    .disabled(visibleJobs.isEmpty || bulkRemovalProgress != nil)
-                    Button {
-                        model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
-                        model.persistDownloadPreferences()
-                    } label: {
-                        Label(
-                            model.downloadLayoutMode == .list
-                                ? String(localized: "切换到卡片")
-                                : String(localized: "切换到列表"),
-                            systemImage: model.downloadLayoutMode == .list
-                                ? "square.grid.2x2"
-                                : "list.bullet"
-                        )
-                    }
-                    .accessibilityIdentifier("downloads-layout-toggle")
-                    Menu("下载管理", systemImage: "ellipsis.circle") {
-                        if page == .downloading {
-                            Button("开始全部", systemImage: "play.fill") {
-                                Task { await model.startAllDownloads() }
-                            }
-                            .disabled(canStartAll == false)
-                            Button("暂停全部", systemImage: "pause.fill") {
-                                Task { await model.downloads.stopAll() }
-                            }
-                            .disabled(canStopAll == false)
-                            Divider()
-                            Picker("筛选状态", selection: $model.downloadStatusFilter) {
-                                ForEach(DownloadStatusFilter.allCases) { filter in
-                                    Text(filter.title).tag(filter)
-                                }
-                            }
-                            .onChange(of: model.downloadStatusFilter) { _, _ in
-                                model.persistDownloadPreferences()
-                            }
-                        }
-                        Picker(
-                            "排序",
-                            selection: Binding(
-                                get: { effectiveSortOrder },
-                                set: {
-                                    model.downloadSortOrder = $0
-                                    model.persistDownloadPreferences()
-                                }
-                            )
-                        ) {
-                            ForEach(availableSortOrders) { order in
-                                Text(order.title).tag(order)
-                            }
-                        }
-                        Divider()
-                        Button("重置阅读进度", systemImage: "arrow.counterclockwise", role: .destructive) {
-                            showingResetProgressConfirmation = true
-                        }
-                    }
-                    .accessibilityIdentifier("download-management-menu")
+#if os(macOS)
+                ToolbarItem(placement: .navigation) {
+                    selectionToolbarButton
                 }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    layoutToolbarButton
+                    sortToolbarMenu
+                    downloadAdvancedFilterButton
+                    if page == .downloading {
+                        downloadManagementMenu
+                    }
+                }
+#else
+                if horizontalSizeClass == .regular {
+                    ToolbarItem(placement: .navigation) {
+                        selectionToolbarButton
+                    }
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        layoutToolbarButton
+                        sortToolbarMenu
+                        downloadAdvancedFilterButton
+                        if page == .downloading {
+                            downloadManagementMenu
+                        }
+                    }
+                } else {
+                    ToolbarItem(placement: .primaryAction) {
+                        selectionToolbarButton
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("更多", systemImage: "ellipsis.circle") {
+                            showingDownloadManagementSheet = true
+                        }
+                        .accessibilityIdentifier("download-management-sheet")
+                    }
+                }
+#endif
             }
         }
         .task(id: "\(model.isLoadingDownloads)-\(page.rawValue)") {
@@ -372,6 +368,9 @@ struct DownloadsView: View {
         }
         .task(id: localSearchTaskID) {
             await loadLocalSearchSummaries()
+        }
+        .task(id: downloadGallerySummaryTaskID) {
+            await loadDownloadGallerySummaries()
         }
         .task {
             for await event in await model.downloads.events() {
@@ -398,6 +397,109 @@ struct DownloadsView: View {
             }
             .presentationDetents([.medium])
         }
+        .sheet(isPresented: $showingDownloadManagementSheet) {
+            DownloadManagementSheet(
+                page: page,
+                canStartAll: canStartAll,
+                canStopAll: canStopAll
+            )
+        }
+        .sheet(isPresented: $showingDownloadCategoryFilter) {
+            DownloadCategoryFilterView(
+                initialCategories: model.downloadCategoryFilter,
+                apply: { categories in
+                    model.downloadCategoryFilter = categories
+                    model.persistDownloadPreferences()
+                }
+            )
+        }
+    }
+
+    private var selectionToolbarButton: some View {
+        Button("选择", systemImage: "checkmark.circle") {
+            enterSelectionMode()
+        }
+        .accessibilityHint("选择要操作的下载项")
+        .labelStyle(.titleAndIcon)
+        .disabled(visibleJobs.isEmpty || bulkRemovalProgress != nil)
+    }
+
+    private var layoutToolbarButton: some View {
+        Button {
+            model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
+            model.persistDownloadPreferences()
+        } label: {
+            Label(
+                model.downloadLayoutMode == .list
+                    ? String(localized: "卡片")
+                    : String(localized: "列表"),
+                systemImage: model.downloadLayoutMode == .list
+                    ? "square.grid.2x2"
+                    : "list.bullet"
+            )
+        }
+        .accessibilityIdentifier("downloads-layout-toggle")
+        .labelStyle(.titleAndIcon)
+    }
+
+    private var sortToolbarMenu: some View {
+        Menu("排序", systemImage: "arrow.up.arrow.down") {
+            ForEach(availableSortOrders) { order in
+                Button {
+                    model.downloadSortOrder = order
+                    model.persistDownloadPreferences()
+                } label: {
+                    if order == effectiveSortOrder {
+                        Label(order.title, systemImage: "checkmark")
+                    } else {
+                        Text(order.title)
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("download-sort-menu")
+        .labelStyle(.titleAndIcon)
+    }
+
+    private var downloadAdvancedFilterButton: some View {
+        Button("高级筛选", systemImage: "slider.horizontal.3") {
+            showingDownloadCategoryFilter = true
+        }
+        .accessibilityIdentifier("download-advanced-filter")
+        .labelStyle(.titleAndIcon)
+    }
+
+    private var downloadManagementMenu: some View {
+        Menu("更多", systemImage: "ellipsis.circle") {
+            if page == .downloading {
+                Button("开始全部", systemImage: "play.fill") {
+                    Task { await model.startAllDownloads() }
+                }
+                .disabled(canStartAll == false)
+                Button("暂停全部", systemImage: "pause.fill") {
+                    Task { await model.downloads.stopAll() }
+                }
+                .disabled(canStopAll == false)
+                Divider()
+                Picker("筛选状态", selection: statusFilterBinding) {
+                    ForEach(DownloadStatusFilter.allCases) { filter in
+                        Text(filter.title).tag(filter)
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("download-management-menu")
+        .labelStyle(.titleAndIcon)
+    }
+
+    private var statusFilterBinding: Binding<DownloadStatusFilter> {
+        Binding(
+            get: { model.downloadStatusFilter },
+            set: {
+                model.downloadStatusFilter = $0
+                model.persistDownloadPreferences()
+            }
+        )
     }
 
     private var localSearchTaskID: String {
@@ -408,6 +510,14 @@ struct DownloadsView: View {
         return pageJobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
             .sorted()
             .joined(separator: "\u{1E}")
+    }
+
+    private var downloadGallerySummaryTaskID: String {
+        guard needsDownloadGallerySummaries else { return "download-summary-disabled" }
+        return pageJobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
+            .sorted()
+            .joined(separator: "\u{1E}")
+            + "|sort=\(effectiveSortOrder.rawValue)|categories=\(model.downloadCategoryFilter.map(\.rawValue).sorted().joined(separator: ","))"
     }
 
     private func loadLocalSearchSummaries() async {
@@ -426,6 +536,24 @@ struct DownloadsView: View {
         let summaries = await model.localGallerySummaries(for: keys)
         guard Task.isCancelled == false else { return }
         localSearchSummariesByKey = Dictionary(
+            summaries.map { ($0.key, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    private func loadDownloadGallerySummaries() async {
+        guard needsDownloadGallerySummaries else {
+            downloadGallerySummariesByKey = [:]
+            return
+        }
+        let keys = Set(pageJobs.map(\.key))
+        guard keys.isEmpty == false else {
+            downloadGallerySummariesByKey = [:]
+            return
+        }
+        let summaries = await model.localGallerySummaries(for: keys)
+        guard Task.isCancelled == false else { return }
+        downloadGallerySummariesByKey = Dictionary(
             summaries.map { ($0.key, $0) },
             uniquingKeysWith: { first, _ in first }
         )
@@ -508,6 +636,15 @@ struct DownloadsView: View {
         selectedKeys.count == visibleJobs.count && visibleJobs.isEmpty == false
             ? String(localized: "取消全选")
             : String(localized: "全选")
+    }
+
+    private func deleteDownload(_ job: DownloadJob) {
+        guard bulkRemovalProgress == nil else { return }
+        Task {
+            if case let .failed(message) = await model.downloads.remove(job.key) {
+                removalErrorMessage = message
+            }
+        }
     }
 
     private func deleteSelectedDownloads() {
@@ -623,11 +760,11 @@ struct DownloadsView: View {
                 openReader: { jobForReader = $0 },
                 remove: {
                     guard bulkRemovalProgress == nil else { return }
-                    jobPendingRemoval = $0
+                    deletionConfirmation = .single($0)
                 },
-                label: {
-                    labelInput = $0.label ?? ""
-                    editingJob = $0
+                removeImmediately: {
+                    guard bulkRemovalProgress == nil else { return }
+                    deleteDownload($0)
                 }
             )
         } else {
@@ -675,7 +812,7 @@ struct DownloadsView: View {
             jobPendingRedownload = job
         } remove: {
             guard bulkRemovalProgress == nil else { return }
-            jobPendingRemoval = job
+            deletionConfirmation = .single(job)
         } label: {
             labelInput = job.label ?? ""
             editingJob = job
@@ -703,7 +840,7 @@ struct DownloadsView: View {
                     } redownload: {
                         jobPendingRedownload = job
                     } remove: {
-                        jobPendingRemoval = job
+                        deletionConfirmation = .single(job)
                     } label: {
                         labelInput = job.label ?? ""
                         editingJob = job
@@ -733,6 +870,206 @@ struct DownloadsView: View {
 
     private var canStopAll: Bool {
         pageJobs.contains { $0.state == .running || $0.state == .queued }
+    }
+}
+
+private struct DownloadManagementSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let page: DownloadsPage
+    let canStartAll: Bool
+    let canStopAll: Bool
+    @State private var showingCategoryFilter = false
+
+    private var availableSortOrders: [DownloadSortOrder] {
+        page == .local
+            ? [.addedNewest, .addedOldest, .titleAscending, .titleDescending, .progress, .rating]
+            : Array(DownloadSortOrder.allCases)
+    }
+
+    private var sortOrderBinding: Binding<DownloadSortOrder> {
+        Binding(
+            get: {
+                availableSortOrders.contains(model.downloadSortOrder)
+                    ? model.downloadSortOrder
+                    : .titleAscending
+            },
+            set: {
+                model.downloadSortOrder = $0
+                model.persistDownloadPreferences()
+            }
+        )
+    }
+
+    private var statusFilterBinding: Binding<DownloadStatusFilter> {
+        Binding(
+            get: { model.downloadStatusFilter },
+            set: {
+                model.downloadStatusFilter = $0
+                model.persistDownloadPreferences()
+            }
+        )
+    }
+
+    var body: some View {
+        @Bindable var model = model
+
+        NavigationStack {
+            Form {
+                if page == .downloading {
+                    Section("下载任务") {
+                        Button("开始全部", systemImage: "play.fill") {
+                            Task { await model.startAllDownloads() }
+                        }
+                        .disabled(canStartAll == false)
+                        Button("暂停全部", systemImage: "pause.fill") {
+                            Task { await model.downloads.stopAll() }
+                        }
+                        .disabled(canStopAll == false)
+                    }
+                }
+
+                Section("筛选") {
+                    if page == .downloading {
+                        Picker("状态", selection: statusFilterBinding) {
+                            ForEach(DownloadStatusFilter.allCases) { filter in
+                                Text(filter.title).tag(filter)
+                            }
+                        }
+                    }
+                    Button("高级筛选", systemImage: "slider.horizontal.3") {
+                        showingCategoryFilter = true
+                    }
+                }
+
+                Section("排序") {
+                    Picker("排序方式", selection: sortOrderBinding) {
+                        ForEach(availableSortOrders) { order in
+                            Text(order.title).tag(order)
+                        }
+                    }
+                }
+
+                Section("显示") {
+                    Button {
+                        model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
+                        model.persistDownloadPreferences()
+                    } label: {
+                        Label(
+                            model.downloadLayoutMode == .list ? "切换到卡片" : "切换到列表",
+                            systemImage: model.downloadLayoutMode == .list
+                                ? "square.grid.2x2"
+                                : "list.bullet"
+                        )
+                    }
+                }
+
+            }
+            .navigationTitle("下载管理")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成", action: dismiss.callAsFunction)
+                }
+            }
+        }
+        .sheet(isPresented: $showingCategoryFilter) {
+            DownloadCategoryFilterView(
+                initialCategories: model.downloadCategoryFilter,
+                apply: { categories in
+                    model.downloadCategoryFilter = categories
+                    model.persistDownloadPreferences()
+                }
+            )
+        }
+    }
+}
+
+private struct DownloadCategoryFilterView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedCategories: Set<GalleryCategory>
+    let apply: (Set<GalleryCategory>) -> Void
+
+    init(initialCategories: Set<GalleryCategory>, apply: @escaping (Set<GalleryCategory>) -> Void) {
+        _selectedCategories = State(initialValue: initialCategories)
+        self.apply = apply
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    GroupBox("分类") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)],
+                                alignment: .leading,
+                                spacing: 8
+                            ) {
+                                ForEach(GalleryCategory.allCases) { category in
+                                    let isSelected = selectedCategories.contains(category)
+                                    Button {
+                                        if isSelected {
+                                            selectedCategories.remove(category)
+                                        } else {
+                                            selectedCategories.insert(category)
+                                        }
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                                            Text(category.rawValue)
+                                                .lineLimit(1)
+                                            Spacer(minLength: 0)
+                                        }
+                                        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                                        .padding(.horizontal, 10)
+                                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .background(
+                                        isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08),
+                                        in: RoundedRectangle(cornerRadius: 8)
+                                    )
+                                    .accessibilityIdentifier("download-category-\(category.id)")
+                                    .accessibilityValue(isSelected ? String(localized: "已选择") : String(localized: "未选择"))
+                                }
+                            }
+
+                            HStack(spacing: 12) {
+                                Button("全选") {
+                                    selectedCategories = Set(GalleryCategory.allCases)
+                                }
+                                Button("全部取消") {
+                                    selectedCategories.removeAll()
+                                }
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        .padding(10)
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: 680, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .top)
+            }
+            .navigationTitle("高级筛选")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消", action: dismiss.callAsFunction)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("应用") {
+                        apply(selectedCategories)
+                        dismiss()
+                    }
+                    .disabled(selectedCategories.isEmpty)
+                    .accessibilityIdentifier("apply-download-category-filter")
+                }
+            }
+        }
+#if os(macOS)
+        .frame(minWidth: 600, idealWidth: 680, minHeight: 420, idealHeight: 520)
+#endif
     }
 }
 
@@ -827,7 +1164,7 @@ private struct LocalDownloadsList: View {
     let requestSelection: (GalleryKey) -> Void
     let openReader: (DownloadJob) -> Void
     let remove: (DownloadJob) -> Void
-    let label: (DownloadJob) -> Void
+    let removeImmediately: (DownloadJob) -> Void
 
     @State private var localSummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var localMetadataLoadedKeys: Set<GalleryKey> = []
@@ -878,7 +1215,7 @@ private struct LocalDownloadsList: View {
             requestSelection: { requestSelection(job.key) },
             openReader: { openReader(job) },
             remove: { remove(job) },
-            label: { label(job) }
+            removeImmediately: { removeImmediately(job) }
         )
         .onAppear {
             if visibleLocalIndexes[job.key] != index {
@@ -1044,6 +1381,7 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
     case titleAscending
     case titleDescending
     case progress
+    case rating
     case status
 
     var id: Self { self }
@@ -1055,11 +1393,23 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
         case .titleAscending: String(localized: "标题 A-Z")
         case .titleDescending: String(localized: "标题 Z-A")
         case .progress: String(localized: "完成度")
+        case .rating: String(localized: "评分")
         case .status: String(localized: "状态")
         }
     }
 
-    func areInIncreasingOrder(_ lhs: DownloadJob, _ rhs: DownloadJob) -> Bool {
+    func areInIncreasingOrder(
+        _ lhs: DownloadJob,
+        _ rhs: DownloadJob,
+    ) -> Bool {
+        areInIncreasingOrder(lhs, rhs, summaries: [:])
+    }
+
+    func areInIncreasingOrder(
+        _ lhs: DownloadJob,
+        _ rhs: DownloadJob,
+        summaries: [GalleryKey: GallerySummary] = [:]
+    ) -> Bool {
         switch self {
         case .addedNewest:
             if lhs.addedAt == rhs.addedAt { return titleAscending(lhs, rhs) }
@@ -1074,6 +1424,11 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
         case .progress:
             if lhs.progress == rhs.progress { return titleAscending(lhs, rhs) }
             return lhs.progress > rhs.progress
+        case .rating:
+            let lhsRating = summaries[lhs.key]?.rating ?? -1
+            let rhsRating = summaries[rhs.key]?.rating ?? -1
+            if lhsRating == rhsRating { return titleAscending(lhs, rhs) }
+            return lhsRating > rhsRating
         case .status:
             if lhs.state.rawValue == rhs.state.rawValue { return titleAscending(lhs, rhs) }
             return lhs.state.rawValue < rhs.state.rawValue
@@ -1117,7 +1472,7 @@ private struct LocalDownloadCard: View {
     let requestSelection: () -> Void
     let openReader: () -> Void
     let remove: () -> Void
-    let label: () -> Void
+    let removeImmediately: () -> Void
 
     var body: some View {
         Group {
@@ -1134,8 +1489,7 @@ private struct LocalDownloadCard: View {
                 .accessibilityLabel(isSelected ? String(localized: "取消选择《\(displayTitle)》") : String(localized: "选择《\(displayTitle)》"))
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             } else {
-#if os(macOS)
-                HStack(alignment: .top, spacing: 8) {
+                if usesSwipeActions {
                     Button(action: openReader) {
                         galleryCard
                     }
@@ -1143,48 +1497,26 @@ private struct LocalDownloadCard: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("打开《\(displayTitle)》")
                     .accessibilityHint("使用阅读器打开，优先读取已下载页面")
-
-                    VStack(spacing: 6) {
-                        NavigationLink(value: AppRoute.gallery(job.key)) {
-                            Label("查看详情", systemImage: "info.circle")
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        LocalGallerySwipeActions(key: job.key, remove: removeImmediately)
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 0) {
+                        Button(action: openReader) {
+                            galleryCardWithoutBackground
                         }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .frame(width: 32, height: 32)
-                        .help("查看详情")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("打开《\(displayTitle)》")
+                        .accessibilityHint("使用阅读器打开，优先读取已下载页面")
 
-                        Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
-                            .frame(width: 32, height: 32)
-                            .help("删除下载")
+                        LocalGalleryActionButtons(
+                            key: job.key,
+                            remove: remove
+                        )
                     }
-                    .accessibilityElement(children: .contain)
+                    .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
                 }
-#else
-                ZStack(alignment: .topTrailing) {
-                    Button(action: openReader) {
-                        galleryCard
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("打开《\(displayTitle)》")
-                    .accessibilityHint("使用阅读器打开，优先读取已下载页面")
-
-                    Menu("本地画廊操作", systemImage: "ellipsis.circle") {
-                        NavigationLink(value: AppRoute.gallery(job.key)) {
-                            Label("查看详情", systemImage: "info.circle")
-                        }
-                        Button("设置标签", systemImage: "tag", action: label)
-                        Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
-                    }
-                    .labelStyle(.iconOnly)
-                    .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
-                    .padding(.top, 2)
-                    .padding(.trailing, 2)
-                    .accessibilityLabel("《\(displayTitle)》本地画廊操作")
-                }
-#endif
             }
         }
         .contextMenu {
@@ -1192,7 +1524,6 @@ private struct LocalDownloadCard: View {
             if isSelectionMode == false {
                 Button("选择", systemImage: "checkmark.circle", action: requestSelection)
             }
-            Button("设置标签", systemImage: "tag", action: label)
             Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
 #else
             if isSelectionMode == false {
@@ -1203,11 +1534,20 @@ private struct LocalDownloadCard: View {
     }
 
     private var galleryCard: some View {
+        localGalleryCard(showsBackground: true)
+    }
+
+    private var galleryCardWithoutBackground: some View {
+        localGalleryCard(showsBackground: false)
+    }
+
+    private func localGalleryCard(showsBackground: Bool) -> some View {
         GalleryCard(
             gallery: gallery,
             showsTags: true,
             localJob: job,
-            metadataIsLoading: metadataIsLoading
+            metadataIsLoading: metadataIsLoading,
+            showsBackground: showsBackground
         )
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1222,6 +1562,85 @@ private struct LocalDownloadCard: View {
 
     private var displayTitle: String {
         job.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
+    }
+
+    private var usesSwipeActions: Bool {
+#if os(iOS)
+        true
+#else
+        false
+#endif
+    }
+}
+
+private struct LocalGalleryActionButtons: View {
+    let key: GalleryKey
+    let remove: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            NavigationLink(value: AppRoute.gallery(key)) {
+                actionIcon("info.circle")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("查看详情")
+
+            Button(role: .destructive, action: remove) {
+                actionIcon("trash", color: .red)
+            }
+                .buttonStyle(.plain)
+                .accessibilityLabel("删除下载")
+        }
+        .padding(8)
+        .frame(width: actionColumnWidth)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var actionColumnWidth: CGFloat {
+        actionSize + 16
+    }
+
+    private var actionSize: CGFloat {
+#if os(macOS)
+        28
+#else
+        44
+#endif
+    }
+
+    private var iconSize: CGFloat {
+#if os(macOS)
+        16
+#else
+        24
+#endif
+    }
+
+    private func actionIcon(_ systemImage: String, color: Color = AppTheme.accent) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: iconSize, weight: .medium))
+            .foregroundStyle(color)
+            .frame(width: actionSize, height: actionSize)
+            .contentShape(Rectangle())
+    }
+}
+
+private struct LocalGallerySwipeActions: View {
+    let key: GalleryKey
+    let remove: () -> Void
+
+    var body: some View {
+        NavigationLink(value: AppRoute.gallery(key)) {
+            Image(systemName: "info.circle")
+        }
+        .tint(AppTheme.accent)
+        .accessibilityLabel("查看详情")
+
+        Button(role: .destructive, action: remove) {
+            Image(systemName: "trash")
+        }
+        .tint(.red)
+        .accessibilityLabel("删除下载")
     }
 }
 
