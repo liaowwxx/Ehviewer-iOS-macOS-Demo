@@ -328,6 +328,76 @@ struct DownloadTests {
         #expect(job?.errorMessage?.contains("删除失败") == true)
     }
 
+    @Test("Bulk removal reports progress and publishes one removal event")
+    func bulkRemovalReportsProgress() async throws {
+        let keys = (0..<4).map { GalleryKey(gid: Int64(40 + $0), token: "bulk-\($0)") }
+        let batchProbe = BatchRemovalProbe()
+        let progressProbe = RemovalProgressProbe()
+        let coordinator = DownloadCoordinator(
+            pageLoader: { _ in Data() },
+            batchRemoval: { keys in
+                await batchProbe.record(keys)
+            }
+        )
+        let jobs = keys.map { key -> DownloadJob in
+            var job = DownloadJob(key: key, title: "Bulk \(key.gid)", pages: [])
+            job.state = .paused
+            return job
+        }
+        await coordinator.restore(jobs)
+        let events = await coordinator.events()
+
+        let result = await coordinator.remove(keys) { progress in
+            await progressProbe.record(progress)
+        }
+
+        #expect(result.requestedCount == keys.count)
+        #expect(result.removedCount == keys.count)
+        #expect(result.failures.isEmpty)
+        #expect(result.cancelled == false)
+        #expect(await batchProbe.keys == Set(keys))
+        #expect((await coordinator.snapshot()).isEmpty)
+
+        let progress = await progressProbe.values
+        #expect(progress.first == DownloadRemovalProgress(completed: 0, total: keys.count))
+        #expect(progress.last == DownloadRemovalProgress(completed: keys.count, total: keys.count))
+        #expect(zip(progress, progress.dropFirst()).allSatisfy { $0.completed <= $1.completed })
+
+        var iterator = events.makeAsyncIterator()
+        guard case let .removedMany(removedKeys)? = await iterator.next() else {
+            Issue.record("bulk removal should publish one removedMany event")
+            return
+        }
+        #expect(removedKeys == keys)
+    }
+
+    @Test("Bulk removal removes downloaded files before persisting the batch")
+    func bulkRemovalDeletesFiles() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ehviewer-bulk-removal-\(UUID().uuidString)")
+        let store = DownloadFileStore(root: root, minimumFreeBytes: 1)
+        let keys = (0..<2).map { GalleryKey(gid: Int64(50 + $0), token: "file-bulk-\($0)") }
+        let imageData = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
+
+        for key in keys {
+            _ = try await store.write(imageData, for: key, pageIndex: 0)
+        }
+
+        let coordinator = DownloadCoordinator(
+            fileStore: store,
+            batchRemoval: { _ in }
+        )
+        await coordinator.restore(keys.map { DownloadJob(key: $0, title: "File bulk", pages: []) })
+
+        let result = await coordinator.remove(keys)
+
+        #expect(result.removedCount == keys.count)
+        #expect(result.failures.isEmpty)
+        for key in keys {
+            #expect(await store.contains(key, pageIndex: 0) == false)
+            #expect(FileManager.default.fileExists(atPath: await store.finalURL(for: key, pageIndex: 0).path) == false)
+        }
+    }
+
     @Test("Redownload deletes local pages and restarts the job from scratch")
     func redownloadClearsFilesAndRestarts() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ehviewer-redownload-\(UUID().uuidString)")
@@ -411,6 +481,22 @@ private actor DownloadLoadProbe {
 
     func record(_ key: GalleryKey) {
         keys.append(key)
+    }
+}
+
+private actor BatchRemovalProbe {
+    private(set) var keys: Set<GalleryKey> = []
+
+    func record(_ keys: Set<GalleryKey>) {
+        self.keys = keys
+    }
+}
+
+private actor RemovalProgressProbe {
+    private(set) var values: [DownloadRemovalProgress] = []
+
+    func record(_ value: DownloadRemovalProgress) {
+        values.append(value)
     }
 }
 

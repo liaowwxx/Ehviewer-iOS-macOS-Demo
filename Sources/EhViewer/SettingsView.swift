@@ -72,16 +72,10 @@ struct SettingsView: View {
                         model.persistReadingSettings()
                     }
                     .accessibilityIdentifier("show-tag-translations-toggle")
-                Toggle("启用详情缓存", isOn: $model.galleryCacheEnabled)
-                    .onChange(of: model.galleryCacheEnabled) { _, enabled in
-                        model.setGalleryCacheEnabled(enabled)
-                    }
-                    .accessibilityIdentifier("gallery-cache-enabled-toggle")
-                LabeledContent("详情缓存占用", value: galleryCacheSize)
-                Button("清除详情缓存", systemImage: "trash", role: .destructive) {
+                LabeledContent("缓存占用", value: galleryCacheSize)
+                Button("清除缓存", systemImage: "trash", role: .destructive) {
                     showingGalleryCacheClearConfirmation = true
                 }
-                .disabled(model.galleryCacheByteCount == 0)
                 .accessibilityIdentifier("clear-gallery-cache-action")
             }
             Section("登录") {
@@ -152,7 +146,7 @@ struct SettingsView: View {
         .accessibilityIdentifier("settings-screen")
         .navigationTitle("settings_title")
         .confirmationDialog(
-            "清除详情缓存？",
+            "清除缓存？",
             isPresented: $showingGalleryCacheClearConfirmation,
             titleVisibility: .visible
         ) {
@@ -161,7 +155,7 @@ struct SettingsView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("这不会删除下载文件或其他应用数据。")
+            Text("不会删除下载文件或下载任务，但会清除收藏和历史记录。")
         }
     }
 

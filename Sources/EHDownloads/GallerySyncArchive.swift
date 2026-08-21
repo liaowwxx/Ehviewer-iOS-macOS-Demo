@@ -145,11 +145,20 @@ public enum GallerySyncArchive {
     }
 
     private static func validate(_ snapshot: GallerySyncSnapshot) throws {
-        guard snapshot.schemaVersion == GallerySyncSnapshot.currentVersion else {
+        guard [GallerySyncSnapshot.legacyVersion, GallerySyncSnapshot.currentVersion].contains(snapshot.schemaVersion) else {
             throw GallerySyncArchiveError.unsupportedVersion(snapshot.schemaVersion)
         }
         guard snapshot.galleries.count <= maximumGalleryCount else {
             throw GallerySyncArchiveError.tooManyGalleries
+        }
+        for record in snapshot.records {
+            guard [GallerySyncSnapshot.legacyVersion, GalleryTransferRecord.currentFormatVersion]
+                .contains(record.formatVersion) else {
+                throw GallerySyncArchiveError.unsupportedVersion(record.formatVersion)
+            }
+            guard record.dynamic?.key == nil || record.dynamic?.key == record.stable.key else {
+                throw GallerySyncArchiveError.invalidGallery
+            }
         }
         guard snapshot.galleries.allSatisfy({ $0.key.gid > 0 && $0.key.token.isEmpty == false }) else {
             throw GallerySyncArchiveError.invalidGallery

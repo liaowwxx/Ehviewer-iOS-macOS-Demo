@@ -141,6 +141,7 @@ struct NetworkingTests {
         #expect(detail.language == "English")
         #expect(detail.fileSize == "128 MB")
         #expect(detail.favoriteCount == 1234)
+        #expect(detail.descriptionText == nil)
         #expect(detail.tags == [
             "parody:blue archive",
             "artist:sample",
@@ -380,6 +381,7 @@ struct NetworkingTests {
         #expect(summaries.first?.displayTitle(showJapaneseTitle: false) == "English title")
         #expect(summaries.first?.displayTitle(showJapaneseTitle: true) == "日本語タイトル")
         #expect(summaries.first?.pageCount == 12)
+        #expect(summaries.first?.postedAt != nil)
         #expect(summaries.first?.thumbnailURL?.absoluteString == "https://e-hentai.org/t/sample.jpg")
 
         let requests = await recording.requestsSnapshot()
@@ -389,6 +391,22 @@ struct NetworkingTests {
         let firstJSON = try #require(JSONSerialization.jsonObject(with: firstBody) as? [String: Any])
         #expect(firstJSON["method"] as? String == "gdata")
         #expect((firstJSON["gidlist"] as? [[Any]])?.count == 25)
+
+        let numericPostedPayload = #"""
+        {
+            "gmetadata": [{
+                "gid": 100,
+                "token": "alpha",
+                "title": "Numeric posted",
+                "posted": 1514458781
+            }]
+        }
+        """#
+        let numericPosted = try GalleryAPIParser().parse(
+            data: Data(numericPostedPayload.utf8),
+            site: .eHentai
+        )
+        #expect(numericPosted.first?.postedAt == Date(timeIntervalSince1970: 1_514_458_781))
     }
 
     @Test("HTTP client maps authentication status into a domain error")

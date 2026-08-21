@@ -89,6 +89,10 @@ public actor ImagePipeline {
         }
     }
 
+    public func diskPath(for url: URL) -> String? {
+        diskURL(for: url)?.path
+    }
+
     public func removeAll() {
         for task in inFlight.values {
             task.cancel()
@@ -113,7 +117,6 @@ public actor ImagePipeline {
             cachedBytes -= oldest.value.data.count
             cache.removeValue(forKey: oldest.key)
         }
-        evictDiskIfNeeded()
     }
 
     private func readFromDisk(url: URL) -> Data? {

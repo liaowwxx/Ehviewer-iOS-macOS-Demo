@@ -44,6 +44,8 @@ struct DownloadsView: View {
     @State private var isSelectionMode = false
     @State private var selectedKeys: Set<GalleryKey> = []
     @State private var showingDeleteSelectedConfirmation = false
+    @State private var bulkRemovalProgress: DownloadRemovalProgress?
+    @State private var bulkRemovalTask: Task<Void, Never>?
     @State private var showingShareFormatDialog = false
     @State private var jobForReader: DownloadJob?
 #if os(iOS)
@@ -91,6 +93,11 @@ struct DownloadsView: View {
     var body: some View {
         @Bindable var model = model
         content
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let progress = bulkRemovalProgress {
+                    bulkRemovalProgressView(progress)
+                }
+            }
             .navigationDestination(item: $jobForReader) { job in
                 ReaderView(downloaded: job, initialPage: 0)
             }
@@ -117,6 +124,7 @@ struct DownloadsView: View {
                         }
                     }
                 }
+                .disabled(bulkRemovalProgress != nil)
                 Button("取消", role: .cancel) { jobPendingRemoval = nil }
             } message: {
                 Text("将移除 \(jobPendingRemoval?.completedPageIndexes.count ?? 0) 个已下载页面，并从下载列表中移除。")
@@ -134,6 +142,7 @@ struct DownloadsView: View {
                     jobPendingRedownload = nil
                     Task { await model.redownloadDownload(job.key) }
                 }
+                .disabled(bulkRemovalProgress != nil)
                 Button("取消", role: .cancel) { jobPendingRedownload = nil }
             } message: {
                 Text("将删除已下载的 \(jobPendingRedownload?.completedPageIndexes.count ?? 0) 个页面，并重新开始下载。")
@@ -282,7 +291,7 @@ struct DownloadsView: View {
                     } label: {
                         Label("删除(\(selectedKeys.count))", systemImage: "trash")
                     }
-                    .disabled(selectedKeys.isEmpty)
+                    .disabled(selectedKeys.isEmpty || bulkRemovalProgress != nil)
                 }
             } else {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -293,7 +302,7 @@ struct DownloadsView: View {
                     }
                     .accessibilityLabel("选择")
                     .accessibilityHint("选择要操作的下载项")
-                    .disabled(visibleJobs.isEmpty)
+                    .disabled(visibleJobs.isEmpty || bulkRemovalProgress != nil)
                     Button {
                         model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
                         model.persistDownloadPreferences()
@@ -426,6 +435,9 @@ struct DownloadsView: View {
             }
         case .removed(let key):
             jobs.removeAll { $0.key == key }
+        case .removedMany(let keys):
+            let keySet = Set(keys)
+            jobs.removeAll { keySet.contains($0.key) }
         }
     }
 
@@ -464,15 +476,59 @@ struct DownloadsView: View {
     }
 
     private func deleteSelectedDownloads() {
-        let keys = Array(selectedKeys)
+        guard bulkRemovalProgress == nil else { return }
+        let keys = selectedKeys.sorted { $0.id < $1.id }
+        guard keys.isEmpty == false else { return }
         exitSelectionMode()
-        Task {
-            for key in keys {
-                if case let .failed(message) = await model.downloads.remove(key) {
-                    removalErrorMessage = message
+        bulkRemovalProgress = DownloadRemovalProgress(completed: 0, total: keys.count)
+        bulkRemovalTask = Task { @MainActor in
+            let result = await model.downloads.remove(keys) { progress in
+                await MainActor.run {
+                    bulkRemovalProgress = progress
                 }
             }
+
+            bulkRemovalProgress = nil
+            if result.failures.isEmpty == false {
+                let details = result.failures.prefix(5).map {
+                    "\($0.key.gid)：\($0.message)"
+                }.joined(separator: "\n")
+                let suffix = result.failures.count > 5
+                    ? String(localized: "\n另有 \(result.failures.count - 5) 项失败。")
+                    : ""
+                removalErrorMessage = details + suffix
+            }
         }
+    }
+
+    private func bulkRemovalProgressView(_ progress: DownloadRemovalProgress) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text("正在删除画廊")
+                    Spacer()
+                    Text("\(progress.completed)/\(progress.total)")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                ProgressView(value: progress.fraction)
+                    .progressViewStyle(.linear)
+                if progress.failed > 0 {
+                    Text("失败 \(progress.failed) 项，将在完成后提示")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            Button("取消") {
+                bulkRemovalTask?.cancel()
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(.bar)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("正在删除画廊，已完成 \(progress.completed)/\(progress.total)")
     }
 
     private func shareSelectedGalleries(as format: SelectedGalleryShareFormat) {
@@ -555,7 +611,10 @@ struct DownloadsView: View {
                 select: { toggleSelection(job.key) },
                 requestSelection: { enterSelectionMode(selecting: job.key) },
                 openReader: { jobForReader = job },
-                remove: { jobPendingRemoval = job },
+                remove: {
+                    guard bulkRemovalProgress == nil else { return }
+                    jobPendingRemoval = job
+                },
                 label: {
                     labelInput = job.label ?? ""
                     editingJob = job
@@ -574,11 +633,13 @@ struct DownloadsView: View {
                     if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
                     else { await model.resumeDownload(job.key) }
                 }
-            } redownload: {
-                jobPendingRedownload = job
-            } remove: {
-                jobPendingRemoval = job
-            } label: {
+                } redownload: {
+                    guard bulkRemovalProgress == nil else { return }
+                    jobPendingRedownload = job
+                } remove: {
+                    guard bulkRemovalProgress == nil else { return }
+                    jobPendingRemoval = job
+                } label: {
                 labelInput = job.label ?? ""
                 editingJob = job
             }
@@ -601,8 +662,8 @@ struct DownloadsView: View {
             localSummariesByKey = [:]
             return
         }
-        guard let summaries = try? await model.persistence.gallerySyncSummaries(for: keys),
-              Task.isCancelled == false else { return }
+        let summaries = await model.localGallerySummaries(for: keys)
+        guard Task.isCancelled == false else { return }
         localSummariesByKey = Dictionary(
             summaries.map { ($0.key, $0) },
             uniquingKeysWith: { first, _ in first }

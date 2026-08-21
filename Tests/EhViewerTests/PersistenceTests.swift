@@ -58,6 +58,29 @@ struct PersistenceTests {
         #expect(try await store.downloadJobs().isEmpty)
     }
 
+    @Test("SwiftData deletes a batch of downloads in one operation")
+    func batchDownloadDeletion() async throws {
+        let container = try ModelContainerFactory.make(inMemory: true)
+        let store = PersistenceStore(modelContainer: container)
+        let keys = (0..<3).map { GalleryKey(gid: Int64(80 + $0), token: "batch-\($0)") }
+
+        for key in keys {
+            try await store.upsertDownload(
+                key: key,
+                title: "Batch \(key.gid)",
+                pages: [],
+                completedPageIndexes: [],
+                stateRaw: "paused",
+                errorMessage: nil
+            )
+        }
+
+        try await store.deleteDownloads(for: Set(keys))
+
+        #expect(try await store.downloadJobs().isEmpty)
+        #expect(try await store.gallerySummary(for: keys[0]) != nil)
+    }
+
     @Test("SwiftData keeps recent quick searches and filter rules as values")
     func quickSearchAndFilters() async throws {
         let container = try ModelContainerFactory.make(inMemory: true)

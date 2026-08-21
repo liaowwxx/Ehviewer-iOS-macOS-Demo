@@ -94,33 +94,206 @@ public struct GalleryKey: Hashable, Codable, Sendable, Identifiable {
     public var id: String { "\(gid)-\(token)" }
 }
 
-/// Records whether each transferable gallery metadata field contains usable
-/// data. A gallery is complete when tags are known and at least one of the
-/// ordinary or Japanese titles is present; some galleries legitimately expose
-/// only one title variant.
-public struct GalleryMetadataCompleteness: Codable, Hashable, Sendable {
-    public var title: Bool
-    public var japaneseTitle: Bool
-    public var tags: Bool
+public enum GalleryFieldState: String, Codable, Hashable, Sendable {
+    case notLoaded
+    case loadedEmpty
+    case loadedWithValue
 
+    public var isLoaded: Bool {
+        self != .notLoaded
+    }
+
+    public var hasValue: Bool {
+        self == .loadedWithValue
+    }
+}
+
+/// Records whether each transferable gallery metadata field contains usable
+/// data. The old v1 format represented these fields as booleans; decoding
+/// still accepts those values and maps them to the richer three-state model.
+public struct GalleryMetadataCompleteness: Codable, Hashable, Sendable {
+    public var title: GalleryFieldState
+    public var japaneseTitle: GalleryFieldState
+    public var authors: GalleryFieldState
+    public var uploader: GalleryFieldState
+    public var tags: GalleryFieldState
+    public var category: GalleryFieldState
+    public var language: GalleryFieldState
+    public var pageCount: GalleryFieldState
+    public var postedAt: GalleryFieldState
+    public var thumbnailURL: GalleryFieldState
+    public var fileSize: GalleryFieldState
+    public var description: GalleryFieldState
+    public var externalURL: GalleryFieldState
+    public var pages: GalleryFieldState
+    public var rating: GalleryFieldState
+    public var ratingCount: GalleryFieldState
+    public var favorite: GalleryFieldState
+    public var comments: GalleryFieldState
+
+    /// True only when every transferable stable and dynamic field has been
+    /// resolved, including detail-only fields such as comments and preview
+    /// descriptors. `loadedEmpty` is intentional and means the source
+    /// answered that the field has no value.
     public var isComplete: Bool {
-        tags && (title || japaneseTitle)
+        [
+            title, japaneseTitle, authors, uploader, tags, category, language,
+            pageCount, postedAt, thumbnailURL, fileSize, description,
+            externalURL, pages, rating, ratingCount, favorite, comments
+        ].allSatisfy { $0.isLoaded }
+    }
+
+    /// True when the fields that the batched `gdata` endpoint can resolve are
+    /// complete. This is deliberately separate from `isComplete`: a batch
+    /// refresh must not keep retrying detail-only fields that require a full
+    /// gallery request.
+    public var isSummaryComplete: Bool {
+        (title.hasValue || japaneseTitle.hasValue)
+            && japaneseTitle.isLoaded
+            && authors.isLoaded
+            && uploader.isLoaded
+            && tags.isLoaded
+            && category.isLoaded
+            && pageCount.isLoaded
+            && postedAt.isLoaded
+            && thumbnailURL.isLoaded
     }
 
     public static let complete = GalleryMetadataCompleteness(
-        title: true,
-        japaneseTitle: true,
-        tags: true
+        title: .loadedWithValue,
+        japaneseTitle: .loadedWithValue,
+        authors: .loadedWithValue,
+        uploader: .loadedWithValue,
+        tags: .loadedWithValue,
+        category: .loadedWithValue,
+        language: .loadedWithValue,
+        pageCount: .loadedWithValue,
+        postedAt: .loadedWithValue,
+        thumbnailURL: .loadedWithValue,
+        fileSize: .loadedWithValue,
+        description: .loadedWithValue,
+        externalURL: .loadedWithValue,
+        pages: .loadedWithValue,
+        rating: .loadedWithValue,
+        ratingCount: .loadedWithValue,
+        favorite: .loadedWithValue,
+        comments: .loadedWithValue
     )
 
     public init(
-        title: Bool = false,
-        japaneseTitle: Bool = false,
-        tags: Bool = false
+        title: GalleryFieldState = .notLoaded,
+        japaneseTitle: GalleryFieldState = .notLoaded,
+        authors: GalleryFieldState = .notLoaded,
+        uploader: GalleryFieldState = .notLoaded,
+        tags: GalleryFieldState = .notLoaded,
+        category: GalleryFieldState = .notLoaded,
+        language: GalleryFieldState = .notLoaded,
+        pageCount: GalleryFieldState = .notLoaded,
+        postedAt: GalleryFieldState = .notLoaded,
+        thumbnailURL: GalleryFieldState = .notLoaded,
+        fileSize: GalleryFieldState = .notLoaded,
+        description: GalleryFieldState = .notLoaded,
+        externalURL: GalleryFieldState = .notLoaded,
+        pages: GalleryFieldState = .notLoaded,
+        rating: GalleryFieldState = .notLoaded,
+        ratingCount: GalleryFieldState = .notLoaded,
+        favorite: GalleryFieldState = .notLoaded,
+        comments: GalleryFieldState = .notLoaded
     ) {
         self.title = title
         self.japaneseTitle = japaneseTitle
+        self.authors = authors
+        self.uploader = uploader
         self.tags = tags
+        self.category = category
+        self.language = language
+        self.pageCount = pageCount
+        self.postedAt = postedAt
+        self.thumbnailURL = thumbnailURL
+        self.fileSize = fileSize
+        self.description = description
+        self.externalURL = externalURL
+        self.pages = pages
+        self.rating = rating
+        self.ratingCount = ratingCount
+        self.favorite = favorite
+        self.comments = comments
+    }
+
+    /// Compatibility initializer for callers that still create v1-style
+    /// title/Japanese-title/tag completeness values.
+    public init(title: Bool, japaneseTitle: Bool, tags: Bool) {
+        self.init(
+            title: title ? .loadedWithValue : .notLoaded,
+            japaneseTitle: japaneseTitle ? .loadedWithValue : .notLoaded,
+            tags: tags ? .loadedWithValue : .notLoaded
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case japaneseTitle
+        case authors
+        case uploader
+        case tags
+        case category
+        case language
+        case pageCount
+        case postedAt
+        case thumbnailURL
+        case fileSize
+        case description
+        case externalURL
+        case pages
+        case rating
+        case ratingCount
+        case favorite
+        case comments
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = try Self.decodeState(forKey: .title, from: container)
+        japaneseTitle = try Self.decodeState(forKey: .japaneseTitle, from: container)
+        authors = try Self.decodeState(forKey: .authors, from: container)
+        uploader = try Self.decodeState(forKey: .uploader, from: container)
+        tags = try Self.decodeState(forKey: .tags, from: container)
+        category = try Self.decodeState(forKey: .category, from: container)
+        language = try Self.decodeState(forKey: .language, from: container)
+        pageCount = try Self.decodeState(forKey: .pageCount, from: container)
+        postedAt = try Self.decodeState(forKey: .postedAt, from: container)
+        thumbnailURL = try Self.decodeState(forKey: .thumbnailURL, from: container)
+        fileSize = try Self.decodeState(forKey: .fileSize, from: container)
+        description = try Self.decodeState(forKey: .description, from: container)
+        externalURL = try Self.decodeState(forKey: .externalURL, from: container)
+        pages = try Self.decodeState(forKey: .pages, from: container)
+        rating = try Self.decodeState(forKey: .rating, from: container)
+        ratingCount = try Self.decodeState(forKey: .ratingCount, from: container)
+        favorite = try Self.decodeState(forKey: .favorite, from: container)
+        comments = try Self.decodeState(forKey: .comments, from: container)
+    }
+
+    private static func decodeState(
+        forKey key: CodingKeys,
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> GalleryFieldState {
+        do {
+            if let state = try container.decodeIfPresent(GalleryFieldState.self, forKey: key) {
+                return state
+            }
+        } catch {
+            // Older archives encoded this field as a Bool. Try that format
+            // below instead of rejecting the entire archive metadata object.
+        }
+        do {
+            if let oldValue = try container.decodeIfPresent(Bool.self, forKey: key) {
+                return oldValue ? .loadedWithValue : .notLoaded
+            }
+        } catch {
+            // Unknown values are treated as not loaded so the caller can
+            // refresh the field from the network.
+        }
+        return .notLoaded
     }
 }
 

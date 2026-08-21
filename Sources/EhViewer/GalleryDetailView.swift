@@ -66,9 +66,6 @@ struct GalleryDetailView: View {
                             if detail.tags.isEmpty == false {
                                 GroupedTags(tags: detail.tags)
                             }
-                            if let descriptionText = detail.descriptionText {
-                                Text(descriptionText).font(.body)
-                            }
                             if detail.torrentURL != nil || detail.archiveURL != nil {
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text("下载资源").font(.headline)
@@ -152,13 +149,16 @@ struct GalleryDetailView: View {
         .navigationTitle("详情")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button("刷新", systemImage: "arrow.clockwise") {
+                    shouldFullyRefreshDetail = true
+                    detailLoadToken = UUID()
+                }
+                .accessibilityIdentifier("detail-refresh-action")
+            }
+            ToolbarItem(placement: .secondaryAction) {
                 Menu {
                     if let externalURL = detail?.externalURL {
                         Link("在站点打开", destination: externalURL)
-                    }
-                    Button("刷新", systemImage: "arrow.clockwise") {
-                        shouldFullyRefreshDetail = true
-                        detailLoadToken = UUID()
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -324,10 +324,15 @@ struct GalleryDetailView: View {
         let localDetail = await model.localGalleryDetail(for: key, job: localJob)
         if let localDetail {
             detail = localDetail
+            comments = localDetail.comments
             hasCachedDetail = true
             isLoadingDetail = false
             isLoadingMorePreviews = false
             isFavorite = await model.favoriteState(for: key)
+            if shouldFullyRefresh == false {
+                await model.prepareTagTranslations()
+                return
+            }
         }
         await model.prepareTagTranslations()
         let cachedDetail = localDetail == nil ? await model.cachedDetail(for: key) : nil
@@ -357,7 +362,15 @@ struct GalleryDetailView: View {
                 }
                 comments = loadedDetail.comments
                 await model.cacheDetail(loadedDetail, generation: cacheGeneration)
-                try? await model.persistence.upsert([loadedDetail.summary])
+                let stable = StableGalleryMetadataSnapshot(detail: loadedDetail, sourceSite: model.site)
+                if localJob != nil {
+                    try? await model.persistence.promoteToDownloadedGallery(
+                        stable: stable,
+                        dynamic: DownloadedGalleryDynamicSnapshot(detail: loadedDetail)
+                    )
+                } else {
+                    try? await model.persistence.upsertStableSnapshot(stable)
+                }
                 if presentedRemoteDetail == false {
                     presentedRemoteDetail = true
                     isLoadingDetail = false
@@ -508,6 +521,8 @@ struct GalleryDetailView: View {
         case .changed(let job) where job.key == key:
             downloadJob = job
         case .removed(let removedKey) where removedKey == key:
+            downloadJob = nil
+        case .removedMany(let removedKeys) where removedKeys.contains(key):
             downloadJob = nil
         default:
             break

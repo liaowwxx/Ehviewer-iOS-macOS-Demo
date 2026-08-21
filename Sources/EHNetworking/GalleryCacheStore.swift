@@ -38,12 +38,48 @@ public actor GalleryCacheStore {
     }
 
     public func detail(for key: GalleryKey, site: SiteMode) -> GalleryDetail? {
-        let url = detailURL(for: key, site: site)
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
-        do {
-            return try JSONDecoder().decode(GalleryDetail.self, from: data)
-        } catch {
+        stableSnapshot(for: key, site: site)?.detail()
+    }
+
+    /// Reads the new stable snapshot first, then performs a read-only fallback
+    /// to the old detail JSON format so the app can migrate one successful
+    /// record at a time into SwiftData.
+    public func stableSnapshot(for key: GalleryKey, site: SiteMode) -> StableGalleryMetadataSnapshot? {
+        if let data = try? Data(contentsOf: stableURL(for: key, site: site), options: .mappedIfSafe),
+           let snapshot = try? JSONDecoder().decode(StableGalleryMetadataSnapshot.self, from: data) {
+            return snapshot
+        }
+        let legacyURL = detailURL(for: key, site: site)
+        guard let data = try? Data(contentsOf: legacyURL, options: .mappedIfSafe),
+              let detail = try? JSONDecoder().decode(GalleryDetail.self, from: data) else {
             return nil
+        }
+        return StableGalleryMetadataSnapshot(detail: Self.staticSnapshot(from: detail), sourceSite: site)
+    }
+
+    /// Returns legacy JSON details without mutating or deleting them. The
+    /// application imports these snapshots into SwiftData and can safely retry
+    /// the operation after an interrupted launch.
+    public func legacyStableSnapshots() -> [StableGalleryMetadataSnapshot] {
+        let directory = root.appendingPathComponent("Details", isDirectory: true)
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return urls.compactMap { url in
+            guard url.pathExtension.caseInsensitiveCompare("json") == .orderedSame,
+                  let (_, site) = Self.decodeCacheKey(url.deletingPathExtension().lastPathComponent),
+                  let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                  let detail = try? JSONDecoder().decode(GalleryDetail.self, from: data) else {
+                return nil
+            }
+            return StableGalleryMetadataSnapshot(
+                detail: Self.staticSnapshot(from: detail),
+                sourceSite: site,
+                capturedAt: .distantPast
+            )
         }
     }
 
@@ -54,10 +90,28 @@ public actor GalleryCacheStore {
         generation: UInt64? = nil
     ) {
         if let generation, generation != self.generation { return }
-        let snapshot = Self.staticSnapshot(from: detail)
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        save(
+            StableGalleryMetadataSnapshot(
+                detail: Self.staticSnapshot(from: detail),
+                sourceSite: site
+            ),
+            for: key,
+            site: site,
+            generation: generation
+        )
+    }
 
-        let url = detailURL(for: key, site: site)
+    public func save(
+        _ snapshot: StableGalleryMetadataSnapshot,
+        for key: GalleryKey,
+        site: SiteMode,
+        generation: UInt64? = nil
+    ) {
+        if let generation, generation != self.generation { return }
+        guard snapshot.key == key,
+              let data = try? JSONEncoder().encode(snapshot) else { return }
+
+        let url = stableURL(for: key, site: site)
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(),
@@ -77,6 +131,14 @@ public actor GalleryCacheStore {
     ) async throws -> Data {
         let url = resolution == .original ? (image.originImageURL ?? image.imageURL) : image.imageURL
         return try await imagePipeline.data(for: url, fetcher: fetcher)
+    }
+
+    public func imageCachePath(
+        for image: GalleryPageImage,
+        resolution: ImageResolution
+    ) async -> String? {
+        let url = resolution == .original ? (image.originImageURL ?? image.imageURL) : image.imageURL
+        return await imagePipeline.diskPath(for: url)
     }
 
     public func usage() -> GalleryCacheUsage {
@@ -101,6 +163,12 @@ public actor GalleryCacheStore {
             .appendingPathComponent(Self.cacheKey(for: key, site: site) + ".json", isDirectory: false)
     }
 
+    private func stableURL(for key: GalleryKey, site: SiteMode) -> URL {
+        root
+            .appendingPathComponent("Stable", isDirectory: true)
+            .appendingPathComponent(Self.cacheKey(for: key, site: site) + ".json", isDirectory: false)
+    }
+
     private static func staticSnapshot(from detail: GalleryDetail) -> GalleryDetail {
         var summary = detail.summary
         // Ratings and favorite information are intentionally refreshed from the site.
@@ -115,16 +183,16 @@ public actor GalleryCacheStore {
             comments: [],
             descriptionText: detail.descriptionText,
             externalURL: detail.externalURL,
-            apiUID: detail.apiUID,
-            apiKey: detail.apiKey,
+            apiUID: nil,
+            apiKey: nil,
             favoriteCount: nil,
             favoriteName: nil,
             ratingCount: nil,
             language: detail.language,
             fileSize: detail.fileSize,
-            torrentURL: detail.torrentURL,
-            torrentCount: detail.torrentCount,
-            archiveURL: detail.archiveURL
+            torrentURL: nil,
+            torrentCount: nil,
+            archiveURL: nil
         )
     }
 
@@ -135,6 +203,23 @@ public actor GalleryCacheStore {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func decodeCacheKey(_ value: String) -> (GalleryKey, SiteMode)? {
+        var encoded = value
+            .replacingOccurrences(of: "_", with: "/")
+            .replacingOccurrences(of: "-", with: "+")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let data = Data(base64Encoded: encoded),
+              let raw = String(data: data, encoding: .utf8),
+              let separator = raw.firstIndex(of: "|"),
+              let site = SiteMode(rawValue: String(raw[..<separator])) else { return nil }
+        let keyValue = String(raw[raw.index(after: separator)...])
+        guard let dash = keyValue.firstIndex(of: "-"),
+              let gid = Int64(keyValue[..<dash]) else { return nil }
+        let token = String(keyValue[keyValue.index(after: dash)...])
+        guard token.isEmpty == false else { return nil }
+        return (GalleryKey(gid: gid, token: token), site)
     }
 
     private static func byteCount(at root: URL) -> Int64 {

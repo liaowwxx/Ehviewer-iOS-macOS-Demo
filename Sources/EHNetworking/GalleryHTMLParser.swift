@@ -158,7 +158,7 @@ public struct GalleryHTMLParser: Sendable {
                 pages: previewPage.pages,
                 tags: tags,
                 comments: comments,
-                descriptionText: category.map { String(localized: "站点：\(site.displayName) · \($0)") },
+                descriptionText: nil,
                 externalURL: externalURL,
                 apiUID: api.uid,
                 apiKey: api.key,

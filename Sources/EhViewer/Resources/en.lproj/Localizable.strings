@@ -447,7 +447,7 @@
 "导出归档(.eharchive)" = "Export Archive (.eharchive)";
 "清除详情缓存？" = "Clear Detail Cache?";
 "清除缓存" = "Clear Cache";
-"这不会删除下载文件或其他应用数据。" = "This does not delete downloaded files or other app data.";
+"不会删除下载文件或下载任务，但会清除收藏和历史记录。" = "Downloaded files and download jobs are kept, but favorites and history are cleared.";
 "重新下载" = "Redownload";
 "重新下载《%@》？" = "Redownload “%@”?";
 "将删除已下载的 %lld 个页面，并重新开始下载。" = "This will delete %lld downloaded pages and start the download again.";

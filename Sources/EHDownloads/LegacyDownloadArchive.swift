@@ -40,6 +40,7 @@ public struct LegacyDownloadCandidate: Identifiable, Sendable {
     public let japaneseTitle: String?
     public let tags: [String]?
     public let metadataCompleteness: GalleryMetadataCompleteness?
+    public let transferRecord: GalleryTransferRecord?
 
     public var id: String { directoryPath }
 
@@ -52,7 +53,8 @@ public struct LegacyDownloadCandidate: Identifiable, Sendable {
         title: String? = nil,
         japaneseTitle: String? = nil,
         tags: [String]? = nil,
-        metadataCompleteness: GalleryMetadataCompleteness? = nil
+        metadataCompleteness: GalleryMetadataCompleteness? = nil,
+        transferRecord: GalleryTransferRecord? = nil
     ) {
         self.key = key
         self.directoryPath = directoryPath
@@ -63,6 +65,7 @@ public struct LegacyDownloadCandidate: Identifiable, Sendable {
         self.japaneseTitle = japaneseTitle
         self.tags = tags
         self.metadataCompleteness = metadataCompleteness
+        self.transferRecord = transferRecord
     }
 }
 
@@ -189,7 +192,8 @@ public enum LegacyDownloadArchive {
                 title: spiderInfo.title,
                 japaneseTitle: spiderInfo.japaneseTitle,
                 tags: spiderInfo.tags,
-                metadataCompleteness: spiderInfo.metadataCompleteness
+                metadataCompleteness: spiderInfo.metadataCompleteness,
+                transferRecord: spiderInfo.transferRecord
             )
         }.sorted { lhs, rhs in
             lhs.directoryPath.localizedStandardCompare(rhs.directoryPath) == .orderedAscending
@@ -411,18 +415,21 @@ private struct LegacySpiderInfo {
     let japaneseTitle: String?
     let tags: [String]?
     let metadataCompleteness: GalleryMetadataCompleteness?
+    let transferRecord: GalleryTransferRecord?
 
     private struct ArchiveMetadata: Decodable {
         let title: String
         let japaneseTitle: String?
         let tags: [String]
         let metadataCompleteness: GalleryMetadataCompleteness?
+        let transferRecord: GalleryTransferRecord?
 
         private enum CodingKeys: String, CodingKey {
             case title
             case japaneseTitle
             case tags
             case metadataCompleteness
+            case transferRecord
         }
 
         init(from decoder: Decoder) throws {
@@ -433,6 +440,10 @@ private struct LegacySpiderInfo {
             metadataCompleteness = try container.decodeIfPresent(
                 GalleryMetadataCompleteness.self,
                 forKey: .metadataCompleteness
+            )
+            transferRecord = try container.decodeIfPresent(
+                GalleryTransferRecord.self,
+                forKey: .transferRecord
             )
         }
     }
@@ -493,6 +504,7 @@ private struct LegacySpiderInfo {
         japaneseTitle = metadata?.japaneseTitle
         tags = metadata.map(\.tags)
         metadataCompleteness = metadata?.metadataCompleteness
+        transferRecord = metadata?.transferRecord
         var parsedTokens: [Int: String] = [:]
         for line in lines.dropFirst(pageCountIndex + 1) {
             guard let separator = line.firstIndex(of: " "),

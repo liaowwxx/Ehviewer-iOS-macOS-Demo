@@ -106,6 +106,7 @@ public enum DownloadEvent: Sendable, Hashable {
     case reset([DownloadJob])
     case changed(DownloadJob)
     case removed(GalleryKey)
+    case removedMany([GalleryKey])
 }
 
 public enum DownloadRemovalResult: Sendable, Equatable {
@@ -113,10 +114,57 @@ public enum DownloadRemovalResult: Sendable, Equatable {
     case failed(String)
 }
 
+public struct DownloadRemovalProgress: Sendable, Equatable {
+    public let completed: Int
+    public let total: Int
+    public let failed: Int
+
+    public var fraction: Double {
+        guard total > 0 else { return 1 }
+        return min(1, max(0, Double(completed) / Double(total)))
+    }
+
+    public init(completed: Int, total: Int, failed: Int = 0) {
+        self.completed = completed
+        self.total = total
+        self.failed = failed
+    }
+}
+
+public struct DownloadRemovalFailure: Sendable, Equatable {
+    public let key: GalleryKey
+    public let message: String
+
+    public init(key: GalleryKey, message: String) {
+        self.key = key
+        self.message = message
+    }
+}
+
+public struct DownloadBatchRemovalResult: Sendable, Equatable {
+    public let requestedCount: Int
+    public let removedCount: Int
+    public let failures: [DownloadRemovalFailure]
+    public let cancelled: Bool
+
+    public init(
+        requestedCount: Int,
+        removedCount: Int,
+        failures: [DownloadRemovalFailure],
+        cancelled: Bool
+    ) {
+        self.requestedCount = requestedCount
+        self.removedCount = removedCount
+        self.failures = failures
+        self.cancelled = cancelled
+    }
+}
+
 public actor DownloadCoordinator {
     public typealias PageLoader = @Sendable (GalleryPageDescriptor) async throws -> Data
     public typealias JobPersistence = @Sendable (DownloadJob) async -> Void
     public typealias JobRemoval = @Sendable (GalleryKey) async throws -> Void
+    public typealias BatchJobRemoval = @Sendable (Set<GalleryKey>) async throws -> Void
 
     private var jobs: [GalleryKey: DownloadJob] = [:]
     private var tasks: [GalleryKey: Task<Void, Never>] = [:]
@@ -128,19 +176,22 @@ public actor DownloadCoordinator {
     private let fileStore: DownloadFileStore?
     private let persistence: JobPersistence?
     private let removal: JobRemoval?
+    private let batchRemoval: BatchJobRemoval?
 
     public init(
         maxConcurrentPages: Int = 3,
         pageLoader: @escaping PageLoader = DownloadCoordinator.defaultPageLoader,
         fileStore: DownloadFileStore? = nil,
         persistence: JobPersistence? = nil,
-        removal: JobRemoval? = nil
+        removal: JobRemoval? = nil,
+        batchRemoval: BatchJobRemoval? = nil
     ) {
         self.maxConcurrentPages = max(1, maxConcurrentPages)
         self.pageLoader = pageLoader
         self.fileStore = fileStore
         self.persistence = persistence
         self.removal = removal
+        self.batchRemoval = batchRemoval
     }
 
     public func events() -> AsyncStream<DownloadEvent> {
@@ -315,6 +366,111 @@ public actor DownloadCoordinator {
             startNextQueuedJobIfNeeded()
             return .failed(error.localizedDescription)
         }
+    }
+
+    /// Removes multiple downloads without saving or publishing each item one
+    /// at a time. File deletion remains incremental so callers can report
+    /// progress and cancel between galleries.
+    public func remove(
+        _ keys: [GalleryKey],
+        progress: (@Sendable (DownloadRemovalProgress) async -> Void)? = nil
+    ) async -> DownloadBatchRemovalResult {
+        var seen = Set<GalleryKey>()
+        let uniqueKeys = keys.filter { seen.insert($0).inserted }
+        guard uniqueKeys.isEmpty == false else {
+            await progress?(DownloadRemovalProgress(completed: 0, total: 0))
+            return DownloadBatchRemovalResult(
+                requestedCount: 0,
+                removedCount: 0,
+                failures: [],
+                cancelled: false
+            )
+        }
+
+        // Stop selected jobs before touching their files. Do not schedule a
+        // replacement download until the batch has finished.
+        for key in uniqueKeys {
+            tasks[key]?.cancel()
+            tasks[key] = nil
+            runTokens[key] = nil
+            if activeKey == key { activeKey = nil }
+        }
+
+        var completed = 0
+        var successfullyPrepared: [GalleryKey] = []
+        var failures: [DownloadRemovalFailure] = []
+        await progress?(DownloadRemovalProgress(completed: 0, total: uniqueKeys.count))
+
+        for key in uniqueKeys {
+            if Task.isCancelled { break }
+
+            do {
+                if let fileStore {
+                    try await fileStore.remove(key)
+                }
+                successfullyPrepared.append(key)
+            } catch {
+                failures.append(DownloadRemovalFailure(key: key, message: error.localizedDescription))
+            }
+
+            completed += 1
+            await progress?(DownloadRemovalProgress(
+                completed: completed,
+                total: uniqueKeys.count,
+                failed: failures.count
+            ))
+            await Task.yield()
+        }
+
+        // Persist all successfully removed files in one transaction. If the
+        // store only provides the legacy single-key callback, retain the same
+        // behavior as remove(_:), but still report incremental progress.
+        var persistedKeys: [GalleryKey] = []
+        if let batchRemoval {
+            do {
+                try await batchRemoval(Set(successfullyPrepared))
+                persistedKeys = successfullyPrepared
+            } catch {
+                failures.append(contentsOf: successfullyPrepared.map {
+                    DownloadRemovalFailure(key: $0, message: error.localizedDescription)
+                })
+            }
+        } else if let removal {
+            for key in successfullyPrepared {
+                do {
+                    try await removal(key)
+                    persistedKeys.append(key)
+                } catch {
+                    failures.append(DownloadRemovalFailure(key: key, message: error.localizedDescription))
+                }
+            }
+        } else {
+            persistedKeys = successfullyPrepared
+        }
+
+        for key in persistedKeys {
+            jobs.removeValue(forKey: key)
+        }
+        if persistedKeys.isEmpty == false {
+            emit(.removedMany(persistedKeys))
+        }
+
+        for failure in failures {
+            guard var job = jobs[failure.key] else { continue }
+            job.state = .failed
+            job.errorMessage = String(localized: "删除失败：\(failure.message)")
+            jobs[failure.key] = job
+            await save(job)
+            emit(.changed(job))
+        }
+
+        startNextQueuedJobIfNeeded()
+        return DownloadBatchRemovalResult(
+            requestedCount: uniqueKeys.count,
+            removedCount: persistedKeys.count,
+            failures: failures,
+            cancelled: Task.isCancelled || completed < uniqueKeys.count
+        )
     }
 
     public func snapshot() -> [DownloadJob] {

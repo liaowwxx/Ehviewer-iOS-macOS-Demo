@@ -26,6 +26,7 @@ public struct DownloadArchiveExportItem: Sendable, Hashable {
     public let japaneseTitle: String?
     public let tags: [String]
     public let metadataCompleteness: GalleryMetadataCompleteness?
+    public let transferRecord: GalleryTransferRecord?
     public let totalPageCount: Int
     public let pageTokens: [Int: String]
 
@@ -35,6 +36,7 @@ public struct DownloadArchiveExportItem: Sendable, Hashable {
         japaneseTitle: String? = nil,
         tags: [String] = [],
         metadataCompleteness: GalleryMetadataCompleteness? = nil,
+        transferRecord: GalleryTransferRecord? = nil,
         totalPageCount: Int,
         pageTokens: [Int: String]
     ) {
@@ -43,6 +45,7 @@ public struct DownloadArchiveExportItem: Sendable, Hashable {
         self.japaneseTitle = japaneseTitle
         self.tags = tags
         self.metadataCompleteness = metadataCompleteness
+        self.transferRecord = transferRecord
         self.totalPageCount = totalPageCount
         self.pageTokens = pageTokens
     }
@@ -172,6 +175,7 @@ public enum DownloadArchiveExporter {
         let japaneseTitle: String?
         let tags: [String]
         let metadataCompleteness: GalleryMetadataCompleteness?
+        let transferRecord: GalleryTransferRecord?
         let totalPageCount: Int
         let pageTokens: [Int: String]
         let entry: DownloadFileExportEntry
@@ -202,6 +206,7 @@ public enum DownloadArchiveExporter {
                         japaneseTitle: item.japaneseTitle,
                         tags: item.tags,
                         metadataCompleteness: item.metadataCompleteness,
+                        transferRecord: item.transferRecord,
                         totalPageCount: pageCount,
                         pageTokens: item.pageTokens,
                         entry: entry
@@ -217,6 +222,7 @@ public enum DownloadArchiveExporter {
         let japaneseTitle: String?
         let tags: [String]
         let metadataCompleteness: GalleryMetadataCompleteness?
+        let transferRecord: GalleryTransferRecord?
     }
 
     private static func metadata(for item: PreparedEntry) throws -> Data {
@@ -225,7 +231,8 @@ public enum DownloadArchiveExporter {
                 title: item.title,
                 japaneseTitle: item.japaneseTitle,
                 tags: item.tags,
-                metadataCompleteness: item.metadataCompleteness
+                metadataCompleteness: item.metadataCompleteness,
+                transferRecord: item.transferRecord
             )
         )
         let encodedPayload = payload.base64EncodedString()

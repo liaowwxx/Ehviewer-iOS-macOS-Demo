@@ -44,7 +44,7 @@ public struct GalleryAPIParser: Sendable {
             let thumbnailURL = Self.urlValue(item["thumb"], site: site)
             let category = (item["category"] as? String)?.nilIfEmpty
             let pageCount = Self.intValue(item["filecount"]).flatMap(Int.init(exactly:))
-            let postedAt = (item["posted"] as? String).flatMap(Self.date(from:))
+            let postedAt = Self.dateValue(item["posted"])
             let rating = Self.doubleValue(item["rating"])
             let uploader = (item["uploader"] as? String)?.nilIfEmpty
             let tags = item["tags"] as? [String] ?? []
@@ -61,9 +61,18 @@ public struct GalleryAPIParser: Sendable {
                 uploader: uploader,
                 tags: tags,
                 metadataCompleteness: GalleryMetadataCompleteness(
-                    title: title.isEmpty == false,
-                    japaneseTitle: japaneseTitle?.isEmpty == false,
-                    tags: true
+                    title: title.isEmpty == false ? .loadedWithValue : .loadedEmpty,
+                    japaneseTitle: japaneseTitle?.isEmpty == false ? .loadedWithValue : .loadedEmpty,
+                    authors: StableGalleryMetadataSnapshot.authors(from: tags).isEmpty
+                        ? .loadedEmpty
+                        : .loadedWithValue,
+                    uploader: uploader == nil ? .loadedEmpty : .loadedWithValue,
+                    tags: tags.isEmpty ? .loadedEmpty : .loadedWithValue,
+                    category: category == nil ? .loadedEmpty : .loadedWithValue,
+                    pageCount: pageCount == nil ? .loadedEmpty : .loadedWithValue,
+                    postedAt: postedAt == nil ? .loadedEmpty : .loadedWithValue,
+                    thumbnailURL: thumbnailURL == nil ? .loadedEmpty : .loadedWithValue,
+                    rating: rating == nil ? .loadedEmpty : .loadedWithValue
                 )
             )
         }
@@ -81,6 +90,18 @@ public struct GalleryAPIParser: Sendable {
         if let value = value as? NSNumber { return value.doubleValue }
         if let value = value as? String { return Double(value) }
         return nil
+    }
+
+    private static func dateValue(_ value: Any?) -> Date? {
+        if let value = value as? NSNumber {
+            return Date(timeIntervalSince1970: value.doubleValue)
+        }
+        guard let value = value as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let timestamp = Double(trimmed) {
+            return Date(timeIntervalSince1970: timestamp)
+        }
+        return date(from: trimmed)
     }
 
     private static func urlValue(_ value: Any?, site: SiteMode) -> URL? {

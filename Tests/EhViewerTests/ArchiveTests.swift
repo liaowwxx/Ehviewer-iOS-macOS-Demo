@@ -141,6 +141,41 @@ struct ArchiveTests {
         #expect(candidate.declaredPageCount == 1)
     }
 
+    @Test("Legacy archive metadata accepts the old boolean completeness format")
+    func legacyArchiveMetadataBooleanCompleteness() async throws {
+        let metadata = Data(#"{"title":"Old title","japaneseTitle":"日本語","tags":["language:chinese"],"metadataCompleteness":{"title":true,"japaneseTitle":true,"tags":true}}"#.utf8)
+            .base64EncodedString()
+        let spiderInfo = Data([
+            "VERSION2",
+            "",
+            "123",
+            "token-123",
+            "",
+            "",
+            "",
+            "1",
+            "0 page-token-1",
+            "EHVIEWER_METADATA_V1 \(metadata)"
+        ].joined(separator: "\n").appending("\n").utf8)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-legacy-metadata-\(UUID().uuidString).zip")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try makeStoredZip(entries: [
+            ("download/123-title/.ehviewer", spiderInfo),
+            ("download/123-title/00000001.jpg", Data("image".utf8))
+        ]).write(to: url, options: .atomic)
+
+        let inspection = try await LegacyDownloadArchive.inspect(url)
+        let candidate = try #require(inspection.candidates.first)
+        #expect(inspection.invalidItemCount == 0)
+        #expect(candidate.title == "Old title")
+        #expect(candidate.japaneseTitle == "日本語")
+        #expect(candidate.tags == ["language:chinese"])
+        #expect(candidate.metadataCompleteness?.title == .loadedWithValue)
+        #expect(candidate.metadataCompleteness?.category == .notLoaded)
+    }
+
     @Test("Download archive exporter writes a restorable mixed-media backup with progress")
     func downloadArchiveExportRoundTrip() async throws {
         let imageData = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
@@ -204,7 +239,7 @@ struct ArchiveTests {
         #expect(candidate.title == "导出/测试画廊")
         #expect(candidate.japaneseTitle == "日本語タイトル")
         #expect(candidate.tags == ["artist:sample", "female:sub tag"])
-        #expect(candidate.metadataCompleteness?.isComplete == true)
+        #expect(candidate.metadataCompleteness?.isComplete == false)
         #expect(candidate.images.map(\.pageIndex) == [0, 1])
         #expect(candidate.pageTokens == [0: "page-token"])
         #expect(candidate.images.contains { $0.archivePath.hasSuffix("00000002.mp4") })
