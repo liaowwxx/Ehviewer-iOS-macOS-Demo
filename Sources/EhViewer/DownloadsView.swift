@@ -2022,7 +2022,7 @@ struct DownloadCover: View {
             guard let previewURL else { return }
             do {
                 let preview = GalleryPageImage(galleryKey: job.key, index: 0, imageURL: previewURL)
-                let data = try await model.imageData(for: preview)
+                let data = try await model.galleryImageData(for: preview)
                 if let decoded = await Self.decodeCoverImage(data, key: coverTaskID, maxPixelSize: 320) {
                     withAnimation(.easeOut(duration: 0.25)) { image = decoded }
                 }

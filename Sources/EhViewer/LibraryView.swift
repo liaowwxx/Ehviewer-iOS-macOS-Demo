@@ -18,6 +18,7 @@
 
 import SwiftUI
 import EHDomain
+import EHDownloads
 
 struct LibraryView: View {
     enum Mode: String, CaseIterable, Identifiable, Hashable {
@@ -29,6 +30,8 @@ struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @State private var selectedMode: Mode
     @State private var readingPages: [GalleryKey: Int] = [:]
+    @State private var downloadedJobs: [GalleryKey: DownloadJob] = [:]
+    @State private var downloadedJobsReady = false
 
     init(mode: Mode = .history) {
         _selectedMode = State(initialValue: mode)
@@ -51,7 +54,10 @@ struct LibraryView: View {
                         GalleryCard(
                             gallery: gallery,
                             supplementalText: selectedMode == .history ? progressText(for: gallery) : nil,
-                            showsTags: true
+                            showsTags: true,
+                            localJob: downloadedJobs[gallery.key],
+                            localMediaResolved: downloadedJobsReady,
+                            prefersGalleryCache: true
                         )
                     }
                     .buttonStyle(.plain)
@@ -76,7 +82,20 @@ struct LibraryView: View {
             if items.isEmpty { ContentUnavailableView("暂无记录", systemImage: selectedMode == .history ? "clock" : "heart") }
         }
         .task(id: selectedMode) {
+            downloadedJobs = [:]
+            downloadedJobsReady = false
             await model.loadLibrary(mode: selectedMode)
+            guard Task.isCancelled == false else { return }
+
+            let libraryKeys = Set(items.map(\.key))
+            let jobs = await model.downloads.snapshot()
+            downloadedJobs = Dictionary(
+                uniqueKeysWithValues: jobs
+                    .filter { libraryKeys.contains($0.key) }
+                    .map { ($0.key, $0) }
+            )
+            downloadedJobsReady = true
+
             guard selectedMode == .history else {
                 readingPages = [:]
                 return

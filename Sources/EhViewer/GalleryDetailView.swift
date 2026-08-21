@@ -850,8 +850,8 @@ struct GalleryPreviewRevealState: Hashable, Sendable {
 
     private(set) var visibleCount = initialCount
 
-    mutating func revealNext(totalCount: Int) {
-        visibleCount = min(visibleCount + Self.batchSize, totalCount)
+    mutating func revealNext(totalCount: Int, revealAll: Bool = false) {
+        visibleCount = revealAll ? totalCount : min(visibleCount + Self.batchSize, totalCount)
     }
 
     mutating func collapse() {
@@ -873,8 +873,10 @@ enum GalleryPreviewLoadPolicy {
 }
 
 /// Preview thumbnail grid with page numbers, mirroring the reference detail
-/// scene's `bindPreviews`: only the first 27 previews render initially and a
-/// "more previews" action reveals the rest in batches of 20.
+/// scene's `bindPreviews`: only the first 27 previews render initially. Remote
+/// galleries reveal the rest in batches of 20; a downloaded gallery reveals
+/// all pages at once while the lazy grid still limits view creation to the
+/// pages currently on screen.
 private struct GalleryPreviewGrid: View {
     let key: GalleryKey
     let pages: [GalleryPageDescriptor]
@@ -919,7 +921,10 @@ private struct GalleryPreviewGrid: View {
             if pages.count > GalleryPreviewRevealState.initialCount {
                 if revealState.visibleCount < pages.count {
                     Button("更多预览（共 \(pages.count)）") {
-                        revealState.revealNext(totalCount: pages.count)
+                        revealState.revealNext(
+                            totalCount: pages.count,
+                            revealAll: prefersLocalMedia
+                        )
                     }
                     .font(.subheadline)
                     .frame(maxWidth: .infinity)
@@ -970,9 +975,9 @@ private struct GalleryPreviewThumbnail: View {
             image = nil
             if prefersLocalMedia,
                let localData = await model.downloadedPageDataIfAvailable(for: descriptor),
-               let localCGImage = await GalleryThumbnailDecoder.decodeThumbnailCGImage(
-                   from: localData,
-                   maxPixelSize: 640
+               let localCGImage = await ReaderThumbnailLoader.shared.thumbnail(
+                   for: descriptor.id,
+                   data: localData
                ) {
                 guard Task.isCancelled == false else { return }
                 withAnimation(.easeOut(duration: 0.2)) {

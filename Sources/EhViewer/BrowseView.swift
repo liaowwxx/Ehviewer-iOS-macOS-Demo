@@ -348,6 +348,8 @@ struct GalleryCard: View {
     var supplementalText: String?
     var showsTags = false
     var localJob: DownloadJob?
+    var localMediaResolved = true
+    var prefersGalleryCache = false
     var metadataIsLoading = false
     var showsBackground = true
     @State private var titleHeight: CGFloat = 0
@@ -363,7 +365,12 @@ struct GalleryCard: View {
                     cornerRadius: 10
                 )
             } else {
-                GalleryThumbnail(url: gallery.thumbnailURL, key: gallery.key)
+                GalleryThumbnail(
+                    url: gallery.thumbnailURL,
+                    key: gallery.key,
+                    isLocalMediaResolved: localMediaResolved,
+                    prefersGalleryCache: prefersGalleryCache
+                )
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayTitle)
@@ -538,6 +545,8 @@ private struct GalleryThumbnail: View {
     @Environment(AppModel.self) private var model
     let url: URL?
     let key: GalleryKey
+    var isLocalMediaResolved = true
+    var prefersGalleryCache = false
     @State private var image: Image?
 
     var body: some View {
@@ -553,11 +562,17 @@ private struct GalleryThumbnail: View {
         .frame(width: 78, height: 108)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        .task(id: url) {
+        .task(id: thumbnailTaskID) {
+            guard isLocalMediaResolved else { return }
             guard let url else { return }
             do {
                 let page = GalleryPageImage(galleryKey: key, index: 0, imageURL: url)
-                let data = try await model.imageData(for: page)
+                let data: Data
+                if prefersGalleryCache {
+                    data = try await model.galleryImageData(for: page)
+                } else {
+                    data = try await model.imageData(for: page)
+                }
                 guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                       let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                           kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -572,6 +587,10 @@ private struct GalleryThumbnail: View {
             }
         }
         .accessibilityHidden(true)
+    }
+
+    private var thumbnailTaskID: String {
+        "\(url?.absoluteString ?? "none")-\(isLocalMediaResolved)"
     }
 }
 

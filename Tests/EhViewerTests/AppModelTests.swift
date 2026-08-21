@@ -21,6 +21,10 @@ struct AppModelTests {
         #expect(state.visibleCount == 60)
 
         state.collapse()
+        state.revealNext(totalCount: 100, revealAll: true)
+        #expect(state.visibleCount == 100)
+
+        state.collapse()
         #expect(state.visibleCount == 27)
     }
 
