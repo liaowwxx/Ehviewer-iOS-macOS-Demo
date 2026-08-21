@@ -369,6 +369,29 @@ public struct GallerySummary: Identifiable, Hashable, Codable, Sendable {
         return haystack.localizedCaseInsensitiveContains(query)
     }
 
+    /// Returns artist tags when present, otherwise group tags. The raw tag
+    /// values are retained so callers can apply the app's tag translations.
+    public var preferredAuthorTags: [String] {
+        Self.preferredAuthorTags(from: tags)
+    }
+
+    public static func preferredAuthorTags(from tags: [String]) -> [String] {
+        let artists = namespaceTags(tags, namespace: "artist")
+        return artists.isEmpty ? namespaceTags(tags, namespace: "group") : artists
+    }
+
+    private static func namespaceTags(_ tags: [String], namespace: String) -> [String] {
+        tags.filter { tag in
+            let pieces = tag.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pieces.count == 2,
+                  pieces[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                    .caseInsensitiveCompare(namespace) == .orderedSame else {
+                return false
+            }
+            return pieces[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+    }
+
     /// Mirrors the reference client's `GalleryInfo.generateSLang`: the first
     /// `language:` tag wins, then title patterns, otherwise nil.
     public var simpleLanguage: String? {
@@ -903,7 +926,7 @@ public struct GalleryListPage: Hashable, Codable, Sendable {
 
 public enum AppRoute: Hashable, Codable, Sendable {
     case browse
-    case search(String)
+    case search(String, advancedSearch: GalleryAdvancedSearch?)
     case subscriptions
     case popular
     case toplist

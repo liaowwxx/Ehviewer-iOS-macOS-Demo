@@ -1128,6 +1128,12 @@ private struct DownloadCard: View {
                     .font(.headline)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if let authorText {
+                    Label(authorText, systemImage: "person")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 if job.tags.isEmpty == false {
                     TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
                         ForEach(Array(job.tags.enumerated()), id: \.offset) { item in
@@ -1189,6 +1195,12 @@ private struct DownloadCard: View {
 
     private var displayTitle: String {
         job.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
+    }
+
+    private var authorText: String? {
+        let tags = GallerySummary.preferredAuthorTags(from: job.tags)
+        guard tags.isEmpty == false else { return nil }
+        return tags.map(model.displayTag).joined(separator: ", ")
     }
 
     private var statusTitle: String {

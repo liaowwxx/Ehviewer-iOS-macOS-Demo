@@ -104,6 +104,11 @@ private enum IncomingStagingOutcome: Sendable {
     case failure(String)
 }
 
+private struct SearchPageKey: Hashable {
+    let query: String
+    let advancedSearch: GalleryAdvancedSearch?
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -156,7 +161,7 @@ final class AppModel {
     var hasMorePage: Bool { nextPageURL != nil }
     private var activeQuery = GalleryListQuery()
     private var activeListRequestID = UUID()
-    @ObservationIgnored private var searchPageModels: [String: BrowsePageModel] = [:]
+    @ObservationIgnored private var searchPageModels: [SearchPageKey: BrowsePageModel] = [:]
     @ObservationIgnored private var incomingStagingGeneration = 0
     @ObservationIgnored private var tagTranslationLoadTask: Task<Void, Never>?
     @ObservationIgnored private var tagTranslationImportTask: Task<Void, Never>?
@@ -341,7 +346,7 @@ final class AppModel {
             }
             try Task.checkCancellation()
             guard activeListRequestID == requestID else { return }
-            let items = await enrichedForTagFiltering(result.items)
+            let items = await enrichedForBrowse(result.items)
             galleries = items.filter(matchesFilter)
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
@@ -361,24 +366,18 @@ final class AppModel {
         }
     }
 
-    var hasActiveTagFilterRules: Bool {
-        filterRules.contains { rule in
-            rule.isEnabled && (rule.mode == .tag || rule.mode == .tagNamespace)
-        }
-    }
-
-    /// Mirrors the reference `EhEngine.fillGalleryList`: list pages only carry
-    /// a few summary tags, so when tag or tag-namespace filters are enabled
-    /// the full tag list is fetched through the gdata API before matching.
-    func enrichedForTagFiltering(_ items: [GallerySummary]) async -> [GallerySummary] {
-        guard hasActiveTagFilterRules, items.isEmpty == false else { return items }
+    /// List pages only carry a few summary tags. Fetch the full tag list for
+    /// every browse page so cards can display the same tags used for filtering.
+    func enrichedForBrowse(_ items: [GallerySummary]) async -> [GallerySummary] {
+        guard items.isEmpty == false else { return items }
         guard let fetched = try? await api.gallerySummaries(for: items.map(\.key), site: site),
               fetched.isEmpty == false else { return items }
-        let tagsByKey = Dictionary(uniqueKeysWithValues: fetched.map { ($0.key, $0.tags) })
+        let summariesByKey = Dictionary(uniqueKeysWithValues: fetched.map { ($0.key, $0) })
         return items.map { item in
-            guard let tags = tagsByKey[item.key], tags.isEmpty == false else { return item }
+            guard let fetchedSummary = summariesByKey[item.key] else { return item }
             var enriched = item
-            enriched.tags = tags
+            enriched.tags = fetchedSummary.tags
+            enriched.metadataCompleteness = fetchedSummary.metadataCompleteness
             return enriched
         }
     }
@@ -404,11 +403,17 @@ final class AppModel {
         selectedRoute = .browse
     }
 
-    func searchPageModel(for query: String) -> BrowsePageModel {
+    func searchPageModel(for query: String, advancedSearch: GalleryAdvancedSearch? = nil) -> BrowsePageModel {
         let normalized = SearchQueryComposer.normalized(query)
-        if let cached = searchPageModels[normalized] { return cached }
-        let pageModel = BrowsePageModel(model: self, kind: .search, initialSearchText: normalized)
-        searchPageModels[normalized] = pageModel
+        let key = SearchPageKey(query: normalized, advancedSearch: advancedSearch)
+        if let cached = searchPageModels[key] { return cached }
+        let pageModel = BrowsePageModel(
+            model: self,
+            kind: .search,
+            initialSearchText: normalized,
+            initialAdvancedSearch: advancedSearch
+        )
+        searchPageModels[key] = pageModel
         return pageModel
     }
 

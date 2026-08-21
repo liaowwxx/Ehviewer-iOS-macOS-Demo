@@ -60,6 +60,7 @@ final class BrowsePageModel {
         model: AppModel,
         kind: GalleryListQuery.ListKind,
         initialSearchText: String? = nil,
+        initialAdvancedSearch: GalleryAdvancedSearch? = nil,
         tagSuggestionLoader: (@Sendable (String) async throws -> [SearchTagSuggestion])? = nil
     ) {
         self.model = model
@@ -77,10 +78,12 @@ final class BrowsePageModel {
         self.kind = kind
         searchText = normalizedSearchText
         submittedSearchText = normalizedSearchText
+        advancedSearch = initialAdvancedSearch
         activeQuery = GalleryListQuery(
             site: model.site,
             kind: kind,
-            searchText: normalizedSearchText.isEmpty ? nil : normalizedSearchText
+            searchText: normalizedSearchText.isEmpty ? nil : normalizedSearchText,
+            advancedSearch: initialAdvancedSearch
         )
     }
 
@@ -122,7 +125,7 @@ final class BrowsePageModel {
             }
             try Task.checkCancellation()
             guard activeRequestID == requestID else { return }
-            let items = await model.enrichedForTagFiltering(result.items)
+            let items = await model.enrichedForBrowse(result.items)
             galleries = items.filter(matchesFilter)
             consecutiveFilteredPages = galleries.isEmpty ? 1 : 0
             errorMessage = nil
@@ -177,7 +180,7 @@ final class BrowsePageModel {
             let result = try await api.list(query: query, pageURL: pageURL)
             try Task.checkCancellation()
             guard activeRequestID == requestID else { return }
-            let items = await model.enrichedForTagFiltering(result.items)
+            let items = await model.enrichedForBrowse(result.items)
             let visibleItems = items.filter(matchesFilter)
             appendUniqueGalleries(visibleItems)
             if visibleItems.isEmpty {

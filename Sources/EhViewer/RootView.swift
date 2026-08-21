@@ -329,8 +329,11 @@ struct DestinationView: View {
         switch route {
         case .browse:
             HomeBrowseView(model: model, navigationPath: navigationPath ?? .constant([]))
-        case .search(let query):
-            BrowseView(model: model, pageModel: model.searchPageModel(for: query))
+        case .search(let query, let advancedSearch):
+            BrowseView(
+                model: model,
+                pageModel: model.searchPageModel(for: query, advancedSearch: advancedSearch)
+            )
         case .subscriptions:
             BrowseView(model: model, kind: .subscriptions)
         case .popular:

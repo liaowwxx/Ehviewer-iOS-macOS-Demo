@@ -275,7 +275,7 @@ struct GalleryDetailView: View {
                 }
 
                 if let similarQuery = similarSearchQuery(for: detail) {
-                    NavigationLink(value: AppRoute.search(similarQuery)) {
+                    NavigationLink(value: AppRoute.search(similarQuery, advancedSearch: nil)) {
                         Label("相似画廊", systemImage: "rectangle.on.rectangle.angled")
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
@@ -709,7 +709,7 @@ private struct GalleryDetailHeader: View {
                     .lineLimit(5)
                     .fixedSize(horizontal: false, vertical: true)
                 if let uploader = summary.uploader {
-                    NavigationLink(value: AppRoute.search(SearchQueryComposer.uploaderSyntax(uploader))) {
+                    NavigationLink(value: AppRoute.search(SearchQueryComposer.uploaderSyntax(uploader), advancedSearch: nil)) {
                         Label(uploader, systemImage: "person")
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.85))
@@ -807,7 +807,7 @@ private struct GroupedTags: View {
                         .background(AppTheme.tagGroupBackground, in: RoundedRectangle(cornerRadius: 6))
                     TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
                         ForEach(group.tags, id: \.self) { tag in
-                            NavigationLink(value: AppRoute.search(SearchQueryComposer.searchSyntax(for: tag))) {
+                            NavigationLink(value: AppRoute.search(SearchQueryComposer.searchSyntax(for: tag), advancedSearch: nil)) {
                                 Text(model.displayTag(tag))
                                     .font(.caption)
                                     .foregroundStyle(.white)

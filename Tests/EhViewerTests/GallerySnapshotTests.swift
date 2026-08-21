@@ -4,6 +4,23 @@ import EHDomain
 import EHPersistence
 
 struct GallerySnapshotTests {
+    @Test("Preferred card authors use artists before groups")
+    func preferredCardAuthors() {
+        let artistGallery = GallerySummary(
+            key: GalleryKey(gid: 90, token: "artist"),
+            title: "Artist",
+            tags: ["group:backup", "artist:first", "artist:second"]
+        )
+        let groupGallery = GallerySummary(
+            key: GalleryKey(gid: 91, token: "group"),
+            title: "Group",
+            tags: ["group:circle", "language:english"]
+        )
+
+        #expect(artistGallery.preferredAuthorTags == ["artist:first", "artist:second"])
+        #expect(groupGallery.preferredAuthorTags == ["group:circle"])
+    }
+
     @Test("Gallery metadata completeness decodes the boolean fields from old archives")
     func decodesLegacyBooleanCompleteness() throws {
         let data = Data(#"{"title":true,"japaneseTitle":false,"tags":true}"#.utf8)

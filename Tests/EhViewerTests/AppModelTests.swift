@@ -479,6 +479,37 @@ struct AppModelTests {
         #expect(pageModel.submittedSearchText == "l:\"chinese$\" furry")
     }
 
+    @Test("Search result pages retain the homepage advanced search")
+    func searchPageModelCarriesAdvancedSearch() throws {
+        let suiteName = "EhViewerSearchAdvancedTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        let advancedSearch = GalleryAdvancedSearch(
+            categories: [.manga],
+            onlyWithTorrents: true,
+            minimumRating: 4,
+            minimumPageCount: 12,
+            maximumPageCount: 80,
+            disableLanguageFilter: true,
+            disableUploaderFilter: false,
+            disableTagFilter: true
+        )
+
+        let pageModel = model.searchPageModel(
+            for: "f:\"furry$\"",
+            advancedSearch: advancedSearch
+        )
+
+        #expect(pageModel.listQuery.advancedSearch == advancedSearch)
+        #expect(model.searchPageModel(for: "f:\"furry$\"").listQuery.advancedSearch == nil)
+    }
+
     @Test("An incoming gallery link selects the gallery route")
     func incomingGalleryLinkSelectsGalleryRoute() throws {
         let suiteName = "EhViewerDeepLinkTests-\(UUID().uuidString)"
@@ -830,6 +861,31 @@ struct AppModelTests {
         await pageModel.load(query: pageModel.listQuery)
 
         #expect(pageModel.galleries.isEmpty)
+        #expect(await api.summaryRequestCount == 1)
+    }
+
+    @Test("Browse lists fetch full tags from gdata for card display")
+    func browseListsEnrichTagsWithoutFilterRules() async throws {
+        let key = GalleryKey(gid: 43, token: "browse-tags")
+        let sparse = GallerySummary(key: key, title: "Sparse summary", tags: ["language:english"])
+        let api = TagFilterListAPI(
+            items: [sparse],
+            fullTagsByKey: [key: ["artist:sample", "female:sub tag"]]
+        )
+        let suiteName = "EhViewerBrowseTagDisplayTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: api,
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        let pageModel = BrowsePageModel(model: model, kind: .home)
+
+        await pageModel.load(query: pageModel.listQuery)
+
+        #expect(pageModel.galleries.first?.tags == ["artist:sample", "female:sub tag"])
         #expect(await api.summaryRequestCount == 1)
     }
 

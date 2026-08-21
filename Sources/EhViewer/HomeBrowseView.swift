@@ -24,8 +24,8 @@ struct HomeBrowseView: View {
     @Binding var navigationPath: [AppRoute]
 
     var body: some View {
-        BrowseView(model: model, kind: .home) { query in
-            openSearchResults(query)
+        BrowseView(model: model, kind: .home) { query, advancedSearch in
+            openSearchResults(query, advancedSearch: advancedSearch)
         } onOpenGallery: { key in
             navigationPath.removeAll()
             navigationPath.append(.gallery(key))
@@ -36,9 +36,9 @@ struct HomeBrowseView: View {
         }
     }
 
-    private func openSearchResults(_ query: String) {
+    private func openSearchResults(_ query: String, advancedSearch: GalleryAdvancedSearch? = nil) {
         navigationPath.removeAll()
-        navigationPath.append(.search(query))
+        navigationPath.append(.search(query, advancedSearch: advancedSearch))
     }
 
     private func consumePendingSearch() {

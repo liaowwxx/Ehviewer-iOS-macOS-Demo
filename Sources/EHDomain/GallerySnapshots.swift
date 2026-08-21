@@ -252,12 +252,10 @@ public struct StableGalleryMetadataSnapshot: Codable, Hashable, Sendable, Identi
     }
 
     public static func authors(from tags: [String]) -> [String] {
-        tags.compactMap { tag in
-            let pieces = tag.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-            guard pieces.count == 2, pieces[0].caseInsensitiveCompare("artist") == .orderedSame else {
-                return nil
-            }
-            let author = pieces[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        GallerySummary.preferredAuthorTags(from: tags).compactMap { tag in
+            guard let separator = tag.firstIndex(of: ":") else { return nil }
+            let author = tag[tag.index(after: separator)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             return author.isEmpty ? nil : author
         }
     }

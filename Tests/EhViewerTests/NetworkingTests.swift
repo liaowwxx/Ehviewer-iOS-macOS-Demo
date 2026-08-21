@@ -353,6 +353,38 @@ struct NetworkingTests {
         #expect(request.url?.host == "exhentai.org")
     }
 
+    @Test("Search requests include advanced search conditions")
+    func searchRequestIncludesAdvancedSearch() throws {
+        let advancedSearch = GalleryAdvancedSearch(
+            categories: [.manga],
+            onlyWithTorrents: true,
+            minimumRating: 4,
+            minimumPageCount: 12,
+            maximumPageCount: 80
+        )
+        let request = try SiteRequestBuilder(site: .eHentai).galleryListRequest(
+            query: GalleryListQuery(
+                site: .eHentai,
+                kind: .search,
+                searchText: "f:\"furry$\"",
+                advancedSearch: advancedSearch
+            )
+        )
+        let url = try #require(request.url)
+        let queryItems = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        let values = Dictionary(uniqueKeysWithValues: queryItems.compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        #expect(values["f_search"] == "f:\"furry$\"")
+        #expect(values["advsearch"] == "1")
+        #expect(values["f_cats"] == "1019")
+        #expect(values["f_sto"] == "on")
+        #expect(values["f_srdd"] == "4")
+        #expect(values["f_spf"] == "12")
+        #expect(values["f_spt"] == "80")
+    }
+
     @Test("Gallery summaries use batched gdata requests without loading detail pages")
     func gallerySummaries() async throws {
         let payload = #"""

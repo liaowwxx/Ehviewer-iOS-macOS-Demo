@@ -25,7 +25,7 @@ import EHDownloads
 struct BrowseView: View {
     let model: AppModel
     var kind: GalleryListQuery.ListKind = .home
-    let onOpenSearchResults: ((String) -> Void)?
+    let onOpenSearchResults: ((String, GalleryAdvancedSearch?) -> Void)?
     let onOpenGallery: ((GalleryKey) -> Void)?
     @State private var pageModel: BrowsePageModel
     @State private var suppressNextSearchSubmission = false
@@ -35,7 +35,7 @@ struct BrowseView: View {
         model: AppModel,
         kind: GalleryListQuery.ListKind = .home,
         initialSearchText: String? = nil,
-        onOpenSearchResults: ((String) -> Void)? = nil,
+        onOpenSearchResults: ((String, GalleryAdvancedSearch?) -> Void)? = nil,
         onOpenGallery: ((GalleryKey) -> Void)? = nil
     ) {
         self.model = model
@@ -52,7 +52,7 @@ struct BrowseView: View {
     init(
         model: AppModel,
         pageModel: BrowsePageModel,
-        onOpenSearchResults: ((String) -> Void)? = nil,
+        onOpenSearchResults: ((String, GalleryAdvancedSearch?) -> Void)? = nil,
         onOpenGallery: ((GalleryKey) -> Void)? = nil
     ) {
         self.model = model
@@ -149,7 +149,7 @@ struct BrowseView: View {
                 }
             }
             ToolbarItemGroup(placement: .primaryAction) {
-                if kind == .home {
+                if kind == .home || kind == .search {
                     BrowseMoreMenu {
                         showingAdvancedSearch = true
                     }
@@ -206,7 +206,7 @@ struct BrowseView: View {
             if let url = URL(string: query), let key = AppModel.galleryKey(from: url) {
                 onOpenGallery?(key)
             } else {
-                onOpenSearchResults(query)
+                onOpenSearchResults(query, pageModel.advancedSearch)
             }
             pageModel.clearSearch()
         } else {
@@ -220,7 +220,7 @@ struct BrowseView: View {
 
     private func galleryLink(_ gallery: GallerySummary) -> some View {
         NavigationLink(value: AppRoute.gallery(gallery.key)) {
-            GalleryCard(gallery: gallery)
+            GalleryCard(gallery: gallery, showsTags: true)
         }
         .id(gallery.key)
         .buttonStyle(.plain)
@@ -325,8 +325,8 @@ struct GalleryCard: View {
                         guard abs(titleHeight - newHeight) > 0.5 else { return }
                         titleHeight = newHeight
                     }
-                if let uploader = gallery.uploader {
-                    Label(uploader, systemImage: "person")
+                if let authorText {
+                    Label(authorText, systemImage: "person")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -390,6 +390,12 @@ struct GalleryCard: View {
         gallery.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
     }
 
+    private var authorText: String? {
+        let tags = gallery.preferredAuthorTags
+        guard tags.isEmpty == false else { return nil }
+        return tags.map(model.displayTag).joined(separator: ", ")
+    }
+
     private var tagHeight: CGFloat {
         titleHeight > 30 ? 22 : 48
     }
@@ -403,6 +409,9 @@ struct GalleryCard: View {
         }
         if let supplementalText {
             details.append(supplementalText)
+        }
+        if let authorText {
+            details.append(String(localized: "作者：\(authorText)"))
         }
         if showsTags, gallery.tags.isEmpty == false {
             let tags = gallery.tags.prefix(3).map(model.displayTag).joined(separator: "、")
