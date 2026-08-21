@@ -133,6 +133,7 @@ struct PersistenceTests {
         #expect(try await store.isFavorite(for: existingKey) == true)
         #expect(try await store.gallerySummary(for: missing.key)?.title == "Imported title")
         #expect(try await store.gallerySyncSummaries(for: [existingKey, missing.key]).map(\.key) == [existingKey, missing.key])
+        #expect(try await store.localGallerySummaries(for: [missing.key, existingKey]).map(\.key) == [existingKey, missing.key])
     }
 
     @Test("Gallery sync merges titles and tags without changing local reading state")

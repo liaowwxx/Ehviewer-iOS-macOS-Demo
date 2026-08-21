@@ -599,51 +599,12 @@ final class AppModel {
         )
     }
 
-    /// Returns local-gallery summaries and fills only missing list metadata
-    /// through the batched gdata endpoint. Detail-only fields are left alone.
+    /// Returns metadata already persisted for local galleries. The local page
+    /// must remain offline-first: gdata refreshes belong to explicit import or
+    /// update actions and must not be triggered by scrolling this list.
     func localGallerySummaries(for keys: Set<GalleryKey>) async -> [GallerySummary] {
         guard keys.isEmpty == false else { return [] }
-        let stored = (try? await persistence.gallerySyncSummaries(for: keys)) ?? []
-        var summariesByKey = Dictionary(
-            stored.map { ($0.key, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        // Older persisted records may have marked a missing date as
-        // `.loadedEmpty` before gdata backfilling existed. The value itself is
-        // the compatibility signal here, so those records are retried too.
-        let missingPostedAt = keys.filter { summariesByKey[$0]?.postedAt == nil }
-            .sorted { $0.id < $1.id }
-        guard missingPostedAt.isEmpty == false else {
-            return stored
-        }
-
-        guard let fetched = try? await api.gallerySummaries(for: missingPostedAt, site: site) else {
-            return stored
-        }
-        var changed: [GallerySummary] = []
-        for fetchedSummary in fetched where missingPostedAt.contains(fetchedSummary.key) {
-            let completed = fetchedMetadataSummary(fetchedSummary)
-            if let existing = summariesByKey[completed.key] {
-                let mergedStable = GallerySnapshotMerger.merge(
-                    existing: StableGalleryMetadataSnapshot(summary: existing, sourceSite: site),
-                    incoming: StableGalleryMetadataSnapshot(summary: completed, sourceSite: site)
-                )
-                var merged = mergedStable.summary
-                merged.rating = completed.rating ?? existing.rating
-                merged.ratingCount = completed.ratingCount ?? existing.ratingCount
-                merged.favoriteCategory = completed.favoriteCategory ?? existing.favoriteCategory
-                summariesByKey[merged.key] = merged
-                changed.append(merged)
-            } else {
-                summariesByKey[completed.key] = completed
-                changed.append(completed)
-            }
-        }
-        if changed.isEmpty == false {
-            try? await persistence.upsert(changed, site: site)
-            await downloads.mergeMetadata(changed)
-        }
-        return keys.compactMap { summariesByKey[$0] }
+        return (try? await persistence.localGallerySummaries(for: keys)) ?? []
     }
 
     func prepareTagTranslations() async {

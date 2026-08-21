@@ -34,6 +34,30 @@ struct DownloadTests {
         #expect(job.containsTag("missing") == false)
     }
 
+    @Test("Download search matches local metadata and multiple selected tags")
+    func downloadSearchMatchesLocalMetadataAndMultipleTags() {
+        let key = GalleryKey(gid: 3, token: "multi-tag-search")
+        let job = DownloadJob(
+            key: key,
+            title: "Stored title",
+            pages: []
+        )
+        let summary = GallerySummary(
+            key: key,
+            title: "Stored title",
+            tags: ["artist:sample", "female:sub tag"]
+        )
+
+        #expect(job.matchesSearch(
+            query: #"a:"sample$" f:"sub tag$""#,
+            summary: summary
+        ))
+        #expect(job.matchesSearch(
+            query: #"a:"sample$" f:"missing$""#,
+            summary: summary
+        ) == false)
+    }
+
     @Test("Download coordinator limits a job to bounded page batches")
     func completesJob() async throws {
         let pages = (0..<5).map { index in

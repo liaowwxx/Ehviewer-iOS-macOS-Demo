@@ -35,6 +35,17 @@ struct AppModelTests {
         #expect(GalleryPreviewLoadPolicy.delayMilliseconds(for: 100) == 500)
     }
 
+    @Test("Local metadata prefetch stays within the visible window and 50-item buffer")
+    func localMetadataPrefetchWindow() {
+        let range = LocalGalleryPrefetchWindow.range(
+            visibleIndexes: [120, 121, 122],
+            itemCount: 500
+        )
+        #expect(range == 70..<173)
+        #expect(LocalGalleryPrefetchWindow.range(visibleIndexes: [], itemCount: 500) == nil)
+        #expect(LocalGalleryPrefetchWindow.range(visibleIndexes: [2], itemCount: 10) == 0..<10)
+    }
+
     @Test("App starts in guest mode without a saved session")
     func defaultsToGuestMode() async throws {
         let suiteName = "EhViewerGuestModeTests-\(UUID().uuidString)"
@@ -950,8 +961,8 @@ struct AppModelTests {
         )
 
         let localSummaries = await model.localGallerySummaries(for: [key])
-        #expect(localSummaries.first?.postedAt == remote.postedAt)
-        #expect(await api.summaryRequestCount == 1)
+        #expect(localSummaries.first?.postedAt == nil)
+        #expect(await api.summaryRequestCount == 0)
 
         await model.refreshDownloadedGalleryMetadata()
 

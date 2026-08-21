@@ -1017,6 +1017,17 @@ public actor PersistenceStore {
             .sorted { $0.key.id < $1.key.id }
     }
 
+    /// Reads only the requested local gallery records. The local scrolling
+    /// page calls this with its visible window, so it must not scan and
+    /// materialize the entire gallery cache like the transfer-oriented query
+    /// above does.
+    public func localGallerySummaries(for keys: Set<GalleryKey>) throws -> [GallerySummary] {
+        guard keys.isEmpty == false else { return [] }
+        return try keys.sorted { $0.id < $1.id }.compactMap { key in
+            try record(for: key)?.summary
+        }
+    }
+
     /// Inserts only galleries that do not already exist locally. Existing
     /// records are intentionally untouched, including their metadata and all
     /// local state.

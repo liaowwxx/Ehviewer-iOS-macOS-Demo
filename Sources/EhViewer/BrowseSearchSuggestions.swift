@@ -19,78 +19,124 @@
 import SwiftUI
 import EHDomain
 
-struct BrowseSearchSuggestions: View {
+struct SearchSuggestionPanel: View {
     let query: String
-    let isUpdating: Bool
+    let isLoading: Bool
     let searchHistory: [String]
     let tags: [SearchTagSuggestion]
     let onSelectHistory: (String) -> Void
     let onDeleteHistory: (String) -> Void
     let onSelectTag: (String) -> Void
 
-    var body: some View {
-        Group {
-            if isUpdating || hasSuggestions == false {
-                Section {
-                    if isUpdating {
-                        HStack {
-                            ProgressView()
-                            Text(query.isEmpty ? String(localized: "正在读取搜索历史…") : String(localized: "正在更新“\(query)”的建议…"))
-                        }
-                        .foregroundStyle(.secondary)
-                    } else {
-                        Label(
-                            query.isEmpty ? String(localized: "暂无搜索历史") : String(localized: "没有匹配的建议"),
-                            systemImage: query.isEmpty ? "clock" : "magnifyingglass"
-                        )
-                        .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            if searchHistory.isEmpty == false {
-                Section("搜索历史") {
-                    ForEach(searchHistory, id: \.self) { query in
-                        Button {
-                            onSelectHistory(query)
-                        } label: {
-                            Label(query, systemImage: "clock.arrow.circlepath")
-                        }
-                        .contextMenu {
-                            Button("删除历史", systemImage: "trash", role: .destructive) {
-                                onDeleteHistory(query)
-                            }
-                        }
-                    }
-                }
-            }
-            if tags.isEmpty == false {
-                Section("标签") {
-                    ForEach(tags) { suggestion in
-                        Button {
-                            onSelectTag(suggestion.english)
-                        } label: {
-                            Label {
-                                VStack(alignment: .leading) {
-                                    Text(suggestion.english)
-                                    if let localizedText = suggestion.localizedText,
-                                       localizedText.localizedCaseInsensitiveCompare(suggestion.english) != .orderedSame {
-                                        Text(localizedText)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            } icon: {
-                                Image(systemName: "tag")
-                            }
-                        }
-                        .accessibilityLabel(suggestion.localizedText.map { String(localized: "\(suggestion.english)，\($0)") } ?? suggestion.english)
-                    }
-                }
-            }
-        }
+    private var headerTitle: String {
+        query.isEmpty ? "搜索历史" : "标签建议"
+    }
+
+    private var headerIcon: String {
+        query.isEmpty ? "clock" : "tag"
     }
 
     private var hasSuggestions: Bool {
         searchHistory.isEmpty == false || tags.isEmpty == false
+    }
+
+    private var emptyStateTitle: String {
+        if isLoading {
+            return query.isEmpty ? "正在读取搜索历史…" : "正在更新标签建议…"
+        }
+        return query.isEmpty ? "暂无搜索历史" : "没有匹配的建议"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: headerIcon)
+                Text(headerTitle)
+                Spacer(minLength: 0)
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            if hasSuggestions {
+                ScrollView(.vertical, showsIndicators: true) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(searchHistory, id: \.self) { history in
+                            Button {
+                                onSelectHistory(history)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                        .foregroundStyle(.secondary)
+                                    Text(history)
+                                        .lineLimit(2)
+                                    Spacer(minLength: 0)
+                                }
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("删除历史", systemImage: "trash", role: .destructive) {
+                                    onDeleteHistory(history)
+                                }
+                            }
+                        }
+
+                        ForEach(tags) { suggestion in
+                            Button {
+                                onSelectTag(suggestion.english)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "tag")
+                                        .foregroundStyle(AppTheme.accent)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(suggestion.english)
+                                        if let localizedText = suggestion.localizedText,
+                                           localizedText.localizedCaseInsensitiveCompare(suggestion.english) != .orderedSame {
+                                            Text(localizedText)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(suggestion.localizedText.map { String(localized: "\(suggestion.english)，\($0)") } ?? suggestion.english)
+                        }
+                    }
+                }
+                .frame(maxHeight: 240)
+            } else {
+                Label(
+                    emptyStateTitle,
+                    systemImage: isLoading ? "ellipsis" : (query.isEmpty ? "clock" : "magnifyingglass")
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(.quaternary)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
     }
 }

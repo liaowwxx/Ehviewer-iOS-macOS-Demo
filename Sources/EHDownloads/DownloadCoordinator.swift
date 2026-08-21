@@ -100,6 +100,57 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
         guard query.isEmpty == false else { return true }
         return tags.contains { $0.localizedCaseInsensitiveContains(query) }
     }
+
+    /// Matches the pending search syntax used by the browse search field.
+    /// Quoted tag tokens are ANDed, while any remaining free text matches the
+    /// title, label, or tags. A local summary is accepted because older
+    /// persisted download jobs may not have their gallery tags hydrated yet.
+    public func matchesSearch(
+        query: String,
+        summary: GallerySummary? = nil,
+        localizedTag: (String) -> String = { $0 }
+    ) -> Bool {
+        let normalizedQuery = SearchQueryComposer.normalized(query)
+        guard normalizedQuery.isEmpty == false else { return true }
+
+        var candidateTags = tags
+        if let summary {
+            candidateTags.append(contentsOf: summary.tags)
+        }
+
+        for token in SearchQueryComposer.tagTokens(in: normalizedQuery) {
+            let fullTag = SearchQueryComposer.normalized(token.fullTag)
+            let databaseTag = SearchQueryComposer.databaseTagKey(for: fullTag)
+            let matched = candidateTags.contains { tag in
+                let normalizedTag = SearchQueryComposer.normalized(tag)
+                return normalizedTag.localizedCaseInsensitiveCompare(fullTag) == .orderedSame
+                    || normalizedTag.localizedCaseInsensitiveCompare(databaseTag) == .orderedSame
+            }
+            guard matched else { return false }
+        }
+
+        let freeText = SearchQueryComposer.tagTokens(in: normalizedQuery)
+            .reduce(normalizedQuery) { query, token in
+                SearchQueryComposer.removing(token, from: query)
+            }
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard freeText.isEmpty == false else { return true }
+
+        let textValues = [
+            title,
+            japaneseTitle,
+            summary?.title,
+            summary?.japaneseTitle,
+            label
+        ].compactMap { $0 }
+        if textValues.contains(where: { $0.localizedCaseInsensitiveContains(freeText) }) {
+            return true
+        }
+        return candidateTags.contains {
+            $0.localizedCaseInsensitiveContains(freeText)
+                || localizedTag($0).localizedCaseInsensitiveContains(freeText)
+        }
+    }
 }
 
 public enum DownloadEvent: Sendable, Hashable {

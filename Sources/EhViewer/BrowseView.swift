@@ -29,6 +29,7 @@ struct BrowseView: View {
     let onOpenGallery: ((GalleryKey) -> Void)?
     @State private var pageModel: BrowsePageModel
     @State private var suppressNextSearchSubmission = false
+    @State private var suppressSearchSuggestions = false
     @State private var showingAdvancedSearch = false
 
     init(
@@ -111,34 +112,53 @@ struct BrowseView: View {
             }
             else if pageModel.galleries.isEmpty { ContentUnavailableView("没有结果", systemImage: "magnifyingglass") }
         }
+        .overlay(alignment: .topTrailing) {
+            GeometryReader { proxy in
+                BrowseSearchSuggestionOverlay(
+                    query: pageModel.searchText,
+                    isLoading: pageModel.isUpdatingSearchSuggestions,
+                    searchHistory: pageModel.searchHistorySuggestions,
+                    tags: pageModel.tagSearchSuggestions,
+                    isSuppressed: suppressSearchSuggestions,
+                    onSelectHistory: { query in
+                        suppressSearchSuggestions = false
+                        pageModel.selectSearchHistory(query)
+                    },
+                    onDeleteHistory: { query in
+                        Task { await pageModel.deleteSearchHistory(query) }
+                    },
+                    onSelectTag: { tag in
+                        suppressNextSearchSubmission = true
+                        suppressSearchSuggestions = false
+                        pageModel.completeTagSuggestion(tag)
+                        Task { @MainActor in
+                            await Task.yield()
+                            suppressNextSearchSubmission = false
+                        }
+                    }
+                )
+                    .frame(width: min(560, max(0, proxy.size.width - 24)))
+                    .padding(.top, 8)
+                    .padding(.trailing, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
+            .zIndex(100)
+        }
         .navigationTitle(navigationTitle)
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
         .searchable(text: $pageModel.searchText, placement: .toolbar, prompt: "搜索画廊或标签")
-        .searchSuggestions {
-            BrowseSearchSuggestions(
-                query: pageModel.suggestionQuery,
-                isUpdating: pageModel.isUpdatingSearchSuggestions,
-                searchHistory: pageModel.searchHistorySuggestions,
-                tags: pageModel.tagSearchSuggestions,
-                onSelectHistory: { query in
-                    pageModel.selectSearchHistory(query)
-                },
-                onDeleteHistory: { query in
-                    Task { await pageModel.deleteSearchHistory(query) }
-                },
-                onSelectTag: { tag in
-                    suppressNextSearchSubmission = true
-                    pageModel.completeTagSuggestion(tag)
-                    Task { @MainActor in
-                        await Task.yield()
-                        suppressNextSearchSubmission = false
-                    }
-                }
-            )
-        }
         .onSubmit(of: .search, submitSearch)
+        .onChange(of: pageModel.searchText) { _, newValue in
+            let normalized = SearchQueryComposer.normalized(newValue)
+            if normalized.isEmpty {
+                suppressNextSearchSubmission = false
+                suppressSearchSuggestions = false
+            } else if normalized != pageModel.submittedSearchText {
+                suppressSearchSuggestions = false
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 if kind != .search, hasSearchInput {
@@ -197,6 +217,7 @@ struct BrowseView: View {
             suppressNextSearchSubmission = false
             return
         }
+        suppressSearchSuggestions = true
         let query = SearchQueryComposer.normalized(pageModel.searchText)
         guard query.isEmpty == false else {
             pageModel.clearSearch()
@@ -227,10 +248,36 @@ struct BrowseView: View {
     }
 }
 
+private struct BrowseSearchSuggestionOverlay: View {
+    @Environment(\.isSearching) private var isSearching
+    let query: String
+    let isLoading: Bool
+    let searchHistory: [String]
+    let tags: [SearchTagSuggestion]
+    let isSuppressed: Bool
+    let onSelectHistory: (String) -> Void
+    let onDeleteHistory: (String) -> Void
+    let onSelectTag: (String) -> Void
+
+    var body: some View {
+        if isSearching, isSuppressed == false {
+            SearchSuggestionPanel(
+                query: query,
+                isLoading: isLoading,
+                searchHistory: searchHistory,
+                tags: tags,
+                onSelectHistory: onSelectHistory,
+                onDeleteHistory: onDeleteHistory,
+                onSelectTag: onSelectTag
+            )
+        }
+    }
+}
+
 /// Renders the tag tokens of the search query as removable capsules, styled
 /// like the filter-rule candidate bar. Tapping a capsule removes that tag
 /// token from the query, so several tags can be composed and adjusted freely.
-private struct SearchTagChipBar: View {
+struct SearchTagChipBar: View {
     @Environment(AppModel.self) private var model
     let query: String
     let onUpdate: (String) -> Void
@@ -296,10 +343,12 @@ private struct BrowseLoadID: Hashable {
 
 struct GalleryCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let gallery: GallerySummary
     var supplementalText: String?
     var showsTags = false
     var localJob: DownloadJob?
+    var metadataIsLoading = false
     @State private var titleHeight: CGFloat = 0
 
     var body: some View {
@@ -325,58 +374,92 @@ struct GalleryCard: View {
                         guard abs(titleHeight - newHeight) > 0.5 else { return }
                         titleHeight = newHeight
                     }
-                if let authorText {
-                    Label(authorText, systemImage: "person")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                Group {
+                    if metadataIsLoading {
+                        metadataPlaceholder(width: 112)
+                    } else if let authorText {
+                        Label(authorText, systemImage: "person")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
+                .transition(.opacity)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: metadataIsLoading)
                 if let supplementalText {
                     Text(supplementalText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                if showsTags, gallery.tags.isEmpty == false {
-                    TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
-                        ForEach(Array(gallery.tags.enumerated()), id: \.offset) { item in
-                            GalleryTagChip(title: model.displayTag(item.element))
+                if showsTags {
+                    Group {
+                        if metadataIsLoading {
+                            HStack(spacing: 5) {
+                                metadataPlaceholder(width: 58)
+                                metadataPlaceholder(width: 76)
+                                metadataPlaceholder(width: 46)
+                            }
+                        } else if gallery.tags.isEmpty == false {
+                            TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
+                                ForEach(Array(gallery.tags.enumerated()), id: \.offset) { item in
+                                    GalleryTagChip(title: model.displayTag(item.element))
+                                }
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .frame(height: tagHeight, alignment: .topLeading)
                     .clipped()
+                    .transition(.opacity)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: metadataIsLoading)
                 }
-                HStack(spacing: 6) {
-                    if let category = gallery.category {
-                        CategoryBadge(name: category)
-                    }
-                    if let language = gallery.simpleLanguage {
-                        Text(language)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.quaternary, in: Capsule())
-                            .accessibilityLabel("语言 \(language)")
-                    }
-                    if let pageCount = gallery.pageCount { Text("\(pageCount) 页") }
-                    if let favoriteCategory = gallery.favoriteCategory, favoriteCategory != 0 {
-                        Image(systemName: "heart.fill")
-                            .foregroundStyle(.pink)
-                            .accessibilityLabel("已收藏")
-                    }
-                    Spacer(minLength: 0)
-                    if let postedAt = gallery.postedAt {
-                        Text(postedAt, format: .relative(presentation: .named))
-                            .lineLimit(1)
-                    }
-                    if let rating = gallery.rating {
-                        Label(String(format: "%.1f", rating), systemImage: "star.fill")
+                Group {
+                    if metadataIsLoading {
+                        HStack(spacing: 6) {
+                            metadataPlaceholder(width: 76)
+                            metadataPlaceholder(width: 54)
+                            Spacer(minLength: 0)
+                            metadataPlaceholder(width: 66)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        HStack(spacing: 6) {
+                            if let category = gallery.category {
+                                CategoryBadge(name: category)
+                            }
+                            if let language = gallery.simpleLanguage {
+                                Text(language)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.quaternary, in: Capsule())
+                                    .accessibilityLabel("语言 \(language)")
+                            }
+                            if let pageCount = gallery.pageCount { Text("\(pageCount) 页") }
+                            if let favoriteCategory = gallery.favoriteCategory, favoriteCategory != 0 {
+                                Image(systemName: "heart.fill")
+                                    .foregroundStyle(.pink)
+                                    .accessibilityLabel("已收藏")
+                            }
+                            Spacer(minLength: 0)
+                            if let postedAt = gallery.postedAt {
+                                Text(postedAt, format: .relative(presentation: .named))
+                                    .lineLimit(1)
+                            }
+                            if let rating = gallery.rating {
+                                Text(String(format: "%.1f", rating))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .transition(.opacity)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: metadataIsLoading)
             }
             Spacer(minLength: 0)
         }
@@ -398,6 +481,13 @@ struct GalleryCard: View {
 
     private var tagHeight: CGFloat {
         titleHeight > 30 ? 22 : 48
+    }
+
+    private func metadataPlaceholder(width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color.secondary.opacity(0.2))
+            .frame(width: width, height: 13)
+            .accessibilityHidden(true)
     }
 
     private var accessibilityTitle: String {

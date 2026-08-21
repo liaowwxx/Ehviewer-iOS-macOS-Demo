@@ -31,12 +31,14 @@ struct DownloadsView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let page: DownloadsPage
     @State private var jobs: [DownloadJob] = []
-    @State private var localSummariesByKey: [GalleryKey: GallerySummary] = [:]
+    @State private var hasLoadedJobs = false
+    @State private var localSearchSummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
     @State private var searchText = ""
-    @State private var tagSearchSuggestions: [SearchTagSuggestion] = []
-    @State private var isUpdatingTagSearchSuggestions = false
+    @State private var submittedSearchText = ""
+    @State private var suppressNextSearchSubmission = false
+    @State private var suppressSearchSuggestions = false
     @State private var showingResetProgressConfirmation = false
     @State private var jobPendingRemoval: DownloadJob?
     @State private var removalErrorMessage: String?
@@ -67,14 +69,16 @@ struct DownloadsView: View {
     private var visibleJobs: [DownloadJob] {
         pageJobs
             .filter { page == .local || model.downloadStatusFilter.matches($0.state) }
-            .filter {
-                searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || $0.containsTitle(searchText)
-                    || $0.containsTag(searchText)
-                    || $0.tags.contains { model.displayTag($0).localizedCaseInsensitiveContains(searchText) }
-                    || ($0.label?.localizedCaseInsensitiveContains(searchText) == true)
-            }
+            .filter(matchesSearch)
             .sorted(by: effectiveSortOrder.areInIncreasingOrder)
+    }
+
+    private func matchesSearch(_ job: DownloadJob) -> Bool {
+        job.matchesSearch(
+            query: submittedSearchText,
+            summary: page == .local ? localSearchSummariesByKey[job.key] : nil,
+            localizedTag: model.displayTag
+        )
     }
 
     private var availableSortOrders: [DownloadSortOrder] {
@@ -212,60 +216,62 @@ struct DownloadsView: View {
 
     private var content: some View {
         @Bindable var model = model
-        return Group {
-            if pageJobs.isEmpty {
-                if model.isLoadingDownloads {
+        return VStack(spacing: 0) {
+            if searchText.isEmpty == false {
+                SearchTagChipBar(query: searchText) { updatedQuery in
+                    searchText = updatedQuery
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            Group {
+                if hasLoadedJobs == false || model.isLoadingDownloads {
                     ProgressView("正在加载下载内容…")
-                } else {
+                } else if pageJobs.isEmpty {
                     ContentUnavailableView(
                         page.emptyTitle,
                         systemImage: page.systemImage,
                         description: Text(page.emptyDescription)
                     )
-                }
-            } else if visibleJobs.isEmpty {
-                ContentUnavailableView("没有匹配的下载", systemImage: "line.3.horizontal.decrease.circle", description: Text("调整搜索或筛选条件"))
-            } else {
-                if model.downloadLayoutMode == .grid {
-                    downloadsGrid
+                } else if visibleJobs.isEmpty {
+                    ContentUnavailableView("没有匹配的下载", systemImage: "line.3.horizontal.decrease.circle", description: Text("调整搜索或筛选条件"))
                 } else {
-                    downloadsList
+                    if model.downloadLayoutMode == .grid {
+                        downloadsGrid
+                    } else {
+                        downloadsList
+                    }
                 }
             }
         }
+        .overlay(alignment: .topTrailing) {
+            GeometryReader { proxy in
+                DownloadSearchSuggestionOverlay(
+                    query: searchText,
+                    isSuppressed: suppressSearchSuggestions,
+                    onSelectTag: selectTagSuggestion
+                )
+                .frame(width: min(560, max(0, proxy.size.width - 24)))
+                .padding(.top, 8)
+                .padding(.trailing, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
+            .zIndex(100)
+        }
         .navigationTitle(page == .downloading ? "downloads_title" : "本地")
-        .searchable(text: $searchText, prompt: "搜索下载标题或标签")
-        .searchSuggestions {
-            if isUpdatingTagSearchSuggestions {
-                Section {
-                    HStack {
-                        ProgressView()
-                        Text("正在读取标签候选…")
-                    }
-                    .foregroundStyle(.secondary)
-                }
-            } else if tagSearchSuggestions.isEmpty == false {
-                Section("标签") {
-                    ForEach(tagSearchSuggestions) { suggestion in
-                        Button {
-                            searchText = suggestion.english
-                        } label: {
-                            Label {
-                                VStack(alignment: .leading) {
-                                    Text(suggestion.english)
-                                    if let localizedText = suggestion.localizedText,
-                                       localizedText.localizedCaseInsensitiveCompare(suggestion.english) != .orderedSame {
-                                        Text(localizedText)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            } icon: {
-                                Image(systemName: "tag")
-                            }
-                        }
-                    }
-                }
+#if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+#endif
+        .searchable(text: $searchText, placement: .toolbar, prompt: "搜索下载标题或标签")
+        .onSubmit(of: .search, submitSearch)
+        .onChange(of: searchText) { _, newValue in
+            let normalized = SearchQueryComposer.normalized(newValue)
+            if normalized.isEmpty {
+                submittedSearchText = ""
+                suppressNextSearchSubmission = false
+                suppressSearchSuggestions = false
+            } else if normalized != submittedSearchText {
+                suppressSearchSuggestions = false
             }
         }
         .toolbar {
@@ -360,12 +366,12 @@ struct DownloadsView: View {
                 }
             }
         }
-        .task(id: model.isLoadingDownloads) { jobs = await model.downloads.snapshot() }
-        .task(id: localSummaryTaskID) {
-            await loadLocalSummaries()
+        .task(id: "\(model.isLoadingDownloads)-\(page.rawValue)") {
+            jobs = await model.downloads.snapshot()
+            hasLoadedJobs = true
         }
-        .task(id: searchText) {
-            await refreshTagSearchSuggestions(for: searchText)
+        .task(id: localSearchTaskID) {
+            await loadLocalSearchSummaries()
         }
         .task {
             for await event in await model.downloads.events() {
@@ -394,40 +400,69 @@ struct DownloadsView: View {
         }
     }
 
-    private func refreshTagSearchSuggestions(for query: String) async {
-        tagSearchSuggestions = []
-        isUpdatingTagSearchSuggestions = false
-
-        let normalizedQuery = SearchQueryComposer.normalized(query)
-        let fragment = SearchQueryComposer.suggestionFragment(in: normalizedQuery)
-        guard fragment.isEmpty == false else { return }
-
-        isUpdatingTagSearchSuggestions = true
-        defer {
-            if Task.isCancelled == false {
-                isUpdatingTagSearchSuggestions = false
-            }
+    private var localSearchTaskID: String {
+        guard page == .local,
+              submittedSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return "local-search-disabled"
         }
+        return pageJobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
+            .sorted()
+            .joined(separator: "\u{1E}")
+    }
 
-        do {
-            try await Task.sleep(for: .milliseconds(120))
-            try Task.checkCancellation()
-            let suggestions = await model.filterTagSuggestions(for: fragment, limit: 20)
-            try Task.checkCancellation()
-            guard SearchQueryComposer.normalized(searchText) == normalizedQuery else { return }
-            tagSearchSuggestions = suggestions
-        } catch is CancellationError {
+    private func loadLocalSearchSummaries() async {
+        guard page == .local,
+              submittedSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            localSearchSummariesByKey = [:]
             return
-        } catch {
-            tagSearchSuggestions = []
         }
+
+        let keys = Set(pageJobs.map(\.key))
+        guard keys.isEmpty == false else {
+            localSearchSummariesByKey = [:]
+            return
+        }
+
+        let summaries = await model.localGallerySummaries(for: keys)
+        guard Task.isCancelled == false else { return }
+        localSearchSummariesByKey = Dictionary(
+            summaries.map { ($0.key, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    private func selectTagSuggestion(_ tag: String) {
+        suppressNextSearchSubmission = true
+        suppressSearchSuggestions = false
+        searchText = SearchQueryComposer.completing(tag: tag, in: searchText)
+        Task { @MainActor in
+            await Task.yield()
+            suppressNextSearchSubmission = false
+        }
+    }
+
+    private func submitSearch() {
+        guard suppressNextSearchSubmission == false else {
+            suppressNextSearchSubmission = false
+            return
+        }
+        suppressSearchSuggestions = true
+        submittedSearchText = SearchQueryComposer.normalized(searchText)
+        searchText = submittedSearchText
     }
 
     private func apply(_ event: DownloadEvent) {
         switch event {
         case .reset(let restoredJobs):
             jobs = restoredJobs
+            hasLoadedJobs = true
         case .changed(let changedJob):
+            if page == .local, changedJob.state != .completed,
+               let index = jobs.firstIndex(where: { $0.key == changedJob.key }) {
+                guard jobs[index].state == .completed else { return }
+                jobs[index] = changedJob
+                return
+            }
             if let index = jobs.firstIndex(where: { $0.key == changedJob.key }) {
                 jobs[index] = changedJob
             } else {
@@ -575,122 +610,76 @@ struct DownloadsView: View {
     }
 #endif
 
+    @ViewBuilder
     private var downloadsList: some View {
-#if os(macOS)
-        ScrollView {
-            LazyVStack(spacing: 6) {
-                ForEach(visibleJobs) { job in
-                    listCard(for: job)
+        if page == .local {
+            LocalDownloadsList(
+                jobs: visibleJobs,
+                isSelectionMode: isSelectionMode,
+                selectedKeys: selectedKeys,
+                bulkRemovalInProgress: bulkRemovalProgress != nil,
+                select: { toggleSelection($0) },
+                requestSelection: { enterSelectionMode(selecting: $0) },
+                openReader: { jobForReader = $0 },
+                remove: {
+                    guard bulkRemovalProgress == nil else { return }
+                    jobPendingRemoval = $0
+                },
+                label: {
+                    labelInput = $0.label ?? ""
+                    editingJob = $0
                 }
+            )
+        } else {
+#if os(macOS)
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(visibleJobs) { job in
+                        listCard(for: job)
+                    }
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 12)
-        }
-        .background(.secondary.opacity(0.08))
+            .background(.secondary.opacity(0.08))
 #else
-        List(visibleJobs) { job in
-            listCard(for: job)
-            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(.secondary.opacity(0.08))
+            List(visibleJobs) { job in
+                listCard(for: job)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(.secondary.opacity(0.08))
 #endif
+        }
     }
 
     @ViewBuilder
     private func listCard(for job: DownloadJob) -> some View {
-        if page == .local {
-            LocalDownloadCard(
-                job: job,
-                gallery: localGallerySummary(for: job),
-                isSelectionMode: isSelectionMode,
-                isSelected: selectedKeys.contains(job.key),
-                select: { toggleSelection(job.key) },
-                requestSelection: { enterSelectionMode(selecting: job.key) },
-                openReader: { jobForReader = job },
-                remove: {
-                    guard bulkRemovalProgress == nil else { return }
-                    jobPendingRemoval = job
-                },
-                label: {
-                    labelInput = job.label ?? ""
-                    editingJob = job
-                }
-            )
-        } else {
-            DownloadCard(
-                job: job,
-                isSelectionMode: isSelectionMode,
-                isSelected: selectedKeys.contains(job.key),
-                select: { toggleSelection(job.key) },
-                requestSelection: { enterSelectionMode(selecting: job.key) },
-                openReader: { jobForReader = job }
-            ) {
-                Task {
-                    if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
-                    else { await model.resumeDownload(job.key) }
-                }
-                } redownload: {
-                    guard bulkRemovalProgress == nil else { return }
-                    jobPendingRedownload = job
-                } remove: {
-                    guard bulkRemovalProgress == nil else { return }
-                    jobPendingRemoval = job
-                } label: {
-                labelInput = job.label ?? ""
-                editingJob = job
+        DownloadCard(
+            job: job,
+            isSelectionMode: isSelectionMode,
+            isSelected: selectedKeys.contains(job.key),
+            select: { toggleSelection(job.key) },
+            requestSelection: { enterSelectionMode(selecting: job.key) },
+            openReader: { jobForReader = job }
+        ) {
+            Task {
+                if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
+                else { await model.resumeDownload(job.key) }
             }
+        } redownload: {
+            guard bulkRemovalProgress == nil else { return }
+            jobPendingRedownload = job
+        } remove: {
+            guard bulkRemovalProgress == nil else { return }
+            jobPendingRemoval = job
+        } label: {
+            labelInput = job.label ?? ""
+            editingJob = job
         }
-    }
-
-    private var localSummaryTaskID: String {
-        guard page == .local else { return "not-local" }
-        return jobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
-            .joined(separator: "\u{1E}")
-    }
-
-    private func loadLocalSummaries() async {
-        guard page == .local else {
-            localSummariesByKey = [:]
-            return
-        }
-        let keys = Set(jobs.map(\.key))
-        guard keys.isEmpty == false else {
-            localSummariesByKey = [:]
-            return
-        }
-        let summaries = await model.localGallerySummaries(for: keys)
-        guard Task.isCancelled == false else { return }
-        localSummariesByKey = Dictionary(
-            summaries.map { ($0.key, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-    }
-
-    private func localGallerySummary(for job: DownloadJob) -> GallerySummary {
-        var summary = localSummariesByKey[job.key] ?? GallerySummary(
-            key: job.key,
-            title: job.title,
-            japaneseTitle: job.japaneseTitle,
-            pageCount: job.pages.isEmpty ? nil : job.pages.count,
-            tags: job.tags
-        )
-        if summary.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            summary.title = job.title
-        }
-        if summary.japaneseTitle == nil {
-            summary.japaneseTitle = job.japaneseTitle
-        }
-        if summary.tags.isEmpty {
-            summary.tags = job.tags
-        }
-        if summary.pageCount == nil, job.pages.isEmpty == false {
-            summary.pageCount = job.pages.count
-        }
-        return summary
     }
 
     private var downloadsGrid: some View {
@@ -744,6 +733,235 @@ struct DownloadsView: View {
 
     private var canStopAll: Bool {
         pageJobs.contains { $0.state == .running || $0.state == .queued }
+    }
+}
+
+private struct DownloadSearchSuggestionOverlay: View {
+    @Environment(\.isSearching) private var isSearching
+    let query: String
+    let isSuppressed: Bool
+    let onSelectTag: (String) -> Void
+
+    var body: some View {
+        if isSearching, isSuppressed == false, query.isEmpty == false {
+            DownloadSearchSuggestionPanel(
+                query: query,
+                onSelectTag: onSelectTag
+            )
+        }
+    }
+}
+
+private struct DownloadSearchSuggestionPanel: View {
+    @Environment(AppModel.self) private var model
+    let query: String
+    let onSelectTag: (String) -> Void
+    @State private var tags: [SearchTagSuggestion] = []
+    @State private var requestID = UUID()
+    @State private var isLoading = false
+
+    private var normalizedQuery: String {
+        SearchQueryComposer.normalized(query)
+    }
+
+    var body: some View {
+        SearchSuggestionPanel(
+            query: query,
+            isLoading: isLoading,
+            searchHistory: [],
+            tags: tags,
+            onSelectHistory: { _ in },
+            onDeleteHistory: { _ in },
+            onSelectTag: onSelectTag
+        )
+        .task(id: normalizedQuery) {
+            await loadTags(for: normalizedQuery)
+        }
+    }
+
+    private func loadTags(for query: String) async {
+        let requestID = UUID()
+        self.requestID = requestID
+        let fragment = SearchQueryComposer.suggestionFragment(in: query)
+        guard fragment.isEmpty == false else {
+            tags = []
+            isLoading = false
+            return
+        }
+
+        isLoading = true
+        let filteredTags = tags.filter {
+            $0.english.localizedCaseInsensitiveContains(fragment)
+                || $0.localizedText?.localizedCaseInsensitiveContains(fragment) == true
+        }
+        if filteredTags != tags {
+            tags = filteredTags
+        }
+
+        do {
+            try await Task.sleep(for: .milliseconds(120))
+            try Task.checkCancellation()
+            let loadedTags = await model.filterTagSuggestions(for: fragment, limit: 20)
+            try Task.checkCancellation()
+            guard self.requestID == requestID else { return }
+            if tags != loadedTags {
+                tags = loadedTags
+            }
+            isLoading = false
+        } catch is CancellationError {
+            return
+        } catch {
+            guard self.requestID == requestID else { return }
+            isLoading = false
+        }
+    }
+}
+
+private struct LocalDownloadsList: View {
+    @Environment(AppModel.self) private var model
+    let jobs: [DownloadJob]
+    let isSelectionMode: Bool
+    let selectedKeys: Set<GalleryKey>
+    let bulkRemovalInProgress: Bool
+    let select: (GalleryKey) -> Void
+    let requestSelection: (GalleryKey) -> Void
+    let openReader: (DownloadJob) -> Void
+    let remove: (DownloadJob) -> Void
+    let label: (DownloadJob) -> Void
+
+    @State private var localSummariesByKey: [GalleryKey: GallerySummary] = [:]
+    @State private var localMetadataLoadedKeys: Set<GalleryKey> = []
+    @State private var visibleLocalIndexes: [GalleryKey: Int] = [:]
+
+    var body: some View {
+        scrollContent
+            .task(id: localSummaryTaskID) {
+                await loadLocalSummaries()
+            }
+    }
+
+    @ViewBuilder
+    private var scrollContent: some View {
+#if os(macOS)
+        ScrollView {
+            LazyVStack(spacing: 6) {
+                ForEach(Array(jobs.enumerated()), id: \.element.key) { index, job in
+                    localCard(for: job, index: index)
+                }
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+        }
+        .background(.secondary.opacity(0.08))
+#else
+        List(Array(jobs.enumerated()), id: \.element.key) { index, job in
+            localCard(for: job, index: index)
+                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(.secondary.opacity(0.08))
+#endif
+    }
+
+    @ViewBuilder
+    private func localCard(for job: DownloadJob, index: Int) -> some View {
+        LocalDownloadCard(
+            job: job,
+            gallery: localGallerySummary(for: job),
+            metadataIsLoading: localMetadataLoadedKeys.contains(job.key) == false,
+            isSelectionMode: isSelectionMode,
+            isSelected: selectedKeys.contains(job.key),
+            select: { select(job.key) },
+            requestSelection: { requestSelection(job.key) },
+            openReader: { openReader(job) },
+            remove: { remove(job) },
+            label: { label(job) }
+        )
+        .onAppear {
+            if visibleLocalIndexes[job.key] != index {
+                visibleLocalIndexes[job.key] = index
+            }
+        }
+        .onDisappear {
+            guard visibleLocalIndexes[job.key] == index else { return }
+            visibleLocalIndexes.removeValue(forKey: job.key)
+        }
+    }
+
+    private var localSummaryTaskID: String {
+        localPrefetchKeys.map(\.id).sorted().joined(separator: "\u{1E}")
+    }
+
+    private var localPrefetchKeys: Set<GalleryKey> {
+        guard let range = LocalGalleryPrefetchWindow.range(
+            visibleIndexes: Set(visibleLocalIndexes.values),
+            itemCount: jobs.count
+        ) else {
+            return []
+        }
+        return Set(range.map { jobs[$0].key })
+    }
+
+    private func loadLocalSummaries() async {
+        do {
+            try await Task.sleep(for: .milliseconds(80))
+            try Task.checkCancellation()
+        } catch {
+            return
+        }
+
+        let keys = localPrefetchKeys.subtracting(localMetadataLoadedKeys)
+        guard keys.isEmpty == false else { return }
+        let summaries = await model.localGallerySummaries(for: keys)
+        guard Task.isCancelled == false else { return }
+        for summary in summaries {
+            localSummariesByKey[summary.key] = summary
+        }
+        localMetadataLoadedKeys.formUnion(keys)
+    }
+
+    private func localGallerySummary(for job: DownloadJob) -> GallerySummary {
+        var summary = localSummariesByKey[job.key] ?? GallerySummary(
+            key: job.key,
+            title: job.title,
+            japaneseTitle: job.japaneseTitle,
+            pageCount: job.pages.isEmpty ? nil : job.pages.count,
+            tags: job.tags
+        )
+        if summary.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            summary.title = job.title
+        }
+        if summary.japaneseTitle == nil {
+            summary.japaneseTitle = job.japaneseTitle
+        }
+        if summary.tags.isEmpty {
+            summary.tags = job.tags
+        }
+        if summary.pageCount == nil, job.pages.isEmpty == false {
+            summary.pageCount = job.pages.count
+        }
+        return summary
+    }
+}
+
+struct LocalGalleryPrefetchWindow {
+    static let bufferSize = 50
+
+    static func range(
+        visibleIndexes: Set<Int>,
+        itemCount: Int,
+        buffer: Int = bufferSize
+    ) -> Range<Int>? {
+        guard itemCount > 0, let first = visibleIndexes.min(), let last = visibleIndexes.max() else {
+            return nil
+        }
+        let lowerBound = max(0, first - max(0, buffer))
+        let upperBound = min(itemCount - 1, last + max(0, buffer))
+        guard lowerBound <= upperBound else { return nil }
+        return lowerBound..<(upperBound + 1)
     }
 }
 
@@ -892,6 +1110,7 @@ private struct LocalDownloadCard: View {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
     let gallery: GallerySummary
+    let metadataIsLoading: Bool
     let isSelectionMode: Bool
     let isSelected: Bool
     let select: () -> Void
@@ -984,7 +1203,12 @@ private struct LocalDownloadCard: View {
     }
 
     private var galleryCard: some View {
-        GalleryCard(gallery: gallery, showsTags: true, localJob: job)
+        GalleryCard(
+            gallery: gallery,
+            showsTags: true,
+            localJob: job,
+            metadataIsLoading: metadataIsLoading
+        )
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
