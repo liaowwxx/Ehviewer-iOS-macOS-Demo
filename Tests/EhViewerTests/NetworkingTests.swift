@@ -152,6 +152,16 @@ struct NetworkingTests {
         ])
         #expect(detail.pages.map(\.index) == [0, 1])
         #expect(detail.pages.first?.previewURL?.absoluteString == "https://ehgt.org/7e/7a/430636/1366222-1.jpg")
+
+        let metadataOnly = try GalleryHTMLParser().parseDetailMetadata(
+            data: Data(contentsOf: fixtureURL),
+            key: key,
+            site: .eHentai
+        )
+        #expect(metadataOnly.pages.isEmpty)
+        #expect(metadataOnly.summary.pageCount == 838)
+        #expect(metadataOnly.summary.rating == 4.46)
+        #expect(metadataOnly.summary.metadataCompleteness?.pages == .notLoaded)
     }
 
     @Test("Gallery detail parses clipped high-resolution previews like the reference client")
@@ -400,12 +410,25 @@ struct NetworkingTests {
                 "posted": "2020-01-02 03:04",
                 "rating": "4.5",
                 "tags": ["artist:sample"]
+            }, {
+                "gid": 125,
+                "token": "omega",
+                "title": "English title",
+                "title_jpn": "日本語タイトル",
+                "thumb": "/t/sample.jpg",
+                "category": "Manga",
+                "filecount": "12",
+                "posted": "2020-01-02 03:04",
+                "rating": "4.5",
+                "tags": ["artist:sample"]
             }]
         }
         """#
         let recording = RecordingTransport(data: Data(payload.utf8))
         let client = EHClient(transport: recording)
-        let keys = (0..<26).map { GalleryKey(gid: Int64(100 + $0), token: "token-\($0)") }
+        let keys = [GalleryKey(gid: 100, token: "alpha")]
+            + (1..<25).map { GalleryKey(gid: Int64(100 + $0), token: "token-\($0)") }
+            + [GalleryKey(gid: 125, token: "omega")]
 
         let summaries = try await client.gallerySummaries(for: keys, site: .eHentai)
 
@@ -439,6 +462,32 @@ struct NetworkingTests {
             site: .eHentai
         )
         #expect(numericPosted.first?.postedAt == Date(timeIntervalSince1970: 1_514_458_781))
+    }
+
+    @Test("gdata batch parsing preserves item errors and missing responses")
+    func gallerySummaryBatchPreservesFailures() throws {
+        let successKey = GalleryKey(gid: 201, token: "success")
+        let errorKey = GalleryKey(gid: 202, token: "error")
+        let missingKey = GalleryKey(gid: 203, token: "missing")
+        let payload = #"""
+        {"gmetadata":[
+            {"gid":201,"token":"success","category":"Manga"},
+            {"gid":202,"token":"error","error":"rate limited"}
+        ]}
+        """#
+
+        let result = try GalleryAPIParser().parseBatch(
+            data: Data(payload.utf8),
+            requestedKeys: [successKey, errorKey, missingKey],
+            site: .eHentai
+        )
+        let responses = Dictionary(uniqueKeysWithValues: result.responses.map { ($0.key, $0) })
+
+        #expect(responses[successKey]?.summary?.title == "")
+        #expect(responses[successKey]?.summary?.metadataCompleteness?.title == .notLoaded)
+        #expect(responses[errorKey]?.status == .apiError("rate limited"))
+        #expect(responses[missingKey]?.status == .missingResponse)
+        #expect(result.summaries.count == 1)
     }
 
     @Test("HTTP client maps authentication status into a domain error")
@@ -753,6 +802,29 @@ struct NetworkingTests {
         let detail = try GalleryHTMLParser().parseDetail(data: Data(html.utf8), key: key, site: .eHentai)
         #expect(detail.comments.first?.body == "RAW: https://example.com/g/1/\n翻译：中文")
         #expect(detail.comments.last?.body == "第二个链接\n\n校对：完成")
+    }
+
+    @Test("Comment-only loading does not require preview markup")
+    func commentOnlyLoadingDoesNotRequirePreviewMarkup() async throws {
+        let html = """
+        <html><body>
+          <div id="cdiv">
+            <div class="c1">
+              <div class="c3"><a>reader</a></div>
+              <div class="c6">评论内容</div>
+            </div>
+          </div>
+        </body></html>
+        """
+        let key = GalleryKey(gid: 1, token: "comment-only")
+        let parser = GalleryHTMLParser()
+        #expect(try parser.parseComments(data: Data(html.utf8)).first?.body == "评论内容")
+
+        let recording = RecordingTransport(data: Data(html.utf8))
+        let client = EHClient(transport: recording)
+        let comments = try await client.comments(for: key, site: .eHentai)
+        #expect(comments.first?.author == "reader")
+        #expect(await recording.requestsSnapshot().count == 1)
     }
 
     @Test("Remote mutation requests use the reference endpoints and form/API payloads")

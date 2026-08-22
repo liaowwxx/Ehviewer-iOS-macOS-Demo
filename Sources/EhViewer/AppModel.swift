@@ -17,6 +17,7 @@
  */
 
 import Foundation
+import CoreGraphics
 import Observation
 import SwiftData
 import EHDomain
@@ -54,6 +55,31 @@ private struct GallerySyncImportResult: Sendable {
     let galleryOutcome: GallerySyncImportOutcome
     let queuedDownloadCount: Int
     let incompleteMetadataCount: Int
+}
+
+enum DownloadedGalleryMetadataRefreshMode: String, CaseIterable, Identifiable, Sendable {
+    case all
+    case missingOnly
+
+    var id: Self { self }
+}
+
+struct DownloadedGalleryMetadataRefreshResult: Sendable, Hashable {
+    let targetCount: Int
+    let completeCount: Int
+    let failedCount: Int
+    let incompleteCount: Int
+    let gdataRetriedCount: Int
+    let detailCompletionCount: Int
+
+    static let empty = DownloadedGalleryMetadataRefreshResult(
+        targetCount: 0,
+        completeCount: 0,
+        failedCount: 0,
+        incompleteCount: 0,
+        gdataRetriedCount: 0,
+        detailCompletionCount: 0
+    )
 }
 
 struct DownloadRestoreOutcome: Sendable {
@@ -99,6 +125,54 @@ private struct StagedIncomingFile: Sendable {
     let fileName: String
 }
 
+private actor MetadataRequestScheduler {
+    private let maximumConcurrentRequests = 2
+    private let minimumStartInterval: TimeInterval = 0.3
+    private var activeRequests = 0
+    private var lastStart = Date.distantPast
+    private var stopped = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async -> Bool {
+        while activeRequests >= maximumConcurrentRequests, stopped == false {
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+        guard stopped == false else { return false }
+
+        activeRequests += 1
+        let nextStart = max(Date(), lastStart.addingTimeInterval(minimumStartInterval))
+        lastStart = nextStart
+        let delay = nextStart.timeIntervalSinceNow
+        if delay > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        }
+        guard Task.isCancelled == false, stopped == false else {
+            release()
+            return false
+        }
+        return true
+    }
+
+    func release() {
+        activeRequests = max(0, activeRequests - 1)
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume()
+        }
+    }
+
+    func stop() {
+        stopped = true
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending {
+            waiter.resume()
+        }
+    }
+}
+
 private enum IncomingStagingOutcome: Sendable {
     case success(StagedIncomingFile)
     case failure(String)
@@ -142,6 +216,7 @@ final class AppModel {
     var localArchive: LocalArchiveDocument?
     var selectedRoute: AppRoute? = .local
     var browseRefreshToken = 0
+    private(set) var localLibraryRevision = 0
     var isLoading = false
     var searchText = ""
     var submittedSearchText = ""
@@ -166,6 +241,7 @@ final class AppModel {
     @ObservationIgnored private var incomingStagingGeneration = 0
     @ObservationIgnored private var tagTranslationLoadTask: Task<Void, Never>?
     @ObservationIgnored private var tagTranslationImportTask: Task<Void, Never>?
+    @ObservationIgnored private var downloadRevisionTask: Task<Void, Never>?
 
     init(
         container: ModelContainer,
@@ -320,6 +396,20 @@ final class AppModel {
             guard let self else { return }
             await tagSuggestionProvider.preload()
             await self.importTagTranslationsIfNeeded()
+        }
+        let downloads = self.downloads
+        self.downloadRevisionTask = Task { @MainActor [weak self, downloads] in
+            for await event in await downloads.events() {
+                guard let self else { return }
+                switch event {
+                case .reset, .removed, .removedMany:
+                    self.publishLocalLibraryChange()
+                case .changed(let job) where job.state == .completed:
+                    self.publishLocalLibraryChange()
+                case .changed:
+                    break
+                }
+            }
         }
     }
 
@@ -546,27 +636,41 @@ final class AppModel {
         }
         guard let job = resolvedJob else { return nil }
 
-        let storedSummary = try? await persistence.gallerySummary(for: key)
+        let storedStable = try? await persistence.stableSnapshot(for: key)
+        let storedSummary = storedStable?.summary
         let cachedDetail = await cachedDetail(for: key)
         let dynamic = try? await persistence.downloadedDynamicSnapshot(for: key)
         let cachedSummary = cachedDetail?.summary
-        let pages = job.pages.isEmpty ? (cachedDetail?.pages ?? []) : job.pages
-        let tags: [String] = if job.tags.isEmpty == false {
-            job.tags
-        } else if let storedSummary, storedSummary.tags.isEmpty == false {
-            storedSummary.tags
-        } else if let cachedDetail, cachedDetail.tags.isEmpty == false {
-            cachedDetail.tags
+        let pages = storedStable?.pages.isEmpty == false
+            ? storedStable?.pages ?? []
+            : (job.pages.isEmpty ? (cachedDetail?.pages ?? []) : job.pages)
+
+        let storedCompleteness = storedSummary?.metadataCompleteness
+        let tags: [String] = if storedSummary != nil, storedCompleteness?.tags != .notLoaded {
+            storedSummary?.tags ?? []
+        } else if cachedDetail != nil, cachedSummary?.metadataCompleteness?.tags != .notLoaded {
+            cachedDetail?.tags ?? []
         } else {
-            cachedSummary?.tags ?? []
+            job.tags
         }
-        let title = job.title.isEmpty
-            ? (storedSummary?.title ?? cachedSummary?.title ?? "Gallery \(key.gid)")
-            : job.title
-        let summary = GallerySummary(
+        let title: String = if let storedSummary, storedCompleteness?.title != .notLoaded {
+            storedSummary.title
+        } else if let cachedSummary, cachedSummary.metadataCompleteness?.title != .notLoaded {
+            cachedSummary.title
+        } else {
+            job.title
+        }
+        let japaneseTitle: String? = if let storedSummary, storedCompleteness?.japaneseTitle != .notLoaded {
+            storedSummary.japaneseTitle
+        } else if let cachedSummary, cachedSummary.metadataCompleteness?.japaneseTitle != .notLoaded {
+            cachedSummary.japaneseTitle
+        } else {
+            job.japaneseTitle
+        }
+        var localSummary = GallerySummary(
             key: key,
             title: title,
-            japaneseTitle: job.japaneseTitle ?? storedSummary?.japaneseTitle ?? cachedSummary?.japaneseTitle,
+            japaneseTitle: japaneseTitle,
             thumbnailURL: storedSummary?.thumbnailURL
                 ?? cachedSummary?.thumbnailURL
                 ?? pages.first(where: { $0.index == 0 })?.previewURL,
@@ -580,8 +684,14 @@ final class AppModel {
             tags: tags,
             metadataCompleteness: storedSummary?.metadataCompleteness ?? cachedSummary?.metadataCompleteness
         )
+        if localSummary.title.isEmpty,
+           storedSummary == nil,
+           cachedSummary == nil,
+           job.title.isEmpty == false {
+            localSummary.title = job.title
+        }
         return GalleryDetail(
-            summary: summary,
+            summary: localSummary,
             pages: pages,
             tags: tags,
             comments: dynamic?.comments.map(\.galleryComment) ?? [],
@@ -592,7 +702,7 @@ final class AppModel {
             apiKey: nil,
             favoriteCount: dynamic?.favoriteCount,
             favoriteName: dynamic?.favoriteName,
-            ratingCount: dynamic?.ratingCount ?? summary.ratingCount,
+            ratingCount: dynamic?.ratingCount ?? localSummary.ratingCount,
             language: cachedDetail?.language,
             fileSize: cachedDetail?.fileSize,
             torrentURL: cachedDetail?.torrentURL,
@@ -607,6 +717,10 @@ final class AppModel {
     func localGallerySummaries(for keys: Set<GalleryKey>) async -> [GallerySummary] {
         guard keys.isEmpty == false else { return [] }
         return (try? await persistence.localGallerySummaries(for: keys)) ?? []
+    }
+
+    private func publishLocalLibraryChange() {
+        localLibraryRevision &+= 1
     }
 
     func prepareTagTranslations() async {
@@ -667,6 +781,88 @@ final class AppModel {
             )
         }
         return data
+    }
+
+    /// Loads a cover through the shared memory/disk thumbnail pipeline. The
+    /// original page is fetched only when the generated thumbnail is absent.
+    func coverImage(
+        for key: GalleryKey,
+        previewURL: URL,
+        prefersGalleryCache: Bool = false,
+        maxPixelSize: Int
+    ) async throws -> CGImage? {
+        let cacheKey = "remote|\(key.id)|\(previewURL.absoluteString)|\(prefersGalleryCache)|\(maxPixelSize)"
+        return try await GalleryCoverLoader.shared.image(
+            for: cacheKey,
+            maxPixelSize: maxPixelSize
+        ) { [self] in
+            let page = GalleryPageImage(galleryKey: key, index: 0, imageURL: previewURL)
+            if prefersGalleryCache {
+                return try await galleryImageData(for: page)
+            }
+            return try await imageData(for: page)
+        }
+    }
+
+    /// Prefers a completed local page for downloaded galleries and falls back
+    /// to the remote preview only when the local page is unavailable.
+    func coverImage(
+        for job: DownloadJob,
+        fallbackPreviewURL: URL?,
+        maxPixelSize: Int
+    ) async throws -> CGImage? {
+        if let pageIndex = job.pages.first(where: { job.completedPageIndexes.contains($0.index) })?.index {
+            let cacheKey = "local|\(job.key.id)|\(pageIndex)|\(maxPixelSize)"
+            do {
+                if let image = try await GalleryCoverLoader.shared.image(
+                    for: cacheKey,
+                    maxPixelSize: maxPixelSize,
+                    fetchData: { [downloadFiles] in
+                        try await downloadFiles.data(for: job.key, pageIndex: pageIndex)
+                    }
+                ) {
+                    return image
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // The local file may be incomplete or unavailable; use the
+                // persisted preview URL as a non-blocking fallback.
+            }
+        }
+        guard let fallbackPreviewURL else { return nil }
+        return try await coverImage(
+            for: job.key,
+            previewURL: fallbackPreviewURL,
+            prefersGalleryCache: true,
+            maxPixelSize: maxPixelSize
+        )
+    }
+
+    func coverImage(
+        for key: GalleryKey,
+        previewURL: URL?,
+        localPage: GalleryPageDescriptor?,
+        maxPixelSize: Int
+    ) async throws -> CGImage? {
+        if let localPage,
+           let data = await downloadedPageDataIfAvailable(for: localPage) {
+            let cacheKey = "local|\(key.id)|\(localPage.index)|\(maxPixelSize)"
+            if let image = try await GalleryCoverLoader.shared.image(
+                for: cacheKey,
+                maxPixelSize: maxPixelSize,
+                fetchData: { data }
+            ) {
+                return image
+            }
+        }
+        guard let previewURL else { return nil }
+        return try await coverImage(
+            for: key,
+            previewURL: previewURL,
+            prefersGalleryCache: true,
+            maxPixelSize: maxPixelSize
+        )
     }
 
     func refreshGalleryCacheUsage() async {
@@ -1159,8 +1355,7 @@ final class AppModel {
             for candidate in candidates {
                 let expectedPages = Set(0..<candidate.declaredPageCount)
                 if existingJobs[candidate.key] != nil,
-                   expectedPages.isSubset(of: existingLocalIndexes[candidate.key] ?? []),
-                   summaryByKey[candidate.key]?.metadataCompleteness?.isSummaryComplete == true {
+                   expectedPages.isSubset(of: existingLocalIndexes[candidate.key] ?? []) {
                     skippedDuplicateItemCount += 1
                 } else {
                     importCandidates.append(candidate)
@@ -1974,28 +2169,29 @@ final class AppModel {
         }
     }
 
-    /// Refreshes transferable metadata for every item in the download list.
-    /// Media files and download progress are not touched; only the gallery
-    /// cache and the in-memory download metadata are updated. This intentionally
-    /// uses only the site's batched gdata summaries; full detail and preview
-    /// pagination remain user-triggered operations.
-    func refreshDownloadedGalleryMetadata() async {
+    /// Refreshes downloaded-gallery metadata with a bounded gdata retry phase
+    /// followed by one lightweight detail-page fallback for still-incomplete
+    /// summaries. Media files and download progress are never touched.
+    @discardableResult
+    func refreshDownloadedGalleryMetadata(
+        mode: DownloadedGalleryMetadataRefreshMode = .all
+    ) async -> DownloadedGalleryMetadataRefreshResult {
         guard isRestoringDownloads == false else {
             errorMessage = String(localized: "正在恢复下载内容，请稍后再更新画廊信息。")
-            return
+            return .empty
         }
-        guard beginMigration(status: String(localized: "正在准备更新已下载画廊信息…")) else { return }
+        guard beginMigration(status: String(localized: "正在准备更新已下载画廊信息…")) else { return .empty }
         defer { finishMigration() }
 
         do {
             let jobs = await downloads.snapshot()
             guard jobs.isEmpty == false else {
                 importResultMessage = String(localized: "下载列表中没有需要更新的画廊。")
-                return
+                return .empty
             }
 
-            let keys = jobs.map(\.key)
-            let stored = try await persistence.gallerySyncSummaries(for: Set(keys))
+            let allKeys = jobs.map(\.key)
+            let stored = try await persistence.gallerySyncSummaries(for: Set(allKeys))
             var summariesByKey = Dictionary(
                 stored.map { ($0.key, $0) },
                 uniquingKeysWith: { first, _ in first }
@@ -2010,94 +2206,274 @@ final class AppModel {
                 )
             }
 
-            var refreshedKeys = Set<GalleryKey>()
-            let batchSize = 25
-            for start in stride(from: 0, to: keys.count, by: batchSize) {
-                try Task.checkCancellation()
-                let end = min(start + batchSize, keys.count)
-                let batchKeys = Array(keys[start..<end])
-                let batchKeySet = Set(batchKeys)
-                setMigrationProgress(
-                    status: String(format: String(localized: "正在获取画廊信息 %d/%d…"), end, keys.count),
-                    completed: start,
-                    total: keys.count,
-                    fraction: 0.05 + 0.9 * Double(start) / Double(keys.count)
+            let targetKeys = allKeys.filter { key in
+                guard let summary = summariesByKey[key] else { return true }
+                return mode == .all || summary.metadataCompleteness?.isSummaryComplete != true
+            }
+            guard targetKeys.isEmpty == false else {
+                let result = DownloadedGalleryMetadataRefreshResult(
+                    targetCount: 0,
+                    completeCount: 0,
+                    failedCount: 0,
+                    incompleteCount: 0,
+                    gdataRetriedCount: 0,
+                    detailCompletionCount: 0
                 )
-                let fetched: [GallerySummary]
-                do {
-                    fetched = try await api.gallerySummaries(for: batchKeys, site: site)
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    // A failed batch is a partial result, not a reason to stop
-                    // updating unrelated downloaded galleries.
-                    continue
-                }
-                var merged: [GallerySummary] = []
-                merged.reserveCapacity(fetched.count)
-                for fetchedSummary in fetched where batchKeySet.contains(fetchedSummary.key) {
-                    let completed = fetchedMetadataSummary(fetchedSummary)
-                    if let existing = summariesByKey[completed.key] {
-                        let mergedStable = GallerySnapshotMerger.merge(
-                            existing: StableGalleryMetadataSnapshot(summary: existing, sourceSite: site),
-                            incoming: StableGalleryMetadataSnapshot(summary: completed, sourceSite: site)
-                        )
-                        var mergedSummary = mergedStable.summary
-                        // gdata exposes the average rating, but not the other
-                        // account-scoped fields. Preserve those fields unless
-                        // this response actually supplied a replacement.
-                        mergedSummary.rating = completed.rating ?? existing.rating
-                        mergedSummary.ratingCount = completed.ratingCount ?? existing.ratingCount
-                        mergedSummary.favoriteCategory = completed.favoriteCategory ?? existing.favoriteCategory
-                        summariesByKey[mergedSummary.key] = mergedSummary
-                        merged.append(mergedSummary)
-                    } else {
-                        summariesByKey[completed.key] = completed
-                        merged.append(completed)
-                    }
-                    refreshedKeys.insert(completed.key)
-                }
-                if merged.isEmpty == false {
-                    try await persistence.upsert(merged, site: site)
-                    await downloads.mergeMetadata(merged)
-                    for summary in merged {
-                        var completeness = GalleryMetadataCompleteness()
-                        // gdata only supplies the average rating. Leave all
-                        // other dynamic fields not loaded so an existing
-                        // downloaded snapshot (especially comments) survives
-                        // this stable-metadata refresh.
-                        completeness.rating = summary.rating == nil ? .notLoaded : .loadedWithValue
-                        try? await persistence.saveDownloadedDynamicSnapshot(
-                            DownloadedGalleryDynamicSnapshot(
-                                key: summary.key,
-                                rating: summary.rating,
-                                capturedAt: Date(),
-                                completeness: completeness
-                            )
-                        )
-                    }
-                }
-                setMigrationProgress(
-                    status: String(format: String(localized: "已更新画廊信息 %d/%d…"), end, keys.count),
-                    completed: end,
-                    total: keys.count,
-                    fraction: 0.05 + 0.9 * Double(end) / Double(keys.count)
-                )
+                importResultMessage = refreshResultMessage(result)
+                return result
             }
 
+            var pendingKeys = targetKeys
+            var hadUsableResponse = Set<GalleryKey>()
+            var gdataRetriedKeys = Set<GalleryKey>()
+            var gdataBlocked = false
+
+            for round in 0...2 {
+                try Task.checkCancellation()
+                guard pendingKeys.isEmpty == false else { break }
+                if round > 0 {
+                    try await Task.sleep(for: .seconds(round))
+                    gdataRetriedKeys.formUnion(pendingKeys)
+                }
+
+                setMigrationProgress(
+                    status: String(format: String(localized: "正在获取画廊信息（第 %d 轮）…"), round + 1),
+                    completed: targetKeys.count - pendingKeys.count,
+                    total: targetKeys.count,
+                    fraction: 0.05 + 0.55 * Double(round) / 3
+                )
+
+                let fetched = try await fetchGallerySummaryResponses(for: pendingKeys)
+                var nextPending: [GalleryKey] = []
+                var successfulSummaries: [GallerySummary] = []
+                for response in fetched.responses {
+                    guard let incoming = response.summary else {
+                        nextPending.append(response.key)
+                        continue
+                    }
+                    hadUsableResponse.insert(response.key)
+                    let resolved = incoming.metadataCompleteness == nil
+                        ? fetchedMetadataSummary(incoming)
+                        : incoming
+                    let merged = mergeMetadataSummary(resolved, with: summariesByKey[response.key])
+                    summariesByKey[response.key] = merged
+                    successfulSummaries.append(merged)
+                    if merged.metadataCompleteness?.isSummaryComplete != true {
+                        nextPending.append(response.key)
+                    }
+                }
+
+                if successfulSummaries.isEmpty == false {
+                    let capturedAt = Date()
+                    try await persistence.saveDownloadedMetadata(
+                        stableSnapshots: successfulSummaries.map {
+                            StableGalleryMetadataSnapshot(
+                                summary: $0,
+                                sourceSite: site,
+                                capturedAt: capturedAt
+                            )
+                        },
+                        dynamicSnapshots: successfulSummaries.map { summary in
+                            var completeness = GalleryMetadataCompleteness()
+                            completeness.rating = summary.metadataCompleteness?.rating ?? .notLoaded
+                            completeness.ratingCount = summary.metadataCompleteness?.ratingCount ?? .notLoaded
+                            return DownloadedGalleryDynamicSnapshot(
+                                key: summary.key,
+                                rating: summary.rating,
+                                ratingCount: summary.ratingCount,
+                                capturedAt: capturedAt,
+                                completeness: completeness
+                            )
+                        }
+                    )
+                    await downloads.mergeMetadata(successfulSummaries)
+                    publishLocalLibraryChange()
+                }
+
+                pendingKeys = Array(Set(nextPending)).sorted { $0.id < $1.id }
+                gdataBlocked = fetched.blocked
+                if gdataBlocked { break }
+            }
+
+            var detailCompletionKeys = Set<GalleryKey>()
+            let detailKeys = pendingKeys.filter { summariesByKey[$0]?.metadataCompleteness?.isSummaryComplete != true }
+            if detailKeys.isEmpty == false, gdataBlocked == false {
+                let detailResults = try await fetchDetailMetadata(for: detailKeys)
+                var detailStable: [StableGalleryMetadataSnapshot] = []
+                var detailDynamic: [DownloadedGalleryDynamicSnapshot] = []
+                var detailSummaries: [GallerySummary] = []
+                for result in detailResults {
+                    guard let detail = result.detail else { continue }
+                    let merged = mergeMetadataSummary(detail.summary, with: summariesByKey[result.key])
+                    summariesByKey[result.key] = merged
+                    detailSummaries.append(merged)
+                    detailStable.append(
+                        StableGalleryMetadataSnapshot(
+                            detail: detail,
+                            sourceSite: site,
+                            includesPreviewPages: false
+                        )
+                    )
+                    detailDynamic.append(DownloadedGalleryDynamicSnapshot(detail: detail))
+                    detailCompletionKeys.insert(result.key)
+                }
+                if detailStable.isEmpty == false {
+                    try await persistence.saveDownloadedMetadata(
+                        stableSnapshots: detailStable,
+                        dynamicSnapshots: detailDynamic
+                    )
+                    await downloads.mergeMetadata(detailSummaries)
+                    publishLocalLibraryChange()
+                }
+            }
+
+            let completeKeys = Set(targetKeys.filter {
+                summariesByKey[$0]?.metadataCompleteness?.isSummaryComplete == true
+            })
+            let incompleteKeys = Set(targetKeys.filter { key in
+                guard completeKeys.contains(key) == false else { return false }
+                let summary = summariesByKey[key]
+                let hasStoredField = summary?.metadataCompleteness.map { completeness in
+                    [completeness.title, completeness.authors, completeness.tags, completeness.category,
+                     completeness.pageCount, completeness.postedAt, completeness.thumbnailURL, completeness.rating]
+                        .contains { $0.isLoaded }
+                } ?? false
+                return hadUsableResponse.contains(key) || hasStoredField
+            })
+            let failedKeys = Set(targetKeys).subtracting(completeKeys).subtracting(incompleteKeys)
+            let result = DownloadedGalleryMetadataRefreshResult(
+                targetCount: targetKeys.count,
+                completeCount: completeKeys.count,
+                failedCount: failedKeys.count,
+                incompleteCount: incompleteKeys.count,
+                gdataRetriedCount: gdataRetriedKeys.count,
+                detailCompletionCount: detailCompletionKeys.count
+            )
             setMigrationProgress(
                 status: String(localized: "已完成画廊信息更新"),
-                completed: keys.count,
-                total: keys.count,
+                completed: targetKeys.count,
+                total: targetKeys.count,
                 fraction: 1
             )
-            let totalRefreshed = min(keys.count, refreshedKeys.count)
-            importResultMessage = String(format: String(localized: "已更新 %d/%d 个下载项的画廊信息。"), totalRefreshed, keys.count)
+            importResultMessage = refreshResultMessage(result)
+            return result
         } catch is CancellationError {
-            return
+            return .empty
         } catch {
             errorMessage = error.localizedDescription
+            return .empty
         }
+    }
+
+    private struct GallerySummaryFetchResult: Sendable {
+        let responses: [GallerySummaryResponse]
+        let blocked: Bool
+    }
+
+    private func fetchGallerySummaryResponses(
+        for keys: [GalleryKey]
+    ) async throws -> GallerySummaryFetchResult {
+        var responses: [GallerySummaryResponse] = []
+        var blocked = false
+        for start in stride(from: 0, to: keys.count, by: 25) {
+            try Task.checkCancellation()
+            let end = min(start + 25, keys.count)
+            let batch = Array(keys[start..<end])
+            do {
+                let result = try await api.gallerySummaryBatch(for: batch, site: site)
+                responses.append(contentsOf: result.responses)
+                if result.hasBlockingResponse {
+                    blocked = true
+                    responses.append(contentsOf: keys[end...].map {
+                        GallerySummaryResponse(key: $0, status: .missingResponse)
+                    })
+                    break
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                let status: GallerySummaryResponseStatus = .invalidResponse(error.localizedDescription)
+                responses.append(contentsOf: batch.map {
+                    GallerySummaryResponse(key: $0, status: status)
+                })
+                if Self.shouldStopMetadataRefresh(for: error) {
+                    blocked = true
+                    responses.append(contentsOf: keys[end...].map {
+                        GallerySummaryResponse(key: $0, status: .missingResponse)
+                    })
+                    break
+                }
+            }
+        }
+        return GallerySummaryFetchResult(responses: responses, blocked: blocked)
+    }
+
+    private struct DetailMetadataFetchResult: Sendable {
+        let key: GalleryKey
+        let detail: GalleryDetail?
+    }
+
+    private func fetchDetailMetadata(
+        for keys: [GalleryKey]
+    ) async throws -> [DetailMetadataFetchResult] {
+        let scheduler = MetadataRequestScheduler()
+        return try await withThrowingTaskGroup(of: DetailMetadataFetchResult.self) { group in
+            for key in keys {
+                group.addTask { [api, site] in
+                    guard await scheduler.acquire() else {
+                        return DetailMetadataFetchResult(key: key, detail: nil)
+                    }
+                    do {
+                        let detail = try await api.detailMetadata(for: key, site: site)
+                        await scheduler.release()
+                        return DetailMetadataFetchResult(key: key, detail: detail)
+                    } catch is CancellationError {
+                        await scheduler.release()
+                        throw CancellationError()
+                    } catch {
+                        if Self.shouldStopMetadataRefresh(for: error) {
+                            await scheduler.stop()
+                        }
+                        await scheduler.release()
+                        return DetailMetadataFetchResult(key: key, detail: nil)
+                    }
+                }
+            }
+
+            var results: [DetailMetadataFetchResult] = []
+            for try await result in group {
+                results.append(result)
+            }
+            return results
+        }
+    }
+
+    nonisolated private static func shouldStopMetadataRefresh(for error: Error) -> Bool {
+        if let error = error as? EHError {
+            switch error {
+            case .authenticationRequired, .rateLimited, .bandwidthLimited, .exHentaiAccessDenied:
+                return true
+            default:
+                break
+            }
+        }
+        let message = error.localizedDescription.localizedLowercase
+        return message.contains("rate")
+            || message.contains("limit")
+            || message.contains("bandwidth")
+            || message.contains("login")
+            || message.contains("auth")
+            || message.contains("access denied")
+    }
+
+    private func refreshResultMessage(_ result: DownloadedGalleryMetadataRefreshResult) -> String {
+        String(format: String(localized: "目标 %d，完整成功 %d，失败 %d，仍不完整 %d，gdata 重试 %d，详情补全 %d。"),
+               result.targetCount,
+               result.completeCount,
+               result.failedCount,
+               result.incompleteCount,
+               result.gdataRetriedCount,
+               result.detailCompletionCount)
     }
 
     private func importGallerySync(from archiveURL: URL) async -> GallerySyncImportResult? {
@@ -2331,36 +2707,54 @@ final class AppModel {
 
         let incomingStatus = incoming.metadataCompleteness ?? GalleryMetadataCompleteness()
         let existingStatus = existing.metadataCompleteness ?? GalleryMetadataCompleteness()
-        var merged = incoming
-        if incomingStatus.title.isLoaded == false, existingStatus.title.isLoaded {
-            merged.title = existing.title
+        let mergedStable = GallerySnapshotMerger.merge(
+            existing: StableGalleryMetadataSnapshot(summary: existing, sourceSite: site),
+            incoming: StableGalleryMetadataSnapshot(summary: incoming, sourceSite: site)
+        )
+        var merged = mergedStable.summary
+        var mergedCompleteness = mergedStable.completeness
+
+        func mergeDynamicField<T>(
+            _ value: inout T?,
+            _ state: inout GalleryFieldState,
+            incomingValue: T?,
+            incomingState: GalleryFieldState,
+            existingValue: T?,
+            existingState: GalleryFieldState
+        ) {
+            if incomingState.isLoaded {
+                value = incomingState.hasValue ? incomingValue : nil
+                state = incomingState
+            } else {
+                value = existingValue
+                state = existingState
+            }
         }
-        if incomingStatus.japaneseTitle.isLoaded == false, existingStatus.japaneseTitle.isLoaded {
-            merged.japaneseTitle = existing.japaneseTitle
-        }
-        if incomingStatus.tags.isLoaded == false, existingStatus.tags.isLoaded {
-            merged.tags = existing.tags
-        }
-        var mergedCompleteness = incomingStatus
-        if incomingStatus.title.isLoaded == false { mergedCompleteness.title = existingStatus.title }
-        if incomingStatus.japaneseTitle.isLoaded == false { mergedCompleteness.japaneseTitle = existingStatus.japaneseTitle }
-        if incomingStatus.authors.isLoaded == false { mergedCompleteness.authors = existingStatus.authors }
-        if incomingStatus.uploader.isLoaded == false { mergedCompleteness.uploader = existingStatus.uploader }
-        if incomingStatus.tags.isLoaded == false { mergedCompleteness.tags = existingStatus.tags }
-        if incomingStatus.category.isLoaded == false { mergedCompleteness.category = existingStatus.category }
-        if incomingStatus.pageCount.isLoaded == false { mergedCompleteness.pageCount = existingStatus.pageCount }
-        if incomingStatus.postedAt.isLoaded == false { mergedCompleteness.postedAt = existingStatus.postedAt }
-        if incomingStatus.thumbnailURL.isLoaded == false { mergedCompleteness.thumbnailURL = existingStatus.thumbnailURL }
-        if incomingStatus.rating.isLoaded == false { mergedCompleteness.rating = existingStatus.rating }
-        if incomingStatus.ratingCount.isLoaded == false { mergedCompleteness.ratingCount = existingStatus.ratingCount }
-        if incomingStatus.favorite.isLoaded == false { mergedCompleteness.favorite = existingStatus.favorite }
-        if incomingStatus.comments.isLoaded == false { mergedCompleteness.comments = existingStatus.comments }
-        if let existingPostedAt = existing.postedAt, incoming.postedAt == nil {
-            merged.postedAt = existingPostedAt
-            mergedCompleteness.postedAt = existingStatus.postedAt.isLoaded
-                ? existingStatus.postedAt
-                : .loadedWithValue
-        }
+
+        mergeDynamicField(
+            &merged.rating,
+            &mergedCompleteness.rating,
+            incomingValue: incoming.rating,
+            incomingState: incomingStatus.rating,
+            existingValue: existing.rating,
+            existingState: existingStatus.rating
+        )
+        mergeDynamicField(
+            &merged.ratingCount,
+            &mergedCompleteness.ratingCount,
+            incomingValue: incoming.ratingCount,
+            incomingState: incomingStatus.ratingCount,
+            existingValue: existing.ratingCount,
+            existingState: existingStatus.ratingCount
+        )
+        mergeDynamicField(
+            &merged.favoriteCategory,
+            &mergedCompleteness.favorite,
+            incomingValue: incoming.favoriteCategory,
+            incomingState: incomingStatus.favorite,
+            existingValue: existing.favoriteCategory,
+            existingState: existingStatus.favorite
+        )
         merged.metadataCompleteness = mergedCompleteness
         return normalizedMetadataSummary(merged)
     }

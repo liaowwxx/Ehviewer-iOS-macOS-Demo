@@ -73,6 +73,8 @@
 		EHB00000000000000000055 /* CHANGELOG.md in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000055 /* CHANGELOG.md */; };
 		EHB00000000000000000056 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000056 /* README.md */; };
 		EHB00000000000000000057 /* DocumentationWebsite.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000057 /* DocumentationWebsite.swift */; };
+		EHB00000000000000000058 /* GalleryCoverLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000058 /* GalleryCoverLoader.swift */; };
+		EHB00000000000000000059 /* AppDataResetter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000059 /* AppDataResetter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -174,6 +176,8 @@
 		EHF00000000000000000055 /* CHANGELOG.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = CHANGELOG.md; sourceTree = "<group>"; };
 		EHF00000000000000000056 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = text; path = README.md; sourceTree = "<group>"; };
 		EHF00000000000000000057 /* DocumentationWebsite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationWebsite.swift; sourceTree = "<group>"; };
+		EHF00000000000000000058 /* GalleryCoverLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCoverLoader.swift; sourceTree = "<group>"; };
+		EHF00000000000000000059 /* AppDataResetter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataResetter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -234,6 +238,8 @@
 			children = (
 				EHF00000000000000000025 /* AdvancedSearchView.swift */,
 				EHF00000000000000000001 /* AppModel.swift */,
+				EHF00000000000000000058 /* GalleryCoverLoader.swift */,
+				EHF00000000000000000059 /* AppDataResetter.swift */,
 				EHF00000000000000000038 /* AppTheme.swift */,
 				EHF00000000000000000002 /* BrowseView.swift */,
 				EHF00000000000000000033 /* BrowseSearchSuggestions.swift */,
@@ -456,6 +462,8 @@
 			files = (
 				EHB00000000000000000025 /* AdvancedSearchView.swift in Sources */,
 				EHB00000000000000000001 /* AppModel.swift in Sources */,
+				EHB00000000000000000058 /* GalleryCoverLoader.swift in Sources */,
+				EHB00000000000000000059 /* AppDataResetter.swift in Sources */,
 				EHB00000000000000000038 /* AppTheme.swift in Sources */,
 				EHB00000000000000000002 /* BrowseView.swift in Sources */,
 				EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */,
@@ -564,7 +572,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -593,7 +601,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_PREVIEWS = YES;
@@ -655,7 +663,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;
@@ -675,7 +683,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;

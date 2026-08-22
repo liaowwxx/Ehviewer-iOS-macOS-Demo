@@ -25,8 +25,12 @@ public protocol EHAPI: Sendable {
     func list(query: GalleryListQuery) async throws -> GalleryListPage
     func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage
     func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail
+    /// Fetches only the gallery's main detail page. Implementations must not
+    /// request preview pagination, images, torrents or archive metadata.
+    func detailMetadata(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail
     func detailStream(for key: GalleryKey, site: SiteMode) -> AsyncThrowingStream<GalleryDetail, Error>
     func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary]
+    func gallerySummaryBatch(for keys: [GalleryKey], site: SiteMode) async throws -> GallerySummaryBatchResult
     func pageImage(for descriptor: GalleryPageDescriptor, site: SiteMode) async throws -> GalleryPageImage
     func imageData(for image: GalleryPageImage, resolution: ImageResolution) async throws -> Data
     func favorites(query: GalleryListQuery) async throws -> GalleryListPage
@@ -68,6 +72,10 @@ public extension EHAPI {
         return stream
     }
 
+    func detailMetadata(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
+        try await detail(for: key, site: site)
+    }
+
     func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary] {
         var summaries: [GallerySummary] = []
         for key in keys {
@@ -75,6 +83,20 @@ public extension EHAPI {
             summaries.append(try await detail(for: key, site: site).summary)
         }
         return summaries
+    }
+
+    func gallerySummaryBatch(for keys: [GalleryKey], site: SiteMode) async throws -> GallerySummaryBatchResult {
+        let summaries = try await gallerySummaries(for: keys, site: site)
+        let summariesByKey = Dictionary(uniqueKeysWithValues: summaries.map { ($0.key, $0) })
+        let uniqueKeys = Array(Set(keys)).sorted { $0.id < $1.id }
+        return GallerySummaryBatchResult(
+            responses: uniqueKeys.map { key in
+                if let summary = summariesByKey[key] {
+                    return GallerySummaryResponse(key: key, summary: summary, status: .success)
+                }
+                return GallerySummaryResponse(key: key, status: .missingResponse)
+            }
+        )
     }
 
     func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage {
@@ -263,6 +285,13 @@ public struct EHClient: EHAPI, Sendable {
         return finalDetail
     }
 
+    public func detailMetadata(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
+        let request = try SiteRequestBuilder(site: site).galleryRequest(key: key)
+        let (data, response) = try await authorized(request)
+        try validate(response)
+        return try parser.parseDetailMetadata(data: data, key: key, site: site)
+    }
+
     public func detailStream(for key: GalleryKey, site: SiteMode) -> AsyncThrowingStream<GalleryDetail, Error> {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: GalleryDetail.self)
         let task = Task { [self] in
@@ -334,29 +363,51 @@ public struct EHClient: EHAPI, Sendable {
             try Task.checkCancellation()
             let end = min(start + requestSize, keys.count)
             let batch = Array(keys[start..<end])
-            let url = try makeURL(site: site, path: "/api.php", query: [])
-            let gidList: [[Any]] = batch.map { key in
-                [NSNumber(value: key.gid), key.token]
-            }
-            let payload: [String: Any] = [
-                "method": "gdata",
-                "gidlist": gidList,
-                "namespace": 1
-            ]
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("https://\(site.host)/", forHTTPHeaderField: "Referer")
-            request.setValue("https://\(site.host)", forHTTPHeaderField: "Origin")
-            request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
-
-            let (data, response) = try await authorized(request)
-            try validate(response)
-            summaries.append(contentsOf: try GalleryAPIParser().parse(data: data, site: site))
+            let result = try await gallerySummaryBatch(for: batch, site: site)
+            summaries.append(contentsOf: result.summaries)
         }
         return summaries
+    }
+
+    public func gallerySummaryBatch(for keys: [GalleryKey], site: SiteMode) async throws -> GallerySummaryBatchResult {
+        guard keys.isEmpty == false else { return GallerySummaryBatchResult(responses: []) }
+        if keys.count > 25 {
+            var responses: [GallerySummaryResponse] = []
+            for start in stride(from: 0, to: keys.count, by: 25) {
+                let end = min(start + 25, keys.count)
+                responses.append(contentsOf: try await gallerySummaryBatch(
+                    for: Array(keys[start..<end]),
+                    site: site
+                ).responses)
+            }
+            return GallerySummaryBatchResult(responses: responses)
+        }
+
+        let url = try makeURL(site: site, path: "/api.php", query: [])
+        let gidList: [[Any]] = keys.map { key in
+            [NSNumber(value: key.gid), key.token]
+        }
+        let payload: [String: Any] = [
+            "method": "gdata",
+            "gidlist": gidList,
+            "namespace": 1
+        ]
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("https://\(site.host)/", forHTTPHeaderField: "Referer")
+        request.setValue("https://\(site.host)", forHTTPHeaderField: "Origin")
+        request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await authorized(request)
+        try validate(response)
+        return try GalleryAPIParser().parseBatch(
+            data: data,
+            requestedKeys: Set(keys),
+            site: site
+        )
     }
 
     private static let maximumPreviewPageConcurrency = 4
@@ -449,8 +500,10 @@ public struct EHClient: EHAPI, Sendable {
     }
 
     public func comments(for key: GalleryKey, site: SiteMode) async throws -> [GalleryComment] {
-        var iterator = detailStream(for: key, site: site).makeAsyncIterator()
-        return try await iterator.next()?.comments ?? []
+        let request = try SiteRequestBuilder(site: site).galleryRequest(key: key)
+        let (data, response) = try await authorized(request)
+        try validate(response)
+        return try parser.parseComments(data: data)
     }
 
     public func submitComment(for key: GalleryKey, site: SiteMode, body: String, editing commentID: String? = nil) async throws -> [GalleryComment] {
@@ -471,7 +524,7 @@ public struct EHClient: EHAPI, Sendable {
         if let message = try? parseSiteError(data), message.isEmpty == false {
             throw EHError.networkFailed(message)
         }
-        return try parser.parseDetail(data: data, key: key, site: site).comments
+        return try parser.parseComments(data: data)
     }
 
     public func voteComment(for key: GalleryKey, site: SiteMode, commentID: String, vote: Int, apiUID: Int64, apiKey: String) async throws -> CommentVoteResult {

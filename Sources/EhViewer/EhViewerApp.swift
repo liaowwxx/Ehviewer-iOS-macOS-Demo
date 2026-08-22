@@ -46,6 +46,8 @@ struct EhViewerApp: App {
     @State private var modelContainer: ModelContainer?
     @State private var model: AppModel?
     @State private var startupError: String?
+    @State private var isResettingStore = false
+    @State private var resetError: String?
 
     init() {
         let container: ModelContainer?
@@ -77,7 +79,10 @@ struct EhViewerApp: App {
             } else {
                 PersistenceRecoveryView(
                     errorMessage: startupError ?? String(localized: "未知的本地数据存储错误。"),
-                    retry: retryStore
+                    retry: retryStore,
+                    reset: resetStore,
+                    isResetting: isResettingStore,
+                    resetError: resetError
                 )
             }
         }
@@ -118,8 +123,24 @@ struct EhViewerApp: App {
             modelContainer = container
             model = AppModel(container: container)
             startupError = nil
+            resetError = nil
         } catch {
             startupError = error.localizedDescription
+        }
+    }
+
+    private func resetStore() {
+        guard isResettingStore == false else { return }
+        isResettingStore = true
+        resetError = nil
+        Task {
+            do {
+                try await AppDataResetter.removeAll()
+                retryStore()
+            } catch {
+                resetError = error.localizedDescription
+            }
+            isResettingStore = false
         }
     }
 }
@@ -127,6 +148,10 @@ struct EhViewerApp: App {
 private struct PersistenceRecoveryView: View {
     let errorMessage: String
     let retry: () -> Void
+    let reset: () -> Void
+    let isResetting: Bool
+    let resetError: String?
+    @State private var showingResetConfirmation = false
 
     var body: some View {
         ContentUnavailableView {
@@ -139,9 +164,35 @@ private struct PersistenceRecoveryView: View {
                     .textSelection(.enabled)
             }
         } actions: {
-            Button("重试", systemImage: "arrow.clockwise", action: retry)
-                .buttonStyle(.borderedProminent)
+            VStack(spacing: 12) {
+                Button("重试", systemImage: "arrow.clockwise", action: retry)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isResetting)
+                Button("清除全部数据", systemImage: "trash", role: .destructive) {
+                    showingResetConfirmation = true
+                }
+                .disabled(isResetting)
+                if isResetting {
+                    ProgressView("正在清除本地数据…")
+                }
+                if let resetError {
+                    Text(resetError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
+            }
         }
         .padding()
+        .confirmationDialog(
+            "清除全部本地数据？",
+            isPresented: $showingResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("清除缓存和已下载画廊", role: .destructive, action: reset)
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将删除 SwiftData 本地数据库、画廊缓存、缩略图缓存和已下载画廊文件。操作不可撤销；登录 Cookie 和偏好设置会保留。")
+        }
     }
 }

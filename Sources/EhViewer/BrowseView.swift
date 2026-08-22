@@ -18,7 +18,6 @@
 
 import SwiftUI
 import Foundation
-import ImageIO
 import EHDomain
 import EHDownloads
 
@@ -343,16 +342,13 @@ private struct BrowseLoadID: Hashable {
 
 struct GalleryCard: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let gallery: GallerySummary
     var supplementalText: String?
     var showsTags = false
     var localJob: DownloadJob?
     var localMediaResolved = true
     var prefersGalleryCache = false
-    var metadataIsLoading = false
     var showsBackground = true
-    @State private var titleHeight: CGFloat = 0
 
     var body: some View {
         HStack(spacing: 10) {
@@ -376,24 +372,12 @@ struct GalleryCard: View {
                 Text(displayTitle)
                     .font(.headline)
                     .lineLimit(2)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.height
-                    } action: { newHeight in
-                        guard abs(titleHeight - newHeight) > 0.5 else { return }
-                        titleHeight = newHeight
-                    }
-                Group {
-                    if metadataIsLoading {
-                        metadataPlaceholder(width: 112)
-                    } else if let authorText {
-                        Label(authorText, systemImage: "person")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                if let authorText {
+                    Label(authorText, systemImage: "person")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .transition(.opacity)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: metadataIsLoading)
                 if let supplementalText {
                     Text(supplementalText)
                         .font(.caption)
@@ -402,13 +386,7 @@ struct GalleryCard: View {
                 }
                 if showsTags {
                     Group {
-                        if metadataIsLoading {
-                            HStack(spacing: 5) {
-                                metadataPlaceholder(width: 58)
-                                metadataPlaceholder(width: 76)
-                                metadataPlaceholder(width: 46)
-                            }
-                        } else if gallery.tags.isEmpty == false {
+                        if gallery.tags.isEmpty == false {
                             TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
                                 ForEach(Array(gallery.tags.enumerated()), id: \.offset) { item in
                                     GalleryTagChip(title: model.displayTag(item.element))
@@ -417,57 +395,41 @@ struct GalleryCard: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .frame(height: tagHeight, alignment: .topLeading)
+                    .frame(height: 48, alignment: .topLeading)
                     .clipped()
-                    .transition(.opacity)
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: metadataIsLoading)
                 }
-                Group {
-                    if metadataIsLoading {
-                        HStack(spacing: 6) {
-                            metadataPlaceholder(width: 76)
-                            metadataPlaceholder(width: 54)
-                            Spacer(minLength: 0)
-                            metadataPlaceholder(width: 66)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        HStack(spacing: 6) {
-                            if let category = gallery.category {
-                                CategoryBadge(name: category)
-                            }
-                            if let language = gallery.simpleLanguage {
-                                Text(language)
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.quaternary, in: Capsule())
-                                    .accessibilityLabel("语言 \(language)")
-                            }
-                            if let pageCount = gallery.pageCount { Text("\(pageCount) 页") }
-                            if let favoriteCategory = gallery.favoriteCategory, favoriteCategory != 0 {
-                                Image(systemName: "heart.fill")
-                                    .foregroundStyle(.pink)
-                                    .accessibilityLabel("已收藏")
-                            }
-                            Spacer(minLength: 0)
-                            if let postedAt = gallery.postedAt {
-                                Text(postedAt, format: .relative(presentation: .named))
-                                    .lineLimit(1)
-                            }
-                            if let rating = gallery.rating {
-                                Text(String(format: "%.1f", rating))
-                                    .lineLimit(1)
-                                    .fixedSize(horizontal: true, vertical: false)
-                            }
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if let category = gallery.category {
+                        CategoryBadge(name: category)
                     }
-                }
-                .transition(.opacity)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.24), value: metadataIsLoading)
+                    if let language = gallery.simpleLanguage {
+                        Text(language)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                            .accessibilityLabel("语言 \(language)")
+                    }
+                    if let pageCount = gallery.pageCount { Text("\(pageCount) 页") }
+                    if let favoriteCategory = gallery.favoriteCategory, favoriteCategory != 0 {
+                        Image(systemName: "heart.fill")
+                            .foregroundStyle(.pink)
+                            .accessibilityLabel("已收藏")
+                    }
+                    Spacer(minLength: 0)
+                    if let postedAt = gallery.postedAt {
+                        Text(postedAt, format: .relative(presentation: .named))
+                            .lineLimit(1)
+                    }
+                    if let rating = gallery.rating {
+                        Text(String(format: "%.1f", rating))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
@@ -490,17 +452,6 @@ struct GalleryCard: View {
         let tags = gallery.preferredAuthorTags
         guard tags.isEmpty == false else { return nil }
         return tags.map(model.displayTag).joined(separator: ", ")
-    }
-
-    private var tagHeight: CGFloat {
-        titleHeight > 30 ? 22 : 48
-    }
-
-    private func metadataPlaceholder(width: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 4)
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: width, height: 13)
-            .accessibilityHidden(true)
     }
 
     private var accessibilityTitle: String {
@@ -547,12 +498,12 @@ private struct GalleryThumbnail: View {
     let key: GalleryKey
     var isLocalMediaResolved = true
     var prefersGalleryCache = false
-    @State private var image: Image?
+    @State private var image: CGImage?
 
     var body: some View {
         Group {
             if let image {
-                image
+                Image(decorative: image, scale: 1, orientation: .up)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -566,20 +517,12 @@ private struct GalleryThumbnail: View {
             guard isLocalMediaResolved else { return }
             guard let url else { return }
             do {
-                let page = GalleryPageImage(galleryKey: key, index: 0, imageURL: url)
-                let data: Data
-                if prefersGalleryCache {
-                    data = try await model.galleryImageData(for: page)
-                } else {
-                    data = try await model.imageData(for: page)
-                }
-                guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                      let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                          kCGImageSourceCreateThumbnailFromImageAlways: true,
-                          kCGImageSourceCreateThumbnailWithTransform: true,
-                          kCGImageSourceThumbnailMaxPixelSize: 500
-                      ] as CFDictionary) else { return }
-                image = Image(decorative: cgImage, scale: 1, orientation: .up)
+                image = try await model.coverImage(
+                    for: key,
+                    previewURL: url,
+                    prefersGalleryCache: prefersGalleryCache,
+                    maxPixelSize: 500
+                )
             } catch is CancellationError {
                 return
             } catch {

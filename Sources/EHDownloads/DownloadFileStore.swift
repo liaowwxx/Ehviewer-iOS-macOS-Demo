@@ -198,9 +198,11 @@ public actor DownloadFileStore {
         return available >= minimumFreeBytes
     }
 
-    private static var defaultRoot: URL {
+    public static var defaultRootURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent("EhViewer/Downloads", isDirectory: true)
     }
+
+    private static var defaultRoot: URL { defaultRootURL }
 }

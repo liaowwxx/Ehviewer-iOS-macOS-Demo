@@ -246,9 +246,11 @@ public actor GalleryCacheStore {
         try? url.setResourceValues(values)
     }
 
-    private static var defaultRoot: URL {
+    public static var defaultRootURL: URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent("EhViewer/GalleryCache", isDirectory: true)
     }
+
+    private static var defaultRoot: URL { defaultRootURL }
 }

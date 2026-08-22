@@ -93,17 +93,54 @@ public struct GalleryHTMLParser: Sendable {
     }
 
     public func parseDetail(data: Data, key: GalleryKey, site: SiteMode) throws -> GalleryDetail {
+        try parseDetail(data: data, key: key, site: site, includesPreviewPages: true)
+    }
+
+    /// Parses only stable/dynamic metadata from the main gallery page. This
+    /// intentionally skips preview descriptors, comments, torrent links and
+    /// archive links so metadata repair never fans out into image-related
+    /// requests or large preview parsing work.
+    public func parseDetailMetadata(data: Data, key: GalleryKey, site: SiteMode) throws -> GalleryDetail {
+        try parseDetail(data: data, key: key, site: site, includesPreviewPages: false)
+    }
+
+    /// Parses only the comments embedded in the main gallery page. Comment
+    /// loading must not depend on preview pagination being present or valid.
+    public func parseComments(data: Data) throws -> [GalleryComment] {
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw EHError.parsingFailed(String(localized: "页面不是 UTF-8"))
+        }
+        do {
+            return try parseComments(from: SwiftSoup.parse(html))
+        } catch let error as EHError {
+            throw error
+        } catch {
+            throw EHError.parsingFailed(error.localizedDescription)
+        }
+    }
+
+    private func parseDetail(
+        data: Data,
+        key: GalleryKey,
+        site: SiteMode,
+        includesPreviewPages: Bool
+    ) throws -> GalleryDetail {
         guard let html = String(data: data, encoding: .utf8) else {
             throw EHError.parsingFailed(String(localized: "页面不是 UTF-8"))
         }
         do {
             let document = try SwiftSoup.parse(html)
-            let title = try document.select("#gn, h1#gn").first()?.text() ?? "Gallery \(key.gid)"
-            let japaneseTitle = try document.select("#gj").first()?.text()
-            let category = try document.select("#gdc, #gdc .cs").first()?.text()
+            let titleRaw = try document.select("#gn, h1#gn").first().map { try $0.text() }
+            let title = Self.nilIfBlank(titleRaw) ?? ""
+            let japaneseTitleRaw = try document.select("#gj").first()?.text()
+            let japaneseTitle = Self.nilIfBlank(japaneseTitleRaw)
+            let categoryRaw = try document.select("#gdc, #gdc .cs").first()?.text()
+            let category = Self.nilIfBlank(categoryRaw)
             let pageCount = try parsePageCount(document)
             let tags = try parseTagGroups(from: document)
+            let taglistExists = try document.select("#taglist").isEmpty == false
             let uploaderElement = try document.select("#gdn a").first()
+            let uploaderRaw = try uploaderElement?.text()
             let uploader: String?
             if let uploaderElement {
                 uploader = Self.nilIfBlank(try uploaderElement.text())
@@ -113,6 +150,7 @@ public struct GalleryHTMLParser: Sendable {
             let info = try parseInfoRows(from: document)
             let thumbnailElement = try document.select("#gd1 img, #gd1 div, .gdtm img").first()
             let thumbnailURL: URL?
+            let thumbnailState: GalleryFieldState
             if let thumbnailElement {
                 let src = try thumbnailElement.attr("src")
                 if let directURL = URL(string: src) {
@@ -120,19 +158,25 @@ public struct GalleryHTMLParser: Sendable {
                 } else {
                     thumbnailURL = Self.urlInStyle(try thumbnailElement.attr("style"))
                 }
+                thumbnailState = thumbnailURL == nil
+                    ? (src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .loadedEmpty : .notLoaded)
+                    : .loadedWithValue
             } else {
                 thumbnailURL = nil
+                thumbnailState = .notLoaded
             }
-            let rating = try document.select("#rating_label").first()?.text()
+            let ratingRaw = try document.select("#rating_label").first()?.text()
+            let rating = ratingRaw?
                 .split(separator: ":", maxSplits: 1)
                 .last
                 .flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
-            let ratingCount = Int(try document.select("#rating_count").first()?.text().trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+            let ratingCountRaw = try document.select("#rating_count").first()?.text()
+            let ratingCount = Int(ratingCountRaw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             let favoriteName = try document.select("#gdf").first()?.text().trimmingCharacters(in: .whitespacesAndNewlines)
-            let api = Self.parseAPIInfo(from: html)
-            let comments = try parseComments(from: document)
-            let torrent = Self.parseTorrent(from: html, site: site)
-            let archiveURL = Self.parseArchiveURL(from: html, site: site)
+            let api = includesPreviewPages ? Self.parseAPIInfo(from: html) : (uid: nil, key: nil)
+            let comments = includesPreviewPages ? try parseComments(from: document) : []
+            let torrent = includesPreviewPages ? Self.parseTorrent(from: html, site: site) : (url: nil, count: nil)
+            let archiveURL = includesPreviewPages ? Self.parseArchiveURL(from: html, site: site) : nil
             let summary = GallerySummary(
                 key: key,
                 title: title,
@@ -146,12 +190,30 @@ public struct GalleryHTMLParser: Sendable {
                 uploader: uploader,
                 tags: tags,
                 metadataCompleteness: GalleryMetadataCompleteness(
-                    title: title.isEmpty == false,
-                    japaneseTitle: japaneseTitle?.isEmpty == false,
-                    tags: true
+                    title: Self.fieldState(for: titleRaw),
+                    japaneseTitle: Self.fieldState(for: japaneseTitleRaw),
+                    authors: tags.isEmpty
+                        ? (taglistExists ? .loadedEmpty : .notLoaded)
+                        : (StableGalleryMetadataSnapshot.authors(from: tags).isEmpty ? .loadedEmpty : .loadedWithValue),
+                    uploader: Self.fieldState(for: uploaderRaw),
+                    tags: tags.isEmpty ? (taglistExists ? .loadedEmpty : .notLoaded) : .loadedWithValue,
+                    category: Self.fieldState(for: categoryRaw),
+                    language: Self.fieldState(for: info.language),
+                    pageCount: pageCount == nil ? .notLoaded : .loadedWithValue,
+                    postedAt: info.postedAt == nil ? .notLoaded : .loadedWithValue,
+                    thumbnailURL: thumbnailState,
+                    fileSize: Self.fieldState(for: info.fileSize),
+                    externalURL: .loadedWithValue,
+                    pages: includesPreviewPages ? .loadedWithValue : .notLoaded,
+                    rating: Self.parsedFieldState(raw: ratingRaw, value: rating),
+                    ratingCount: Self.parsedFieldState(raw: ratingCountRaw, value: ratingCount),
+                    favorite: includesPreviewPages ? .loadedWithValue : .notLoaded,
+                    comments: includesPreviewPages ? (comments.isEmpty ? .loadedEmpty : .loadedWithValue) : .notLoaded
                 )
             )
-            let previewPage = try parsePreviewPage(from: document, rawHTML: html, key: key, site: site)
+            let previewPage = includesPreviewPages
+                ? try parsePreviewPage(from: document, rawHTML: html, key: key, site: site)
+                : PreviewPage(pages: [], pageCount: nil)
             let externalURL = URL(string: "https://\(site.host)/g/\(key.gid)/\(key.token)/")
             return GalleryDetail(
                 summary: summary,
@@ -631,6 +693,21 @@ public struct GalleryHTMLParser: Sendable {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func fieldState(for value: String?) -> GalleryFieldState {
+        guard let value else { return .notLoaded }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? .loadedEmpty
+            : .loadedWithValue
+    }
+
+    private static func parsedFieldState<T>(raw: String?, value: T?) -> GalleryFieldState {
+        guard let raw else { return .notLoaded }
+        guard raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return .loadedEmpty
+        }
+        return value == nil ? .notLoaded : .loadedWithValue
     }
 
     private static func pageIndex(in url: URL) -> Int? {

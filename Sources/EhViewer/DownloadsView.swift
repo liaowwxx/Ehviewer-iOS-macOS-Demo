@@ -17,7 +17,6 @@
  */
 
 import SwiftUI
-import ImageIO
 import EHDomain
 import EHDownloads
 
@@ -507,14 +506,14 @@ struct DownloadsView: View {
               submittedSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return "local-search-disabled"
         }
-        return pageJobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
+        return "revision=\(model.localLibraryRevision)|" + pageJobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
             .sorted()
             .joined(separator: "\u{1E}")
     }
 
     private var downloadGallerySummaryTaskID: String {
         guard needsDownloadGallerySummaries else { return "download-summary-disabled" }
-        return pageJobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
+        return "revision=\(model.localLibraryRevision)|" + pageJobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
             .sorted()
             .joined(separator: "\u{1E}")
             + "|sort=\(effectiveSortOrder.rawValue)|categories=\(model.downloadCategoryFilter.map(\.rawValue).sorted().joined(separator: ","))"
@@ -752,6 +751,7 @@ struct DownloadsView: View {
         if page == .local {
             LocalDownloadsList(
                 jobs: visibleJobs,
+                revision: model.localLibraryRevision,
                 isSelectionMode: isSelectionMode,
                 selectedKeys: selectedKeys,
                 bulkRemovalInProgress: bulkRemovalProgress != nil,
@@ -1154,9 +1154,24 @@ private struct DownloadSearchSuggestionPanel: View {
     }
 }
 
+/// Retained as a small pure range helper for callers that still use the
+/// legacy prefetch policy. The local list itself no longer schedules work
+/// from visible indexes.
+struct LocalGalleryPrefetchWindow {
+    static func range(visibleIndexes: [Int], itemCount: Int) -> Range<Int>? {
+        guard let first = visibleIndexes.min(),
+              let last = visibleIndexes.max(),
+              itemCount > 0 else { return nil }
+        let lower = max(0, first - 50)
+        let upper = min(itemCount, last + 51)
+        return lower..<upper
+    }
+}
+
 private struct LocalDownloadsList: View {
     @Environment(AppModel.self) private var model
     let jobs: [DownloadJob]
+    let revision: Int
     let isSelectionMode: Bool
     let selectedKeys: Set<GalleryKey>
     let bulkRemovalInProgress: Bool
@@ -1167,14 +1182,16 @@ private struct LocalDownloadsList: View {
     let removeImmediately: (DownloadJob) -> Void
 
     @State private var localSummariesByKey: [GalleryKey: GallerySummary] = [:]
-    @State private var localMetadataLoadedKeys: Set<GalleryKey> = []
-    @State private var visibleLocalIndexes: [GalleryKey: Int] = [:]
 
     var body: some View {
         scrollContent
-            .task(id: localSummaryTaskID) {
+            .task(id: localJobsTaskID) {
                 await loadLocalSummaries()
             }
+    }
+
+    private var localJobsTaskID: String {
+        "\(revision)-" + jobs.map { $0.key.id }.sorted().joined(separator: "|")
     }
 
     @ViewBuilder
@@ -1182,8 +1199,8 @@ private struct LocalDownloadsList: View {
 #if os(macOS)
         ScrollView {
             LazyVStack(spacing: 6) {
-                ForEach(Array(jobs.enumerated()), id: \.element.key) { index, job in
-                    localCard(for: job, index: index)
+                ForEach(jobs) { job in
+                    localCard(for: job)
                 }
             }
             .padding(.vertical, 6)
@@ -1191,8 +1208,8 @@ private struct LocalDownloadsList: View {
         }
         .background(.secondary.opacity(0.08))
 #else
-        List(Array(jobs.enumerated()), id: \.element.key) { index, job in
-            localCard(for: job, index: index)
+        List(jobs) { job in
+            localCard(for: job)
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
@@ -1204,11 +1221,10 @@ private struct LocalDownloadsList: View {
     }
 
     @ViewBuilder
-    private func localCard(for job: DownloadJob, index: Int) -> some View {
+    private func localCard(for job: DownloadJob) -> some View {
         LocalDownloadCard(
             job: job,
             gallery: localGallerySummary(for: job),
-            metadataIsLoading: localMetadataLoadedKeys.contains(job.key) == false,
             isSelectionMode: isSelectionMode,
             isSelected: selectedKeys.contains(job.key),
             select: { select(job.key) },
@@ -1217,88 +1233,43 @@ private struct LocalDownloadsList: View {
             remove: { remove(job) },
             removeImmediately: { removeImmediately(job) }
         )
-        .onAppear {
-            if visibleLocalIndexes[job.key] != index {
-                visibleLocalIndexes[job.key] = index
-            }
-        }
-        .onDisappear {
-            guard visibleLocalIndexes[job.key] == index else { return }
-            visibleLocalIndexes.removeValue(forKey: job.key)
-        }
-    }
-
-    private var localSummaryTaskID: String {
-        localPrefetchKeys.map(\.id).sorted().joined(separator: "\u{1E}")
-    }
-
-    private var localPrefetchKeys: Set<GalleryKey> {
-        guard let range = LocalGalleryPrefetchWindow.range(
-            visibleIndexes: Set(visibleLocalIndexes.values),
-            itemCount: jobs.count
-        ) else {
-            return []
-        }
-        return Set(range.map { jobs[$0].key })
     }
 
     private func loadLocalSummaries() async {
-        do {
-            try await Task.sleep(for: .milliseconds(80))
-            try Task.checkCancellation()
-        } catch {
-            return
-        }
-
-        let keys = localPrefetchKeys.subtracting(localMetadataLoadedKeys)
+        let keys = Set(jobs.map(\.key))
         guard keys.isEmpty == false else { return }
         let summaries = await model.localGallerySummaries(for: keys)
         guard Task.isCancelled == false else { return }
-        for summary in summaries {
-            localSummariesByKey[summary.key] = summary
-        }
-        localMetadataLoadedKeys.formUnion(keys)
+        localSummariesByKey = Dictionary(
+            summaries.map { ($0.key, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     private func localGallerySummary(for job: DownloadJob) -> GallerySummary {
-        var summary = localSummariesByKey[job.key] ?? GallerySummary(
-            key: job.key,
-            title: job.title,
-            japaneseTitle: job.japaneseTitle,
-            pageCount: job.pages.isEmpty ? nil : job.pages.count,
-            tags: job.tags
-        )
-        if summary.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        guard var summary = localSummariesByKey[job.key] else {
+            return GallerySummary(
+                key: job.key,
+                title: job.title,
+                japaneseTitle: job.japaneseTitle,
+                pageCount: job.pages.isEmpty ? nil : job.pages.count,
+                tags: job.tags
+            )
+        }
+        let completeness = summary.metadataCompleteness
+        if completeness?.title == .notLoaded, job.title.isEmpty == false {
             summary.title = job.title
         }
-        if summary.japaneseTitle == nil {
+        if completeness?.japaneseTitle == .notLoaded, summary.japaneseTitle == nil {
             summary.japaneseTitle = job.japaneseTitle
         }
-        if summary.tags.isEmpty {
+        if completeness?.tags == .notLoaded, summary.tags.isEmpty {
             summary.tags = job.tags
         }
-        if summary.pageCount == nil, job.pages.isEmpty == false {
+        if completeness?.pageCount == .notLoaded, summary.pageCount == nil, job.pages.isEmpty == false {
             summary.pageCount = job.pages.count
         }
         return summary
-    }
-}
-
-struct LocalGalleryPrefetchWindow {
-    static let bufferSize = 50
-
-    static func range(
-        visibleIndexes: Set<Int>,
-        itemCount: Int,
-        buffer: Int = bufferSize
-    ) -> Range<Int>? {
-        guard itemCount > 0, let first = visibleIndexes.min(), let last = visibleIndexes.max() else {
-            return nil
-        }
-        let lowerBound = max(0, first - max(0, buffer))
-        let upperBound = min(itemCount - 1, last + max(0, buffer))
-        guard lowerBound <= upperBound else { return nil }
-        return lowerBound..<(upperBound + 1)
     }
 }
 
@@ -1465,7 +1436,6 @@ private struct LocalDownloadCard: View {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
     let gallery: GallerySummary
-    let metadataIsLoading: Bool
     let isSelectionMode: Bool
     let isSelected: Bool
     let select: () -> Void
@@ -1546,7 +1516,6 @@ private struct LocalDownloadCard: View {
             gallery: gallery,
             showsTags: true,
             localJob: job,
-            metadataIsLoading: metadataIsLoading,
             showsBackground: showsBackground
         )
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1917,7 +1886,7 @@ private struct DownloadGridCard: View {
         Color.clear
             .aspectRatio(3.0 / 4.0, contentMode: .fit)
             .overlay {
-                DownloadCover(job: job, title: displayTitle, size: nil, cornerRadius: 14)
+                DownloadCover(job: job, title: displayTitle, size: nil, cornerRadius: 14, allowsTransition: true)
             }
             .overlay(alignment: .bottom) {
                 if showsProgress {
@@ -1970,24 +1939,15 @@ struct DownloadCover: View {
     var fallbackPreviewURL: URL?
     var size: CGSize? = CGSize(width: 72, height: 96)
     var cornerRadius: CGFloat = 10
-    @State private var image: Image?
-
-    /// 解码后的封面缓存：滚动来回时直接命中，避免重复解码。
-    @MainActor
-    private static let imageCache: NSCache<NSString, CGImage> = {
-        let cache = NSCache<NSString, CGImage>()
-        cache.countLimit = 400
-        cache.totalCostLimit = 80_000_000
-        return cache
-    }()
+    var allowsTransition = false
+    @State private var image: CGImage?
 
     var body: some View {
         Group {
             if let image {
-                image
+                Image(decorative: image, scale: 1, orientation: .up)
                     .resizable()
                     .scaledToFill()
-                    .transition(.opacity)
             } else {
                 Image(systemName: "photo")
                     .font(.title2)
@@ -2001,69 +1961,23 @@ struct DownloadCover: View {
         .accessibilityLabel("《\(title)》封面")
         .task(id: coverTaskID, priority: .utility) {
             image = nil
-            if let cached = Self.cachedCoverImage(for: coverTaskID) {
-                image = cached
-                return
-            }
-            if let coverPageIndex {
-                do {
-                    let data = try await model.downloadFiles.data(for: job.key, pageIndex: coverPageIndex)
-                    if let decoded = await Self.decodeCoverImage(data, key: coverTaskID, maxPixelSize: 320) {
-                        withAnimation(.easeOut(duration: 0.25)) { image = decoded }
-                        return
-                    }
-                } catch is CancellationError {
-                    return
-                } catch {
-                    // Fall through to the remote preview while the download is incomplete.
-                }
-            }
-
-            guard let previewURL else { return }
             do {
-                let preview = GalleryPageImage(galleryKey: job.key, index: 0, imageURL: previewURL)
-                let data = try await model.galleryImageData(for: preview)
-                if let decoded = await Self.decodeCoverImage(data, key: coverTaskID, maxPixelSize: 320) {
-                    withAnimation(.easeOut(duration: 0.25)) { image = decoded }
+                let decoded = try await model.coverImage(
+                    for: job,
+                    fallbackPreviewURL: previewURL,
+                    maxPixelSize: 320
+                )
+                guard Task.isCancelled == false, let decoded else { return }
+                if allowsTransition {
+                    withAnimation(.easeOut(duration: 0.2)) { image = decoded }
+                } else {
+                    image = decoded
                 }
             } catch is CancellationError {
                 return
             } catch {
                 return
             }
-        }
-    }
-
-    @MainActor
-    private static func cachedCoverImage(for key: String) -> Image? {
-        guard let cgImage = imageCache.object(forKey: key as NSString) else { return nil }
-        return Image(decorative: cgImage, scale: 1, orientation: .up)
-    }
-
-    /// 在后台解码并写入缓存；返回可在主线程直接使用的 `Image`。
-    @MainActor
-    private static func decodeCoverImage(_ data: Data, key: String, maxPixelSize: Int) async -> Image? {
-        guard let cgImage = await decodeImage(from: data, maxPixelSize: maxPixelSize) else { return nil }
-        imageCache.setObject(cgImage, forKey: key as NSString, cost: cgImage.width * cgImage.height)
-        return Image(decorative: cgImage, scale: 1, orientation: .up)
-    }
-
-    /// 封面解码放到后台执行（utility 优先级），主线程只做轻量包装，
-    /// 大量封面时也不会阻塞滚动。
-    private static func decodeImage(from data: Data, maxPixelSize: Int) async -> CGImage? {
-        let decoding = Task.detached(priority: .utility) { () -> CGImage? in
-            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                      kCGImageSourceCreateThumbnailFromImageAlways: true,
-                      kCGImageSourceCreateThumbnailWithTransform: true,
-                      kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
-                  ] as CFDictionary) else { return nil }
-            return cgImage
-        }
-        return await withTaskCancellationHandler {
-            await decoding.value
-        } onCancel: {
-            decoding.cancel()
         }
     }
 

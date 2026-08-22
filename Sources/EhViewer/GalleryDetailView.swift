@@ -681,13 +681,13 @@ private struct GalleryDetailHeader: View {
     let summary: GallerySummary
     let pageCount: Int
     let localPage: GalleryPageDescriptor?
-    @State private var image: Image?
+    @State private var image: CGImage?
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             Group {
                 if let image {
-                    image
+                    Image(decorative: image, scale: 1, orientation: .up)
                         .resizable()
                         .scaledToFit()
                         .transition(.opacity)
@@ -741,25 +741,15 @@ private struct GalleryDetailHeader: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(summary.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle))，\(pageCount) 页")
         .task(id: "\(summary.thumbnailURL?.absoluteString ?? "")-\(localPage?.id ?? "")", priority: .utility) {
-            if let localPage,
-               let data = await model.downloadedPageDataIfAvailable(for: localPage),
-               let localCGImage = await GalleryThumbnailDecoder.decodeThumbnailCGImage(from: data, maxPixelSize: 512) {
-                guard Task.isCancelled == false else { return }
-                withAnimation(.easeOut(duration: 0.25)) {
-                    image = Image(decorative: localCGImage, scale: 1, orientation: .up)
-                }
-                return
-            }
-            guard let thumbnailURL = summary.thumbnailURL else { return }
             do {
-                let page = GalleryPageImage(galleryKey: summary.key, index: 0, imageURL: thumbnailURL)
-                let data = try await model.galleryImageData(for: page)
-                guard let cgImage = await GalleryThumbnailDecoder.decodeThumbnailCGImage(
-                    from: data,
+                guard let cgImage = try await model.coverImage(
+                    for: summary.key,
+                    previewURL: summary.thumbnailURL,
+                    localPage: localPage,
                     maxPixelSize: 512
                 ), Task.isCancelled == false else { return }
                 withAnimation(.easeOut(duration: 0.25)) {
-                    image = Image(decorative: cgImage, scale: 1, orientation: .up)
+                    image = cgImage
                 }
             } catch is CancellationError {
                 return

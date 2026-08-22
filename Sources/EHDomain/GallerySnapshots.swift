@@ -172,7 +172,12 @@ public struct StableGalleryMetadataSnapshot: Codable, Hashable, Sendable, Identi
         )
     }
 
-    public init(detail: GalleryDetail, sourceSite: SiteMode, capturedAt: Date = Date()) {
+    public init(
+        detail: GalleryDetail,
+        sourceSite: SiteMode,
+        capturedAt: Date = Date(),
+        includesPreviewPages: Bool = true
+    ) {
         var completeness = detail.summary.metadataCompleteness ?? GalleryMetadataCompleteness()
         completeness.title = Self.state(for: detail.summary.title)
         completeness.japaneseTitle = Self.state(for: detail.summary.japaneseTitle)
@@ -181,13 +186,20 @@ public struct StableGalleryMetadataSnapshot: Codable, Hashable, Sendable, Identi
         completeness.tags = Self.state(for: detail.tags)
         completeness.category = Self.state(for: detail.summary.category)
         completeness.language = Self.state(for: detail.language)
-        completeness.pageCount = Self.state(for: detail.summary.pageCount ?? detail.pages.count)
+        completeness.pageCount = Self.state(for: detail.summary.pageCount ?? (includesPreviewPages ? detail.pages.count : nil))
         completeness.postedAt = Self.state(for: detail.summary.postedAt)
         completeness.thumbnailURL = Self.state(for: detail.summary.thumbnailURL)
         completeness.fileSize = Self.state(for: detail.fileSize)
         completeness.description = Self.state(for: detail.descriptionText)
         completeness.externalURL = Self.state(for: detail.externalURL)
-        completeness.pages = Self.state(for: detail.pages)
+        completeness.pages = includesPreviewPages ? Self.state(for: detail.pages) : .notLoaded
+        if includesPreviewPages == false {
+            // The metadata-only endpoint deliberately does not resolve these
+            // detail payloads. Keeping them unresolved prevents a lightweight
+            // response from masquerading as a complete full-detail snapshot.
+            completeness.description = .notLoaded
+            completeness.externalURL = .notLoaded
+        }
         self.init(
             key: detail.summary.key,
             sourceSite: sourceSite,
@@ -198,7 +210,7 @@ public struct StableGalleryMetadataSnapshot: Codable, Hashable, Sendable, Identi
             tags: detail.tags,
             category: detail.summary.category,
             language: detail.language,
-            pageCount: detail.summary.pageCount ?? detail.pages.count,
+            pageCount: detail.summary.pageCount ?? (includesPreviewPages ? detail.pages.count : nil),
             postedAt: detail.summary.postedAt,
             thumbnailURL: detail.summary.thumbnailURL,
             fileSize: detail.fileSize,
@@ -334,6 +346,11 @@ public struct DownloadedGalleryDynamicSnapshot: Codable, Hashable, Sendable, Ide
     }
 
     public init(detail: GalleryDetail, capturedAt: Date = Date()) {
+        var completeness = detail.summary.metadataCompleteness ?? GalleryMetadataCompleteness()
+        completeness.rating = Self.state(for: detail.summary.rating)
+        completeness.ratingCount = Self.state(for: detail.summary.ratingCount ?? detail.ratingCount)
+        completeness.favorite = Self.state(for: detail.favoriteCount)
+        completeness.comments = Self.state(for: detail.comments)
         self.init(
             key: detail.summary.key,
             rating: detail.summary.rating,
@@ -342,11 +359,20 @@ public struct DownloadedGalleryDynamicSnapshot: Codable, Hashable, Sendable, Ide
             favoriteName: detail.favoriteName,
             favoriteCategory: detail.summary.favoriteCategory,
             comments: detail.comments.map(DownloadedGalleryCommentSnapshot.init),
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            completeness: completeness
         )
     }
 
     public var id: String { key.id }
+
+    private static func state<T>(for value: T?) -> GalleryFieldState {
+        value == nil ? .loadedEmpty : .loadedWithValue
+    }
+
+    private static func state<T>(for value: [T]) -> GalleryFieldState {
+        value.isEmpty ? .loadedEmpty : .loadedWithValue
+    }
 }
 
 public struct GalleryTransferRecord: Codable, Hashable, Sendable, Identifiable {
@@ -417,12 +443,7 @@ public enum GallerySnapshotMerger {
         mergeField(&merged.category, &merged.completeness.category, incoming.category, incoming.completeness.category, existing.completeness.category, incomingIsNewer)
         mergeField(&merged.language, &merged.completeness.language, incoming.language, incoming.completeness.language, existing.completeness.language, incomingIsNewer)
         mergeField(&merged.pageCount, &merged.completeness.pageCount, incoming.pageCount, incoming.completeness.pageCount, existing.completeness.pageCount, incomingIsNewer)
-        // A gdata response can omit `posted` (or contain an unparseable
-        // value). Never let that incomplete response erase a date already
-        // stored from a list/detail response.
-        if incoming.postedAt != nil || existing.postedAt == nil {
-            mergeField(&merged.postedAt, &merged.completeness.postedAt, incoming.postedAt, incoming.completeness.postedAt, existing.completeness.postedAt, incomingIsNewer)
-        }
+        mergeField(&merged.postedAt, &merged.completeness.postedAt, incoming.postedAt, incoming.completeness.postedAt, existing.completeness.postedAt, incomingIsNewer)
         mergeField(&merged.thumbnailURL, &merged.completeness.thumbnailURL, incoming.thumbnailURL, incoming.completeness.thumbnailURL, existing.completeness.thumbnailURL, incomingIsNewer)
         mergeField(&merged.fileSize, &merged.completeness.fileSize, incoming.fileSize, incoming.completeness.fileSize, existing.completeness.fileSize, incomingIsNewer)
         mergeField(&merged.descriptionText, &merged.completeness.description, incoming.descriptionText, incoming.completeness.description, existing.completeness.description, incomingIsNewer)

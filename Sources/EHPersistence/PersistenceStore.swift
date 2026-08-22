@@ -277,16 +277,24 @@ public enum ModelContainerFactory {
             configurations: configuration
         )
     }
+
+    /// The default on-disk store URL used by `make()`. Keeping this derived
+    /// from the same SwiftData configuration lets recovery remove a broken
+    /// store without guessing its sandbox path.
+    public static var persistentStoreURL: URL {
+        ModelConfiguration(isStoredInMemoryOnly: false).url
+    }
 }
 
 @ModelActor
 public actor PersistenceStore {
     public func upsert(_ snapshots: [GallerySummary], site: SiteMode = .eHentai) throws {
         for snapshot in snapshots {
-            try upsertStableSnapshot(
-                StableGalleryMetadataSnapshot(summary: snapshot, sourceSite: site)
-            )
+            let stable = StableGalleryMetadataSnapshot(summary: snapshot, sourceSite: site)
+            try applyStableSnapshot(stable, retainForDownload: false)
+            try applyDynamicSnapshotIfPresent(from: snapshot, capturedAt: stable.capturedAt, retainForDownload: false)
         }
+        try modelContext.save()
     }
 
     /// Converts pre-V3 scalar records into the separated content records. A
@@ -366,6 +374,53 @@ public actor PersistenceStore {
         _ snapshot: StableGalleryMetadataSnapshot,
         retainForDownload: Bool = false
     ) throws {
+        try applyStableSnapshot(snapshot, retainForDownload: retainForDownload)
+        try applyDynamicSnapshotIfPresent(
+            from: snapshot.summary,
+            capturedAt: snapshot.capturedAt,
+            retainForDownload: retainForDownload
+        )
+        try modelContext.save()
+    }
+
+    /// Applies several stable snapshots in one SwiftData transaction. This is
+    /// used by metadata refresh so a 25-item gdata response does not cause 25
+    /// independent context saves.
+    public func upsertStableSnapshots(
+        _ snapshots: [StableGalleryMetadataSnapshot],
+        retainForDownload: Bool = false
+    ) throws {
+        for snapshot in snapshots {
+            try applyStableSnapshot(snapshot, retainForDownload: retainForDownload)
+            try applyDynamicSnapshotIfPresent(
+                from: snapshot.summary,
+                capturedAt: snapshot.capturedAt,
+                retainForDownload: retainForDownload
+            )
+        }
+        try modelContext.save()
+    }
+
+    /// Persists stable metadata and downloaded dynamic values together. The
+    /// field-level merge runs before the single save, preserving values when a
+    /// response marks a field as `.notLoaded`.
+    public func saveDownloadedMetadata(
+        stableSnapshots: [StableGalleryMetadataSnapshot],
+        dynamicSnapshots: [DownloadedGalleryDynamicSnapshot]
+    ) throws {
+        for snapshot in stableSnapshots {
+            try applyStableSnapshot(snapshot, retainForDownload: true)
+        }
+        for snapshot in dynamicSnapshots {
+            try applyDownloadedDynamicSnapshot(snapshot)
+        }
+        try modelContext.save()
+    }
+
+    private func applyStableSnapshot(
+        _ snapshot: StableGalleryMetadataSnapshot,
+        retainForDownload: Bool
+    ) throws {
         let record = try record(for: snapshot.key, creatingFrom: snapshot.summary)
         let merged: StableGalleryMetadataSnapshot
         if let existing = record.stableMetadata {
@@ -385,7 +440,6 @@ public actor PersistenceStore {
             record.downloadRetention = true
         }
         record.applyStableCompatibilityFields(from: merged)
-        try modelContext.save()
     }
 
     public func stableSnapshot(for key: GalleryKey) throws -> StableGalleryMetadataSnapshot? {
@@ -422,9 +476,26 @@ public actor PersistenceStore {
     }
 
     public func saveDownloadedDynamicSnapshot(_ snapshot: DownloadedGalleryDynamicSnapshot) throws {
+        try applyDownloadedDynamicSnapshot(snapshot)
+        try modelContext.save()
+    }
+
+    public func saveDownloadedDynamicSnapshots(_ snapshots: [DownloadedGalleryDynamicSnapshot]) throws {
+        for snapshot in snapshots {
+            try applyDownloadedDynamicSnapshot(snapshot)
+        }
+        try modelContext.save()
+    }
+
+    private func applyDownloadedDynamicSnapshot(
+        _ snapshot: DownloadedGalleryDynamicSnapshot,
+        retainForDownload: Bool = true
+    ) throws {
         let fallback = GallerySummary(key: snapshot.key, title: "Gallery \(snapshot.key.gid)")
         let record = try record(for: snapshot.key, creatingFrom: fallback)
-        record.downloadRetention = true
+        if retainForDownload {
+            record.downloadRetention = true
+        }
         if let existing = record.dynamicSnapshot {
             let merged = GallerySnapshotMerger.merge(existing: existing.snapshot, incoming: snapshot)
             existing.update(from: merged)
@@ -436,7 +507,31 @@ public actor PersistenceStore {
             modelContext.insert(dynamic)
             record.applyDynamicCompatibilityFields(from: snapshot)
         }
-        try modelContext.save()
+    }
+
+    private func applyDynamicSnapshotIfPresent(
+        from summary: GallerySummary,
+        capturedAt: Date,
+        retainForDownload: Bool
+    ) throws {
+        let completeness = summary.metadataCompleteness ?? GalleryMetadataCompleteness()
+        guard completeness.rating.isLoaded
+                || completeness.ratingCount.isLoaded
+                || completeness.favorite.isLoaded else { return }
+        let dynamic = DownloadedGalleryDynamicSnapshot(
+            key: summary.key,
+            rating: summary.rating,
+            ratingCount: summary.ratingCount,
+            favoriteCategory: summary.favoriteCategory,
+            capturedAt: capturedAt,
+            completeness: GalleryMetadataCompleteness(
+                rating: completeness.rating,
+                ratingCount: completeness.ratingCount,
+                favorite: completeness.favorite,
+                comments: completeness.comments
+            )
+        )
+        try applyDownloadedDynamicSnapshot(dynamic, retainForDownload: retainForDownload)
     }
 
     public func downloadedDynamicSnapshot(for key: GalleryKey) throws -> DownloadedGalleryDynamicSnapshot? {
@@ -1116,10 +1211,24 @@ private extension GalleryRecord {
         }
         if let stableMetadata {
             var value = stableMetadata.snapshot.summary
-            if downloadRetention, let dynamicSnapshot {
-                value.rating = dynamicSnapshot.rating
-                value.ratingCount = dynamicSnapshot.ratingCount
-                value.favoriteCategory = dynamicSnapshot.favoriteCategory
+            if let dynamicSnapshot {
+                var completeness = value.metadataCompleteness ?? GalleryMetadataCompleteness()
+                let ratingState = GalleryFieldState(rawValue: dynamicSnapshot.ratingStateRaw) ?? .notLoaded
+                let ratingCountState = GalleryFieldState(rawValue: dynamicSnapshot.ratingCountStateRaw) ?? .notLoaded
+                let favoriteState = GalleryFieldState(rawValue: dynamicSnapshot.favoriteStateRaw) ?? .notLoaded
+                if ratingState != .notLoaded {
+                    value.rating = dynamicSnapshot.rating
+                    completeness.rating = ratingState
+                }
+                if ratingCountState != .notLoaded {
+                    value.ratingCount = dynamicSnapshot.ratingCount
+                    completeness.ratingCount = ratingCountState
+                }
+                if favoriteState != .notLoaded {
+                    value.favoriteCategory = dynamicSnapshot.favoriteCategory
+                    completeness.favorite = favoriteState
+                }
+                value.metadataCompleteness = completeness
             }
             return value
         }

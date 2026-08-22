@@ -143,13 +143,14 @@ public struct GalleryMetadataCompleteness: Codable, Hashable, Sendable {
         ].allSatisfy { $0.isLoaded }
     }
 
-    /// True when the fields that the batched `gdata` endpoint can resolve are
-    /// complete. This is deliberately separate from `isComplete`: a batch
+    /// True when the fields needed to render a downloaded gallery summary are
+    /// resolved. This is deliberately separate from `isComplete`: a batch
     /// refresh must not keep retrying detail-only fields that require a full
-    /// gallery request.
+    /// gallery request. Rating is part of the summary completeness contract;
+    /// otherwise a gallery with every stable field present would be skipped
+    /// forever even though its score was never fetched.
     public var isSummaryComplete: Bool {
-        (title.hasValue || japaneseTitle.hasValue)
-            && japaneseTitle.isLoaded
+        title.hasValue
             && authors.isLoaded
             && uploader.isLoaded
             && tags.isLoaded
@@ -157,6 +158,7 @@ public struct GalleryMetadataCompleteness: Codable, Hashable, Sendable {
             && pageCount.isLoaded
             && postedAt.isLoaded
             && thumbnailURL.isLoaded
+            && rating.isLoaded
     }
 
     public static let complete = GalleryMetadataCompleteness(

@@ -31,3 +31,7 @@ Place unit tests beside the module they exercise conceptually, use descriptive b
 ## Commit & Pull Request Guidelines
 
 Recent commits use concise, action-oriented descriptions, commonly in Chinese, with occasional prefixes such as `feat:`. Keep commits focused and avoid unrelated formatting churn. Pull requests should explain the user-visible or architectural change, list validation commands, link an issue when applicable, and include simulator screenshots or recordings for UI changes. Never include passwords, session cookies, or local build artifacts.
+
+
+xcrun agvtool new-marketing-version 1.2.0
+xcrun agvtool new-version -all 2

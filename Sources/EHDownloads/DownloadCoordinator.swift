@@ -598,11 +598,29 @@ public actor DownloadCoordinator {
     public func mergeMetadata(_ summaries: [GallerySummary]) async {
         for summary in summaries {
             guard let existing = jobs[summary.key] else { continue }
+            let completeness = summary.metadataCompleteness ?? GalleryMetadataCompleteness()
+            let title = if completeness.title.hasValue {
+                summary.title
+            } else if completeness.title == .loadedEmpty {
+                ""
+            } else {
+                existing.title
+            }
+            let japaneseTitle = if completeness.japaneseTitle.isLoaded {
+                summary.japaneseTitle
+            } else {
+                existing.japaneseTitle
+            }
+            let tags = if completeness.tags.isLoaded {
+                summary.tags
+            } else {
+                existing.tags
+            }
             var updated = DownloadJob(
                 key: existing.key,
-                title: summary.title,
-                japaneseTitle: summary.japaneseTitle,
-                tags: summary.tags,
+                title: title,
+                japaneseTitle: japaneseTitle,
+                tags: tags,
                 pages: existing.pages,
                 label: existing.label,
                 addedAt: existing.addedAt

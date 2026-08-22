@@ -35,6 +35,7 @@ struct SettingsView: View {
     @State private var downloadRestoreMessage = ""
     @State private var showingGalleryCacheClearConfirmation = false
     @State private var showingDownloadReadingProgressResetConfirmation = false
+    @State private var showingDownloadedMetadataRefreshDialog = false
 
     private var settingsForm: some View {
         @Bindable var model = model
@@ -105,7 +106,7 @@ struct SettingsView: View {
             FilterRulesSection()
             Section("数据迁移/备份") {
                 Button("更新已下载画廊信息", systemImage: "arrow.triangle.2.circlepath") {
-                    Task { await model.refreshDownloadedGalleryMetadata() }
+                    showingDownloadedMetadataRefreshDialog = true
                 }
                 .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
                 .accessibilityIdentifier("refresh-downloaded-gallery-metadata-action")
@@ -171,6 +172,21 @@ struct SettingsView: View {
                 Task { await model.resetAllDownloadReadingProgress() }
             }
             Button("取消", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "更新已下载画廊信息",
+            isPresented: $showingDownloadedMetadataRefreshDialog,
+            titleVisibility: .visible
+        ) {
+            Button("更新全部") {
+                Task { await model.refreshDownloadedGalleryMetadata(mode: .all) }
+            }
+            Button("仅更新缺失信息") {
+                Task { await model.refreshDownloadedGalleryMetadata(mode: .missingOnly) }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("缺失信息包括标题、作者、分类、页数、上传日期、缩略图和评分。")
         }
     }
 

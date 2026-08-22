@@ -26,10 +26,37 @@ public struct GallerySyncSnapshot: Codable, Hashable, Sendable {
     public var galleries: [GallerySummary] {
         records.map { record in
             var summary = record.stable.summary
-            summary.rating = record.dynamic?.rating
-            summary.ratingCount = record.dynamic?.ratingCount
-            summary.favoriteCategory = record.dynamic?.favoriteCategory
-            if record.dynamic == nil, summary.metadataCompleteness?.isComplete == true {
+            if let dynamic = record.dynamic {
+                summary.rating = dynamic.rating
+                summary.ratingCount = dynamic.ratingCount
+                summary.favoriteCategory = dynamic.favoriteCategory
+                let stableCompleteness = summary.metadataCompleteness ?? GalleryMetadataCompleteness()
+                let stableFields = [
+                    stableCompleteness.title,
+                    stableCompleteness.japaneseTitle,
+                    stableCompleteness.authors,
+                    stableCompleteness.uploader,
+                    stableCompleteness.tags,
+                    stableCompleteness.category,
+                    stableCompleteness.language,
+                    stableCompleteness.pageCount,
+                    stableCompleteness.postedAt,
+                    stableCompleteness.thumbnailURL,
+                    stableCompleteness.fileSize,
+                    stableCompleteness.description,
+                    stableCompleteness.externalURL,
+                    stableCompleteness.pages
+                ]
+                if dynamic.completeness.comments == .loadedWithValue
+                    || stableFields.allSatisfy(\.isLoaded) {
+                    var completeness = stableCompleteness
+                    completeness.rating = dynamic.completeness.rating
+                    completeness.ratingCount = dynamic.completeness.ratingCount
+                    completeness.favorite = dynamic.completeness.favorite
+                    completeness.comments = dynamic.completeness.comments
+                    summary.metadataCompleteness = completeness
+                }
+            } else if summary.metadataCompleteness?.isComplete == true {
                 // Keep the legacy `galleries` projection lossless for callers
                 // that supplied the old all-fields `.complete` marker. New
                 // consumers use `records` and its stable/dynamic snapshots.
