@@ -51,6 +51,12 @@ enum BackupFileFormat {
     }
 }
 
+struct PendingSharedFile: Identifiable, Equatable, Sendable {
+    let url: URL
+
+    var id: URL { url }
+}
+
 struct ArchiveExportDocument: FileDocument {
     static let readableContentTypes: [UTType] = [.ehViewerDownloadArchive]
     static let writableContentTypes: [UTType] = [.ehViewerDownloadArchive]

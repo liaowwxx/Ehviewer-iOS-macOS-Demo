@@ -63,8 +63,9 @@ struct DownloadsView: View {
     @State private var showingShareFormatDialog = false
     @State private var jobForReader: DownloadJob?
 #if os(iOS)
-    @State private var showingShareSheet = false
+    @State private var pendingShareFile: PendingSharedFile?
 #else
+    @State private var pendingArchiveSaveFile: PendingSharedFile?
     @State private var showingGallerySyncExporter = false
     @State private var gallerySyncExportDocument: GallerySyncExportDocument?
     @State private var gallerySyncExportFilename = "EhViewer-Galleries.ehgallery"
@@ -202,10 +203,8 @@ struct DownloadsView: View {
                 Text(removalErrorMessage ?? String(localized: "请稍后重试。"))
             }
 #if os(iOS)
-            .sheet(isPresented: $showingShareSheet, onDismiss: discardPendingSharedFileIfAny) {
-                if let url = model.pendingSharedFileURL {
-                    ShareSheet(items: [url])
-                }
+            .sheet(item: $pendingShareFile, onDismiss: discardPendingSharedFileIfAny) { file in
+                ShareSheet(items: [file.url])
             }
 #else
             .fileExporter(
@@ -221,6 +220,11 @@ struct DownloadsView: View {
                 if case let .failure(error) = result {
                     model.errorMessage = error.localizedDescription
                 }
+            }
+            .task(id: pendingArchiveSaveFile?.id) {
+                guard let file = pendingArchiveSaveFile else { return }
+                await saveDownloadArchive(file.url)
+                pendingArchiveSaveFile = nil
             }
 #endif
     }
@@ -715,7 +719,7 @@ struct DownloadsView: View {
             guard let url else { return }
             exitSelectionMode()
 #if os(iOS)
-            showingShareSheet = true
+            pendingShareFile = PendingSharedFile(url: url)
 #else
             switch format {
             case .gallerySync:
@@ -723,7 +727,7 @@ struct DownloadsView: View {
                 gallerySyncExportDocument = GallerySyncExportDocument(sourceURL: url)
                 showingGallerySyncExporter = true
             case .downloadArchive:
-                await saveDownloadArchive(url)
+                pendingArchiveSaveFile = PendingSharedFile(url: url)
             }
 #endif
         }

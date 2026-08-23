@@ -18,19 +18,37 @@
 
 import SwiftUI
 import EHDomain
+import UniformTypeIdentifiers
+
+private enum FileImportKind {
+    case gallerySync
+    case downloadArchive
+
+    var allowedContentTypes: [UTType] {
+        switch self {
+        case .gallerySync:
+            BackupFileFormat.gallerySyncImportTypes
+        case .downloadArchive:
+            BackupFileFormat.downloadImportTypes
+        }
+    }
+}
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var showingCookieSheet = false
     @State private var showingWebLogin = false
     @State private var showingPasswordLogin = false
-    @State private var showingArchiveShareSheet = false
     @State private var showingGallerySyncExporter = false
-    @State private var showingGallerySyncShareSheet = false
-    @State private var showingGallerySyncImporter = false
     @State private var gallerySyncExportDocument: GallerySyncExportDocument?
     @State private var gallerySyncExportFilename = "EhViewer-Galleries.ehgallery"
-    @State private var showingDownloadRestoreImporter = false
+    @State private var showingFileImporter = false
+    @State private var fileImporterKind: FileImportKind = .gallerySync
+#if os(iOS)
+    @State private var pendingShareFile: PendingSharedFile?
+#else
+    @State private var pendingArchiveSaveFile: PendingSharedFile?
+#endif
     @State private var showingDownloadRestoreResult = false
     @State private var downloadRestoreMessage = ""
     @State private var showingGalleryCacheClearConfirmation = false
@@ -113,11 +131,11 @@ struct SettingsView: View {
                 Label("导入", systemImage: "square.and.arrow.down")
                     .font(.subheadline.weight(.semibold))
                 Button("导入元数据(.ehgallery)", systemImage: "square.and.arrow.down") {
-                    showingGallerySyncImporter = true
+                    startFileImport(.gallerySync)
                 }
                 .disabled(model.isMigrating || model.isRestoringDownloads)
                 Button("导入归档(.eharchive)", systemImage: "arrow.counterclockwise.circle") {
-                    showingDownloadRestoreImporter = true
+                    startFileImport(.downloadArchive)
                 }
                 .disabled(model.isMigrating || model.isRestoringDownloads)
                 Label("导出", systemImage: "square.and.arrow.up")
@@ -126,7 +144,7 @@ struct SettingsView: View {
                     Task {
                         guard let url = await model.exportGallerySync() else { return }
 #if os(iOS)
-                        showingGallerySyncShareSheet = true
+                        pendingShareFile = PendingSharedFile(url: url)
 #else
                         gallerySyncExportFilename = url.lastPathComponent
                         gallerySyncExportDocument = GallerySyncExportDocument(sourceURL: url)
@@ -139,9 +157,9 @@ struct SettingsView: View {
                     Task {
                         guard let url = await model.exportDownloadArchive() else { return }
 #if os(iOS)
-                        showingArchiveShareSheet = true
+                        pendingShareFile = PendingSharedFile(url: url)
 #else
-                        await saveDownloadArchive(url)
+                        pendingArchiveSaveFile = PendingSharedFile(url: url)
 #endif
                     }
                 }
@@ -195,20 +213,11 @@ struct SettingsView: View {
             .sheet(isPresented: $showingCookieSheet) { CookieLoginSheet() }
         .sheet(isPresented: $showingWebLogin) { WebLoginSheet() }
         .sheet(isPresented: $showingPasswordLogin) { PasswordLoginSheet() }
-        .sheet(isPresented: $showingArchiveShareSheet, onDismiss: discardPendingSharedFileIfAny) {
 #if os(iOS)
-            if let url = model.pendingSharedFileURL {
-                ShareSheet(items: [url])
-            }
-#endif
+        .sheet(item: $pendingShareFile, onDismiss: discardPendingSharedFileIfAny) { file in
+            ShareSheet(items: [file.url])
         }
-        .sheet(isPresented: $showingGallerySyncShareSheet, onDismiss: discardPendingSharedFileIfAny) {
-#if os(iOS)
-            if let url = model.pendingSharedFileURL {
-                ShareSheet(items: [url])
-            }
 #endif
-        }
         .fileExporter(
             isPresented: $showingGallerySyncExporter,
             document: gallerySyncExportDocument,
@@ -224,36 +233,36 @@ struct SettingsView: View {
             }
         }
         .fileImporter(
-            isPresented: $showingGallerySyncImporter,
-            allowedContentTypes: BackupFileFormat.gallerySyncImportTypes,
+            isPresented: $showingFileImporter,
+            allowedContentTypes: fileImporterKind.allowedContentTypes,
             allowsMultipleSelection: false
         ) { result in
-            switch result {
-            case .success(let urls):
-                if let url = urls.first {
-                    model.stageGallerySyncImport(from: url)
+            let importKind = fileImporterKind
+            showingFileImporter = false
+            switch importKind {
+            case .gallerySync:
+                switch result {
+                case .success(let urls):
+                    if let url = urls.first {
+                        model.stageGallerySyncImport(from: url)
+                    }
+                case .failure(let error):
+                    model.errorMessage = error.localizedDescription
                 }
-            case .failure(let error):
-                model.errorMessage = error.localizedDescription
-            }
-        }
-        .fileImporter(
-            isPresented: $showingDownloadRestoreImporter,
-            allowedContentTypes: BackupFileFormat.downloadImportTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            guard case let .success(urls) = result, let url = urls.first else {
-                if case let .failure(error) = result {
-                    downloadRestoreMessage = error.localizedDescription
+            case .downloadArchive:
+                guard case let .success(urls) = result, let url = urls.first else {
+                    if case let .failure(error) = result {
+                        downloadRestoreMessage = error.localizedDescription
+                        showingDownloadRestoreResult = true
+                    }
+                    return
+                }
+                Task {
+                    downloadRestoreMessage = await model.restoreDownloads(from: url).message
                     showingDownloadRestoreResult = true
+                    // iOS 文件选择器会在 tmp/Inbox 留下副本，导入后清理。
+                    model.discardTemporaryImportCopy(url)
                 }
-                return
-            }
-            Task {
-                downloadRestoreMessage = await model.restoreDownloads(from: url).message
-                showingDownloadRestoreResult = true
-                // iOS 文件选择器会在 tmp/Inbox 留下副本，导入后清理。
-                model.discardTemporaryImportCopy(url)
             }
         }
         .alert("恢复下载项", isPresented: $showingDownloadRestoreResult) {
@@ -261,6 +270,13 @@ struct SettingsView: View {
         } message: {
             Text(downloadRestoreMessage)
         }
+#if os(macOS)
+        .task(id: pendingArchiveSaveFile?.id) {
+            guard let file = pendingArchiveSaveFile else { return }
+            await saveDownloadArchive(file.url)
+            pendingArchiveSaveFile = nil
+        }
+#endif
         .task {
             await model.refreshGalleryCacheUsage()
             await model.loadFilterRules()
@@ -272,6 +288,11 @@ struct SettingsView: View {
         if let url = model.pendingSharedFileURL {
             model.discardPendingSharedFile(url)
         }
+    }
+
+    private func startFileImport(_ kind: FileImportKind) {
+        fileImporterKind = kind
+        showingFileImporter = true
     }
 
 #if os(macOS)
