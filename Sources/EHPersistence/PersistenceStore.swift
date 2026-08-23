@@ -542,7 +542,7 @@ public actor PersistenceStore {
         guard keys.isEmpty == false else { return [] }
         let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
         return try records.compactMap { record in
-            guard keys.contains(record.key) else { return nil }
+            guard keys.contains(record.key), record.downloadRetention else { return nil }
             let stable = record.stableMetadata?.snapshot ?? StableGalleryMetadataSnapshot(
                 summary: record.summary,
                 sourceSite: .eHentai,
@@ -556,6 +556,104 @@ public actor PersistenceStore {
                 sourceSite: stable.sourceSite
             )
         }
+    }
+
+    /// Returns only galleries retained by a download job. Ordinary gallery
+    /// cache records are deliberately excluded from device synchronization.
+    public func downloadedGalleryTransferRecords() throws -> [GalleryTransferRecord] {
+        var descriptor = FetchDescriptor<GalleryRecord>(predicate: #Predicate {
+            $0.downloadRetention
+        })
+        descriptor.relationshipKeyPathsForPrefetching = [\.stableMetadata, \.dynamicSnapshot]
+        return try modelContext.fetch(descriptor).compactMap { record in
+            let stable = record.stableMetadata?.snapshot ?? StableGalleryMetadataSnapshot(
+                summary: record.summary,
+                sourceSite: .eHentai,
+                capturedAt: .distantPast
+            )
+            return try GalleryTransferRecord(
+                stable: stable,
+                dynamic: record.dynamicSnapshot?.snapshot,
+                exportedAt: Date(),
+                sourceSite: stable.sourceSite
+            )
+        }.sorted { $0.stable.key.id < $1.stable.key.id }
+    }
+
+    /// Merges metadata received from another device through the existing
+    /// field-level snapshot merger. This does not alter reading progress,
+    /// favorites or any account-scoped state.
+    public func mergeDeviceSyncMetadata(_ transfer: GalleryTransferRecord) throws {
+        try applyStableSnapshot(transfer.stable, retainForDownload: true)
+        if let dynamic = transfer.dynamic {
+            try applyDownloadedDynamicSnapshot(dynamic)
+        }
+        try modelContext.save()
+    }
+
+    /// Creates the minimum download-job/page rows needed for received media.
+    /// Existing completed rows are preserved, so a reconnect or a concurrent
+    /// local download cannot turn a completed page back into a queued page.
+    public func prepareDeviceSyncDownload(
+        _ transfer: GalleryTransferRecord,
+        pageIndexes: Set<Int>
+    ) throws {
+        try applyStableSnapshot(transfer.stable, retainForDownload: true)
+        if let dynamic = transfer.dynamic {
+            try applyDownloadedDynamicSnapshot(dynamic)
+        }
+
+        let key = transfer.stable.key
+        var descriptor = FetchDescriptor<DownloadJobRecord>(predicate: #Predicate {
+            $0.gid == key.gid && $0.token == key.token
+        })
+        descriptor.fetchLimit = 1
+        let job: DownloadJobRecord
+        if let existing = try modelContext.fetch(descriptor).first {
+            job = existing
+        } else {
+            job = DownloadJobRecord(
+                key: key,
+                title: transfer.stable.title,
+                japaneseTitle: transfer.stable.japaneseTitle,
+                totalPages: transfer.stable.pageCount ?? pageIndexes.count
+            )
+            modelContext.insert(job)
+        }
+
+        let descriptorsByIndex = Dictionary(uniqueKeysWithValues: transfer.stable.pages.map { ($0.index, $0) })
+        let allIndexes = Set(job.pages.map(\.pageIndex))
+            .union(descriptorsByIndex.keys)
+            .union(pageIndexes)
+        for index in allIndexes.sorted() {
+            let page: DownloadPageRecord
+            if let existing = job.pages.first(where: { $0.pageIndex == index }) {
+                page = existing
+            } else {
+                page = DownloadPageRecord(pageIndex: index, fileName: "page-\(index + 1).bin")
+                page.job = job
+                job.pages.append(page)
+                modelContext.insert(page)
+            }
+            if let source = descriptorsByIndex[index] {
+                page.directURLString = source.pageURL.absoluteString
+                page.previewURLString = source.previewURL?.absoluteString
+            } else if page.directURLString == nil {
+                page.directURLString = "ehviewer-sync://\(key.id)/page/\(index)"
+            }
+            if page.stateRaw != "completed" {
+                page.stateRaw = "queued"
+            }
+        }
+        job.title = transfer.stable.title
+        job.japaneseTitle = transfer.stable.japaneseTitle
+        job.totalPages = max(transfer.stable.pageCount ?? 0, job.pages.count)
+        job.completedPages = job.pages.filter { $0.stateRaw == "completed" }.count
+        if job.stateRaw == "completed" && job.completedPages < job.totalPages {
+            job.stateRaw = "queued"
+        }
+        job.updatedAt = Date()
+        try modelContext.save()
     }
 
     public func promoteToDownloadedGallery(
@@ -914,6 +1012,12 @@ public actor PersistenceStore {
         page.bytes = bytes
         page.backgroundTaskIdentifier = nil
         record.completedPages = record.pages.filter { $0.stateRaw == "completed" }.count
+        if record.totalPages > 0, record.completedPages >= record.totalPages {
+            record.stateRaw = "completed"
+            record.errorMessage = nil
+        } else if record.stateRaw == "completed" {
+            record.stateRaw = "paused"
+        }
         record.updatedAt = Date()
         try modelContext.save()
     }

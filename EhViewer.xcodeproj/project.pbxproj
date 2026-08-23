@@ -11,6 +11,7 @@
 		0DA41858302C7798007B166F /* EHNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000002 /* EHNetworking */; };
 		0DA41859302C7798007B166F /* EHPersistence in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000003 /* EHPersistence */; };
 		0DA4185A302C7798007B166F /* EHDownloads in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000004 /* EHDownloads */; };
+		0DA4185B302C7798007B166F /* EHDeviceSync in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000005 /* EHDeviceSync */; };
 		EHB00000000000000000001 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000001 /* AppModel.swift */; };
 		EHB00000000000000000038 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000038 /* AppTheme.swift */; };
 		EHB00000000000000000002 /* BrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000002 /* BrowseView.swift */; };
@@ -75,6 +76,7 @@
 		EHB00000000000000000057 /* DocumentationWebsite.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000057 /* DocumentationWebsite.swift */; };
 		EHB00000000000000000058 /* GalleryCoverLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000058 /* GalleryCoverLoader.swift */; };
 		EHB00000000000000000059 /* AppDataResetter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000059 /* AppDataResetter.swift */; };
+		EHB0000000000000000005A /* DeviceSyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005A /* DeviceSyncView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -178,6 +180,7 @@
 		EHF00000000000000000057 /* DocumentationWebsite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationWebsite.swift; sourceTree = "<group>"; };
 		EHF00000000000000000058 /* GalleryCoverLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCoverLoader.swift; sourceTree = "<group>"; };
 		EHF00000000000000000059 /* AppDataResetter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataResetter.swift; sourceTree = "<group>"; };
+		EHF0000000000000000005A /* DeviceSyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -185,6 +188,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0DA4185B302C7798007B166F /* EHDeviceSync in Frameworks */,
 				0DA4185A302C7798007B166F /* EHDownloads in Frameworks */,
 				0DA41859302C7798007B166F /* EHPersistence in Frameworks */,
 				0DA41858302C7798007B166F /* EHNetworking in Frameworks */,
@@ -240,6 +244,7 @@
 				EHF00000000000000000001 /* AppModel.swift */,
 				EHF00000000000000000058 /* GalleryCoverLoader.swift */,
 				EHF00000000000000000059 /* AppDataResetter.swift */,
+				EHF0000000000000000005A /* DeviceSyncView.swift */,
 				EHF00000000000000000038 /* AppTheme.swift */,
 				EHF00000000000000000002 /* BrowseView.swift */,
 				EHF00000000000000000033 /* BrowseSearchSuggestions.swift */,
@@ -339,6 +344,7 @@
 				EHD00000000000000000002 /* EHNetworking */,
 				EHD00000000000000000003 /* EHPersistence */,
 				EHD00000000000000000004 /* EHDownloads */,
+				EHD00000000000000000005 /* EHDeviceSync */,
 			);
 			productName = EhViewer;
 			productReference = EHF0000000000000000000B /* EhViewer.app */;
@@ -464,6 +470,7 @@
 				EHB00000000000000000001 /* AppModel.swift in Sources */,
 				EHB00000000000000000058 /* GalleryCoverLoader.swift in Sources */,
 				EHB00000000000000000059 /* AppDataResetter.swift in Sources */,
+				EHB0000000000000000005A /* DeviceSyncView.swift in Sources */,
 				EHB00000000000000000038 /* AppTheme.swift in Sources */,
 				EHB00000000000000000002 /* BrowseView.swift in Sources */,
 				EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */,
@@ -768,6 +775,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = EHPKG000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = EHDownloads;
+		};
+		EHD00000000000000000005 /* EHDeviceSync */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EHPKG000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = EHDeviceSync;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

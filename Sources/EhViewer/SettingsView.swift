@@ -18,6 +18,7 @@
 
 import SwiftUI
 import EHDomain
+import EHDeviceSync
 import UniformTypeIdentifiers
 
 private enum FileImportKind {
@@ -164,6 +165,14 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(model.isMigrating || model.isRestoringDownloads)
+            }
+            Section("设备") {
+                NavigationLink {
+                    DeviceSyncView()
+                } label: {
+                    Label("设备间同步", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .accessibilityIdentifier("device-sync-link")
             }
         }
         .formStyle(.grouped)

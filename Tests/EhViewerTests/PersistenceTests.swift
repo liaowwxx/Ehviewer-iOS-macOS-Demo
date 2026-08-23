@@ -58,6 +58,38 @@ struct PersistenceTests {
         #expect(try await store.downloadJobs().isEmpty)
     }
 
+    @Test("Device sync marks a download job complete after every received page")
+    func deviceSyncCompletesReceivedDownload() async throws {
+        let container = try ModelContainerFactory.make(inMemory: true)
+        let store = PersistenceStore(modelContainer: container)
+        let key = GalleryKey(gid: 9, token: "device-sync-complete")
+        let pages = (0..<2).map { index in
+            GalleryPageDescriptor(
+                galleryKey: key,
+                index: index,
+                pageURL: URL(string: "https://example.invalid/sync/(index)")!
+            )
+        }
+        let transfer = try GalleryTransferRecord(
+            stable: StableGalleryMetadataSnapshot(
+                key: key,
+                sourceSite: .eHentai,
+                title: "同步完成",
+                pageCount: pages.count,
+                pages: pages
+            )
+        )
+
+        try await store.prepareDeviceSyncDownload(transfer, pageIndexes: [])
+        try await store.markDownloadPageCompleted(for: key, pageIndex: 0, bytes: 10)
+        #expect(try await store.downloadJobs().first?.stateRaw != "completed")
+        try await store.markDownloadPageCompleted(for: key, pageIndex: 1, bytes: 20)
+
+        let restored = try #require(await store.downloadJobs().first)
+        #expect(restored.completedPageIndexes == [0, 1])
+        #expect(restored.stateRaw == "completed")
+    }
+
     @Test("SwiftData deletes a batch of downloads in one operation")
     func batchDownloadDeletion() async throws {
         let container = try ModelContainerFactory.make(inMemory: true)

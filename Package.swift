@@ -14,6 +14,7 @@ let package = Package(
         .library(name: "EHNetworking", targets: ["EHNetworking"]),
         .library(name: "EHPersistence", targets: ["EHPersistence"]),
         .library(name: "EHDownloads", targets: ["EHDownloads"]),
+        .library(name: "EHDeviceSync", targets: ["EHDeviceSync"]),
         .executable(name: "EhViewerPreview", targets: ["EhViewerPreview"])
     ],
     dependencies: [
@@ -45,9 +46,18 @@ let package = Package(
             dependencies: ["EHDomain", "EHNetworking", "EHArchiveSupport"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .target(
+            name: "EHDeviceSync",
+            dependencies: ["EHDomain", "EHPersistence", "EHDownloads"],
+            swiftSettings: [.swiftLanguageMode(.v6)],
+            linkerSettings: [
+                .linkedFramework("Network"),
+                .linkedFramework("Security")
+            ]
+        ),
         .executableTarget(
             name: "EhViewerPreview",
-            dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads"],
+            dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads", "EHDeviceSync"],
             path: "Sources/EhViewer",
             exclude: ["Info.plist"],
             resources: [.process("Resources")],
@@ -55,7 +65,7 @@ let package = Package(
         ),
         .testTarget(
             name: "EhViewerTests",
-            dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads", "EhViewerPreview"],
+            dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads", "EHDeviceSync", "EhViewerPreview"],
             resources: [.process("Fixtures")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         )

@@ -26,6 +26,12 @@
 	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>允许 EhViewer 将阅读器图片保存到照片</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>EhViewer 需要访问本地网络以在设备之间同步已下载的漫画。</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_ehviewer-sync._tcp</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>CFBundleURLTypes</key>

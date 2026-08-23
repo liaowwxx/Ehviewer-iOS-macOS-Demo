@@ -24,6 +24,7 @@ import EHDomain
 import EHNetworking
 import EHPersistence
 import EHDownloads
+import EHDeviceSync
 
 struct MigrationProgress: Sendable, Hashable {
     let status: String
@@ -195,6 +196,7 @@ final class AppModel {
     let imagePipeline: ImagePipeline
     let backgroundSession: BackgroundDownloadSession
     let downloadFiles: DownloadFileStore
+    let deviceSync: DeviceSyncCoordinator
     let galleryCache: GalleryCacheStore
     let tagSuggestionProvider: TagSuggestionProvider
 
@@ -283,6 +285,7 @@ final class AppModel {
         imagePipeline = ImagePipeline()
         let fileStore = downloadFiles ?? DownloadFileStore()
         self.downloadFiles = fileStore
+        self.deviceSync = DeviceSyncCoordinator(persistence: store, files: fileStore)
         self.galleryCache = galleryCache ?? GalleryCacheStore()
         let backgroundSession = BackgroundDownloadSession(
             taskObserver: { description, identifier in
@@ -1658,7 +1661,19 @@ final class AppModel {
         )
     }
 
-    private func restoreDownloads(progress: ((Int, Int) -> Void)? = nil) async {
+    /// Reloads downloads after device sync without resolving missing pages
+    /// through the website or automatically starting queued jobs. Device sync
+    /// owns only local media and must not turn a partial reconciliation into a
+    /// background network download.
+    func refreshDownloadsAfterDeviceSync() async {
+        await restoreDownloads(resolveMissingPages: false, startQueued: false)
+    }
+
+    private func restoreDownloads(
+        resolveMissingPages: Bool = true,
+        startQueued: Bool = true,
+        progress: ((Int, Int) -> Void)? = nil
+    ) async {
         isLoadingDownloads = true
         guard let persisted = try? await persistence.downloadJobs() else {
             isLoadingDownloads = false
@@ -1674,7 +1689,8 @@ final class AppModel {
         for (offset, (item, baseline)) in zip(persisted, baselines).enumerated() {
             if Task.isCancelled { return }
             var pages = item.pages
-            if item.totalPageCount > pages.count,
+            if resolveMissingPages,
+               item.totalPageCount > pages.count,
                item.stateRaw != DownloadState.cancelled.rawValue,
                let detail = try? await api.detail(for: item.key, site: restoreSite) {
                 let existingIndexes = Set(pages.map(\.index))
@@ -1717,7 +1733,9 @@ final class AppModel {
             _ = await downloads.reconcilePersisted(job, replacing: baseline)
             progress?(offset + 1, persisted.count)
         }
-        await downloads.startRestoredJobs()
+        if startQueued {
+            await downloads.startRestoredJobs()
+        }
     }
 
     private func makePersistedDownloadJob(_ item: PersistedDownload) -> DownloadJob {

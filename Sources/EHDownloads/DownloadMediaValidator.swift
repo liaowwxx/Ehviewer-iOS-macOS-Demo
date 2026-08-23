@@ -72,6 +72,12 @@ public enum DownloadMediaValidator {
         }
     }
 
+    public static func validateFile(at url: URL) throws {
+        guard kind(of: url) != nil else {
+            throw EHError.parsingFailed(String(localized: "下载结果不是有效图片或视频"))
+        }
+    }
+
     private static func hasSupportedVideoSignature(_ data: Data) -> Bool {
         let bytes = [UInt8](data.prefix(12))
         guard bytes.count >= 4 else { return false }
