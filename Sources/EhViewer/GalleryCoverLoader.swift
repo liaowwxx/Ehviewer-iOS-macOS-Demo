@@ -39,6 +39,39 @@ actor GalleryCoverLoader {
         try? FileManager.default.removeItem(at: diskRoot)
     }
 
+    /// Removes thumbnails created by older builds from downloaded pages. New
+    /// local covers are decoded directly from DownloadFileStore and never enter
+    /// this online-media cache.
+    func removeLegacyLocalEntries() {
+        cache.removeAllObjects()
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: diskRoot,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for file in files where Self.decodedKey(for: file).hasPrefix("local|") {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    func transientImage(fileURL: URL, maxPixelSize: Int) async -> CGImage? {
+        let limiter = decodeLimiter
+        return await limiter.withPermit {
+            await Task.detached(priority: .utility) {
+                guard Task.isCancelled == false,
+                      let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else {
+                    return nil
+                }
+                let options: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+                ]
+                return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            }.value
+        }
+    }
+
     func image(
         for key: String,
         maxPixelSize: Int,
@@ -113,6 +146,19 @@ actor GalleryCoverLoader {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "=", with: "")
         return root.appendingPathComponent("\(encoded).png", isDirectory: false)
+    }
+
+    private static func decodedKey(for fileURL: URL) -> String {
+        var encoded = fileURL.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: "_", with: "/")
+            .replacingOccurrences(of: "-", with: "+")
+        let remainder = encoded.count % 4
+        if remainder != 0 {
+            encoded += String(repeating: "=", count: 4 - remainder)
+        }
+        guard let data = Data(base64Encoded: encoded),
+              let key = String(data: data, encoding: .utf8) else { return "" }
+        return key
     }
 
     private static func write(image: CGImage, to url: URL) {

@@ -34,6 +34,22 @@ public struct DownloadFileExportEntry: Sendable, Hashable {
     }
 }
 
+public struct DownloadGalleryFileAudit: Sendable, Hashable {
+    public let validPages: [DownloadFileExportEntry]
+    public let invalidFinalFileCount: Int
+    public let removedTemporaryFileCount: Int
+
+    public init(
+        validPages: [DownloadFileExportEntry],
+        invalidFinalFileCount: Int,
+        removedTemporaryFileCount: Int
+    ) {
+        self.validPages = validPages
+        self.invalidFinalFileCount = invalidFinalFileCount
+        self.removedTemporaryFileCount = removedTemporaryFileCount
+    }
+}
+
 public struct DownloadReceiveHandle: Sendable, Hashable {
     fileprivate let id: UUID
 
@@ -45,6 +61,17 @@ public struct DownloadReceiveHandle: Sendable, Hashable {
 public enum DownloadReceiveResult: Sendable, Equatable {
     case committed(URL)
     case alreadyPresent(URL)
+}
+
+public enum DownloadImportResult: Sendable, Equatable {
+    case imported(URL, sha256: Data)
+    case alreadyPresent(URL)
+
+    public var url: URL {
+        switch self {
+        case let .imported(url, _), let .alreadyPresent(url): url
+        }
+    }
 }
 
 public enum DownloadReceiveError: Error, LocalizedError, Sendable, Equatable {
@@ -79,7 +106,7 @@ public actor DownloadFileStore {
         let key: GalleryKey
         let pageIndex: Int
         let expectedByteCount: Int64
-        let expectedSHA256: Data
+        let expectedSHA256: Data?
         let temporaryURL: URL
         let handle: FileHandle
         var receivedByteCount: Int64 = 0
@@ -115,31 +142,103 @@ public actor DownloadFileStore {
     /// Enumerates only real, final page files. Incomplete `.part` files and
     /// names that do not follow the store's page naming convention are ignored.
     public func localPageEntries(for key: GalleryKey) -> [DownloadFileExportEntry] {
+        auditLocalGallery(for: key, removeInvalidFiles: false).validPages
+    }
+
+    /// Reconciles the physical gallery directory without consulting download
+    /// task state. Only store-owned `page-N.bin` and temporary `.part` files
+    /// are considered; unrelated files are left untouched.
+    public func auditLocalGallery(
+        for key: GalleryKey,
+        removeInvalidFiles: Bool
+    ) -> DownloadGalleryFileAudit {
         let directory = directory(for: key)
         guard let names = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
             options: [.skipsHiddenFiles]
-        ) else { return [] }
+        ) else {
+            return DownloadGalleryFileAudit(
+                validPages: [],
+                invalidFinalFileCount: 0,
+                removedTemporaryFileCount: 0
+            )
+        }
 
-        return names.compactMap { url in
+        let fileManager = FileManager.default
+        var validPages: [DownloadFileExportEntry] = []
+        var invalidFinalFileCount = 0
+        var removedTemporaryFileCount = 0
+
+        for url in names {
             let name = url.lastPathComponent
-            guard name.hasPrefix("page-"), name.hasSuffix(".bin") else { return nil }
+            if name.hasSuffix(".part"),
+               name.hasPrefix("page-") || name.hasPrefix("sync-") {
+                if removeInvalidFiles, (try? fileManager.removeItem(at: url)) != nil {
+                    removedTemporaryFileCount += 1
+                }
+                continue
+            }
+            guard name.hasPrefix("page-"), name.hasSuffix(".bin") else { continue }
             let number = name.dropFirst("page-".count).dropLast(".bin".count)
-            guard let oneBasedIndex = Int(number), oneBasedIndex > 0 else { return nil }
+            guard let oneBasedIndex = Int(number), oneBasedIndex > 0 else {
+                invalidFinalFileCount += 1
+                if removeInvalidFiles { try? fileManager.removeItem(at: url) }
+                continue
+            }
             let pageIndex = oneBasedIndex - 1
             guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
                   values.isRegularFile == true,
                   let fileSize = values.fileSize,
                   fileSize > 0,
-                  DownloadMediaValidator.kind(of: url) != nil else { return nil }
-            return DownloadFileExportEntry(
+                  DownloadMediaValidator.kind(of: url) != nil else {
+                invalidFinalFileCount += 1
+                if removeInvalidFiles { try? fileManager.removeItem(at: url) }
+                continue
+            }
+            validPages.append(DownloadFileExportEntry(
                 pageIndex: pageIndex,
                 fileURL: url,
                 byteCount: Int64(fileSize),
                 fileExtension: DownloadMediaValidator.fileExtension(of: url) ?? "bin"
-            )
-        }.sorted { $0.pageIndex < $1.pageIndex }
+            ))
+        }
+
+        return DownloadGalleryFileAudit(
+            validPages: validPages.sorted { $0.pageIndex < $1.pageIndex },
+            invalidFinalFileCount: invalidFinalFileCount,
+            removedTemporaryFileCount: removedTemporaryFileCount
+        )
+    }
+
+    /// Removes only store-owned interrupted-write files. Call this during app
+    /// startup, before downloads or device sync can create new partials.
+    @discardableResult
+    public func sweepTemporaryFiles() -> Int {
+        let fileManager = FileManager.default
+        guard let directories = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        var removed = 0
+        for directory in directories {
+            guard (try? directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+                  let files = try? fileManager.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                  ) else { continue }
+            for file in files {
+                let name = file.lastPathComponent
+                guard name.hasSuffix(".part"),
+                      name.hasPrefix("page-") || name.hasPrefix("sync-") else { continue }
+                if (try? fileManager.removeItem(at: file)) != nil {
+                    removed += 1
+                }
+            }
+        }
+        return removed
     }
 
     /// Reads a page in bounded chunks. The callback is awaited after each
@@ -189,9 +288,39 @@ public actor DownloadFileStore {
         expectedByteCount: Int64,
         expectedSHA256: Data
     ) throws -> DownloadReceiveHandle {
+        try beginReceive(
+            for: key,
+            pageIndex: pageIndex,
+            expectedByteCount: expectedByteCount,
+            expectedSHA256: Optional(expectedSHA256)
+        )
+    }
+
+    /// Starts a streamed receive when the sender computes the digest during
+    /// the same read that supplies network chunks. The expected digest is
+    /// supplied to `finishReceive` after the raw bytes have arrived.
+    public func beginReceive(
+        for key: GalleryKey,
+        pageIndex: Int,
+        expectedByteCount: Int64
+    ) throws -> DownloadReceiveHandle {
+        try beginReceive(
+            for: key,
+            pageIndex: pageIndex,
+            expectedByteCount: expectedByteCount,
+            expectedSHA256: nil
+        )
+    }
+
+    private func beginReceive(
+        for key: GalleryKey,
+        pageIndex: Int,
+        expectedByteCount: Int64,
+        expectedSHA256: Data?
+    ) throws -> DownloadReceiveHandle {
         guard expectedByteCount > 0,
               expectedByteCount <= 256 * 1024 * 1024,
-              expectedSHA256.count == SHA256.Digest.byteCount else {
+              expectedSHA256.map({ $0.count == SHA256.Digest.byteCount }) ?? true else {
             throw DeviceSyncManifestError.invalidPageByteCount
         }
         guard hasSufficientFreeSpace else { throw EHError.diskSpaceLow }
@@ -245,6 +374,20 @@ public actor DownloadFileStore {
     }
 
     public func finishReceive(_ handle: DownloadReceiveHandle) throws -> DownloadReceiveResult {
+        try finishReceive(handle, expectedSHA256: nil)
+    }
+
+    public func finishReceive(
+        _ handle: DownloadReceiveHandle,
+        expectedSHA256: Data
+    ) throws -> DownloadReceiveResult {
+        try finishReceive(handle, expectedSHA256: Optional(expectedSHA256))
+    }
+
+    private func finishReceive(
+        _ handle: DownloadReceiveHandle,
+        expectedSHA256 suppliedSHA256: Data?
+    ) throws -> DownloadReceiveResult {
         guard let receiving = receivingPages.removeValue(forKey: handle.id) else {
             throw DownloadReceiveError.unknownHandle
         }
@@ -254,7 +397,9 @@ public actor DownloadFileStore {
             try? FileManager.default.removeItem(at: receiving.temporaryURL)
             throw DownloadReceiveError.byteCountMismatch
         }
-        guard Data(receiving.hasher.finalize()) == receiving.expectedSHA256 else {
+        guard let expectedSHA256 = suppliedSHA256 ?? receiving.expectedSHA256,
+              expectedSHA256.count == SHA256.Digest.byteCount,
+              Data(receiving.hasher.finalize()) == expectedSHA256 else {
             try? FileManager.default.removeItem(at: receiving.temporaryURL)
             throw DownloadReceiveError.hashMismatch
         }
@@ -285,6 +430,31 @@ public actor DownloadFileStore {
         guard let receiving = receivingPages.removeValue(forKey: handle.id) else { return }
         try? receiving.handle.close()
         try? FileManager.default.removeItem(at: receiving.temporaryURL)
+    }
+
+    /// Removes a page committed by an interrupted gallery transaction only
+    /// when it still matches the bytes received in that transaction. This
+    /// prevents rollback from deleting a valid concurrent download write.
+    public func rollbackReceivedPage(
+        for key: GalleryKey,
+        pageIndex: Int,
+        sha256: Data
+    ) throws {
+        guard sha256.count == SHA256.Digest.byteCount else { return }
+        let url = finalURL(for: key, pageIndex: pageIndex)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var hasher = SHA256()
+            while let chunk = try handle.read(upToCount: 64 * 1024), chunk.isEmpty == false {
+                hasher.update(data: chunk)
+            }
+            guard Data(hasher.finalize()) == sha256 else { return }
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            throw EHError.storageFailed(error.localizedDescription)
+        }
     }
 
     public func data(for key: GalleryKey, pageIndex: Int) throws -> Data {
@@ -345,14 +515,22 @@ public actor DownloadFileStore {
 
     @discardableResult
     public func importFile(at sourceURL: URL, for key: GalleryKey, pageIndex: Int) throws -> URL {
+        try importFileResult(at: sourceURL, for: key, pageIndex: pageIndex).url
+    }
+
+    public func importFileResult(
+        at sourceURL: URL,
+        for key: GalleryKey,
+        pageIndex: Int
+    ) throws -> DownloadImportResult {
         guard FileManager.default.fileExists(atPath: sourceURL.path),
-              let data = try? Data(contentsOf: sourceURL, options: .mappedIfSafe),
-              DownloadMediaValidator.kind(of: data) != nil else {
+              DownloadMediaValidator.kind(of: sourceURL) != nil else {
             throw EHError.parsingFailed(String(localized: "恢复文件不是有效图片或视频"))
         }
         if hasSufficientFreeSpace == false {
             throw EHError.diskSpaceLow
         }
+        let sourceSHA256 = try sha256(of: sourceURL)
 
         var directory = directory(for: key)
         let fileManager = FileManager.default
@@ -363,6 +541,10 @@ public actor DownloadFileStore {
             try? directory.setResourceValues(directoryValues)
 
             let finalURL = finalURL(for: key, pageIndex: pageIndex)
+            if fileManager.fileExists(atPath: finalURL.path),
+               DownloadMediaValidator.kind(of: finalURL) != nil {
+                return .alreadyPresent(finalURL)
+            }
             let partialURL = finalURL.appendingPathExtension("part")
             if fileManager.fileExists(atPath: partialURL.path) {
                 try fileManager.removeItem(at: partialURL)
@@ -373,11 +555,16 @@ public actor DownloadFileStore {
                 try fileManager.copyItem(at: sourceURL, to: partialURL)
                 try? fileManager.removeItem(at: sourceURL)
             }
+            if fileManager.fileExists(atPath: finalURL.path),
+               DownloadMediaValidator.kind(of: finalURL) != nil {
+                try? fileManager.removeItem(at: partialURL)
+                return .alreadyPresent(finalURL)
+            }
             if fileManager.fileExists(atPath: finalURL.path) {
                 try fileManager.removeItem(at: finalURL)
             }
             try fileManager.moveItem(at: partialURL, to: finalURL)
-            return finalURL
+            return .imported(finalURL, sha256: sourceSHA256)
         } catch let error as EHError {
             throw error
         } catch {
@@ -390,6 +577,23 @@ public actor DownloadFileStore {
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
         do {
             try FileManager.default.removeItem(at: directory)
+        } catch {
+            throw EHError.storageFailed(error.localizedDescription)
+        }
+    }
+
+    private func sha256(of url: URL) throws -> Data {
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var hasher = SHA256()
+            while let chunk = try handle.read(upToCount: 64 * 1024), chunk.isEmpty == false {
+                try Task.checkCancellation()
+                hasher.update(data: chunk)
+            }
+            return Data(hasher.finalize())
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw EHError.storageFailed(error.localizedDescription)
         }

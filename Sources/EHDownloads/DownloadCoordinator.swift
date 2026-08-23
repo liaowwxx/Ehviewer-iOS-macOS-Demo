@@ -217,9 +217,21 @@ public actor DownloadCoordinator {
     public typealias JobRemoval = @Sendable (GalleryKey) async throws -> Void
     public typealias BatchJobRemoval = @Sendable (Set<GalleryKey>) async throws -> Void
 
+    private struct PendingPersistence {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
     private var jobs: [GalleryKey: DownloadJob] = [:]
     private var tasks: [GalleryKey: Task<Void, Never>] = [:]
     private var runTokens: [GalleryKey: UUID] = [:]
+    // A restore can be running while the user removes a download. Keep a
+    // short-lived tombstone in this coordinator so the stale restore snapshot
+    // cannot put the removed job back into the in-memory list. A deliberate
+    // enqueue/restore clears the tombstone and is therefore still allowed to
+    // add the same gallery again.
+    private var removedKeys: Set<GalleryKey> = []
+    private var pendingPersistence: [GalleryKey: [PendingPersistence]] = [:]
     private var subscribers: [UUID: AsyncStream<DownloadEvent>.Continuation] = [:]
     private var activeKey: GalleryKey?
     private let pageLoader: PageLoader
@@ -267,6 +279,7 @@ public actor DownloadCoordinator {
         pages: [GalleryPageDescriptor]
     ) async {
         guard jobs[key] == nil else { return }
+        removedKeys.remove(key)
         let job = DownloadJob(key: key, title: title, japaneseTitle: japaneseTitle, tags: tags, pages: pages)
         jobs[key] = job
         await save(job)
@@ -392,12 +405,16 @@ public actor DownloadCoordinator {
     }
 
     public func remove(_ key: GalleryKey) async -> DownloadRemovalResult {
+        // Mark the key before the first await. Any new state transition that
+        // races with deletion must not enqueue another persistence write.
+        removedKeys.insert(key)
         tasks[key]?.cancel()
         tasks[key] = nil
         runTokens[key] = nil
         if activeKey == key { activeKey = nil }
 
         do {
+            await waitForPendingPersistence(for: key)
             if let fileStore { try await fileStore.remove(key) }
             if let removal { try await removal(key) }
             jobs.removeValue(forKey: key)
@@ -405,6 +422,7 @@ public actor DownloadCoordinator {
             startNextQueuedJobIfNeeded()
             return .removed
         } catch {
+            removedKeys.remove(key)
             guard var job = jobs[key] else {
                 startNextQueuedJobIfNeeded()
                 return .failed(error.localizedDescription)
@@ -441,10 +459,15 @@ public actor DownloadCoordinator {
         // Stop selected jobs before touching their files. Do not schedule a
         // replacement download until the batch has finished.
         for key in uniqueKeys {
+            removedKeys.insert(key)
             tasks[key]?.cancel()
             tasks[key] = nil
             runTokens[key] = nil
             if activeKey == key { activeKey = nil }
+        }
+
+        for key in uniqueKeys {
+            await waitForPendingPersistence(for: key)
         }
 
         var completed = 0
@@ -471,6 +494,13 @@ public actor DownloadCoordinator {
                 failed: failures.count
             ))
             await Task.yield()
+        }
+
+        // A cancelled or failed file operation leaves its job in place and
+        // must not leave a deletion tombstone behind.
+        let preparedSet = Set(successfullyPrepared)
+        for key in uniqueKeys where preparedSet.contains(key) == false {
+            removedKeys.remove(key)
         }
 
         // Persist all successfully removed files in one transaction. If the
@@ -507,6 +537,7 @@ public actor DownloadCoordinator {
         }
 
         for failure in failures {
+            removedKeys.remove(failure.key)
             guard var job = jobs[failure.key] else { continue }
             job.state = .failed
             job.errorMessage = String(localized: "删除失败：\(failure.message)")
@@ -534,6 +565,7 @@ public actor DownloadCoordinator {
 
     public func restore(_ restoredJobs: [DownloadJob]) async {
         for var job in restoredJobs {
+            removedKeys.remove(job.key)
             if job.state == .running { job.state = .queued }
             jobs[job.key] = job
             await save(job)
@@ -598,39 +630,29 @@ public actor DownloadCoordinator {
     public func mergeMetadata(_ summaries: [GallerySummary]) async {
         for summary in summaries {
             guard let existing = jobs[summary.key] else { continue }
-            let completeness = summary.metadataCompleteness ?? GalleryMetadataCompleteness()
-            let title = if completeness.title.hasValue {
-                summary.title
-            } else if completeness.title == .loadedEmpty {
-                ""
-            } else {
-                existing.title
-            }
-            let japaneseTitle = if completeness.japaneseTitle.isLoaded {
-                summary.japaneseTitle
-            } else {
-                existing.japaneseTitle
-            }
-            let tags = if completeness.tags.isLoaded {
-                summary.tags
-            } else {
-                existing.tags
-            }
-            var updated = DownloadJob(
-                key: existing.key,
-                title: title,
-                japaneseTitle: japaneseTitle,
-                tags: tags,
-                pages: existing.pages,
-                label: existing.label,
-                addedAt: existing.addedAt
-            )
-            updated.completedPageIndexes = existing.completedPageIndexes
-            updated.state = existing.state
-            updated.errorMessage = existing.errorMessage
+            let updated = mergedMetadataJob(existing, with: summary)
             jobs[summary.key] = updated
             await save(updated)
             emit(.changed(updated))
+        }
+    }
+
+    /// Applies metadata to the in-memory download jobs without persisting or
+    /// emitting one event per gallery. Callers that use this method must have
+    /// already persisted the metadata in a batch transaction. This keeps
+    /// refresh/import flows from turning one batch save into N SwiftData saves
+    /// and N list updates after the visible operation has finished.
+    public func mergeMetadataInMemory(_ summaries: [GallerySummary]) {
+        var didChange = false
+        for summary in summaries {
+            guard let existing = jobs[summary.key] else { continue }
+            let updated = mergedMetadataJob(existing, with: summary)
+            guard updated != existing else { continue }
+            jobs[summary.key] = updated
+            didChange = true
+        }
+        if didChange {
+            emit(.reset(snapshot()))
         }
     }
 
@@ -644,6 +666,7 @@ public actor DownloadCoordinator {
         // of wiping them: startup restore must never discard a fresh enqueue.
         for var restored in restoredJobs {
             if restored.state == .running { restored.state = .queued }
+            guard removedKeys.contains(restored.key) == false else { continue }
             if jobs[restored.key] == nil {
                 jobs[restored.key] = restored
             }
@@ -653,6 +676,7 @@ public actor DownloadCoordinator {
 
     @discardableResult
     public func reconcilePersisted(_ reconciledJob: DownloadJob, replacing baseline: DownloadJob) async -> Bool {
+        guard removedKeys.contains(reconciledJob.key) == false else { return false }
         guard jobs[baseline.key] == baseline else { return false }
         guard reconciledJob != baseline else { return true }
         jobs[reconciledJob.key] = reconciledJob
@@ -807,7 +831,64 @@ public actor DownloadCoordinator {
     }
 
     private func save(_ job: DownloadJob) async {
-        if let persistence { await persistence(job) }
+        guard removedKeys.contains(job.key) == false,
+              let persistence else { return }
+
+        let id = UUID()
+        let task = Task { await persistence(job) }
+        pendingPersistence[job.key, default: []].append(
+            PendingPersistence(id: id, task: task)
+        )
+        await task.value
+        pendingPersistence[job.key]?.removeAll { $0.id == id }
+        if pendingPersistence[job.key]?.isEmpty == true {
+            pendingPersistence[job.key] = nil
+        }
+    }
+
+    private func waitForPendingPersistence(for key: GalleryKey) async {
+        while let pending = pendingPersistence[key], pending.isEmpty == false {
+            for item in pending {
+                await item.task.value
+            }
+        }
+    }
+
+    private func mergedMetadataJob(
+        _ existing: DownloadJob,
+        with summary: GallerySummary
+    ) -> DownloadJob {
+        let completeness = summary.metadataCompleteness ?? GalleryMetadataCompleteness()
+        let title = if completeness.title.hasValue {
+            summary.title
+        } else if completeness.title == .loadedEmpty {
+            ""
+        } else {
+            existing.title
+        }
+        let japaneseTitle = if completeness.japaneseTitle.isLoaded {
+            summary.japaneseTitle
+        } else {
+            existing.japaneseTitle
+        }
+        let tags = if completeness.tags.isLoaded {
+            summary.tags
+        } else {
+            existing.tags
+        }
+        var updated = DownloadJob(
+            key: existing.key,
+            title: title,
+            japaneseTitle: japaneseTitle,
+            tags: tags,
+            pages: existing.pages,
+            label: existing.label,
+            addedAt: existing.addedAt
+        )
+        updated.completedPageIndexes = existing.completedPageIndexes
+        updated.state = existing.state
+        updated.errorMessage = existing.errorMessage
+        return updated
     }
 
     private func emit(_ event: DownloadEvent) {

@@ -46,6 +46,52 @@ struct DeviceSyncStorageTests {
         try await store.remove(key)
     }
 
+    @Test("A streamed page accepts the digest produced by the sender's single read")
+    func receivesDigestAtPageFinish() async throws {
+        let root = temporaryRoot("receive-late-digest")
+        let store = DownloadFileStore(root: root, minimumFreeBytes: 1)
+        let key = GalleryKey(gid: 211, token: "receive-late-digest")
+        let image = try imageData()
+        let handle = try await store.beginReceive(
+            for: key,
+            pageIndex: 0,
+            expectedByteCount: Int64(image.count)
+        )
+        try await store.appendReceiveChunk(image, to: handle)
+
+        let result = try await store.finishReceive(
+            handle,
+            expectedSHA256: Data(SHA256.hash(data: image))
+        )
+
+        #expect(result == .committed(await store.finalURL(for: key, pageIndex: 0)))
+        try await store.remove(key)
+    }
+
+    @Test("Gallery audit removes invalid store files and reports an empty shell")
+    func auditsAndCleansEmptyGallery() async throws {
+        let root = temporaryRoot("audit-empty")
+        let store = DownloadFileStore(root: root, minimumFreeBytes: 1)
+        let key = GalleryKey(gid: 212, token: "audit-empty")
+        let finalURL = await store.finalURL(for: key, pageIndex: 0)
+        try FileManager.default.createDirectory(
+            at: finalURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("invalid".utf8).write(to: finalURL)
+        let partialURL = finalURL.appendingPathExtension("part")
+        try Data("partial".utf8).write(to: partialURL)
+
+        let audit = await store.auditLocalGallery(for: key, removeInvalidFiles: true)
+
+        #expect(audit.validPages.isEmpty)
+        #expect(audit.invalidFinalFileCount == 1)
+        #expect(audit.removedTemporaryFileCount == 1)
+        #expect(FileManager.default.fileExists(atPath: finalURL.path) == false)
+        #expect(FileManager.default.fileExists(atPath: partialURL.path) == false)
+        try await store.remove(key)
+    }
+
     @Test("Wrong hash, size and invalid media never reach the final path")
     func rejectsInvalidReceivedPages() async throws {
         let root = temporaryRoot("invalid-receive")

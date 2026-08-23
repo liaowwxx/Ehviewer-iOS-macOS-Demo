@@ -129,23 +129,24 @@ public enum DownloadArchiveExporter {
 
             let archivePath = "\(item.directory)/\(String(format: "%08d", item.entry.pageIndex + 1)).\(item.entry.fileExtension)"
             try beginFile(archivePath, size: item.entry.byteCount, writer: writer)
-            let handle = try FileHandle(forReadingFrom: item.entry.fileURL)
-            defer { try? handle.close() }
-
             var fileBytes: Int64 = 0
-            while true {
-                try Task.checkCancellation()
-                guard let data = try handle.read(upToCount: bufferSize), data.isEmpty == false else { break }
-                try writeData(data, writer: writer)
-                fileBytes += Int64(data.count)
-                currentProgress = DownloadArchiveExportProgress(
-                    completedBytes: min(totalBytes, completedBytes + fileBytes),
-                    totalBytes: totalBytes,
-                    completedFiles: completedFiles,
-                    totalFiles: totalFiles,
-                    currentTitle: item.title
-                )
-                await progress?(currentProgress)
+            do {
+                let handle = try FileHandle(forReadingFrom: item.entry.fileURL)
+                defer { try? handle.close() }
+                while true {
+                    try Task.checkCancellation()
+                    guard let data = try handle.read(upToCount: bufferSize), data.isEmpty == false else { break }
+                    try writeData(data, writer: writer)
+                    fileBytes += Int64(data.count)
+                    currentProgress = DownloadArchiveExportProgress(
+                        completedBytes: min(totalBytes, completedBytes + fileBytes),
+                        totalBytes: totalBytes,
+                        completedFiles: completedFiles,
+                        totalFiles: totalFiles,
+                        currentTitle: item.title
+                    )
+                    await progress?(currentProgress)
+                }
             }
             guard fileBytes == item.entry.byteCount else {
                 throw EHError.storageFailed(String(localized: "下载文件在导出过程中发生变化"))

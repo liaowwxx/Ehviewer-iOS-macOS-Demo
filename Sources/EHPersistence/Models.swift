@@ -99,7 +99,7 @@ public final class GalleryRecord {
 
 /// Normalized, field-level stable content. The legacy scalar fields on
 /// `GalleryRecord` remain readable for migration compatibility; new code uses
-/// this record as the canonical ordinary-cache/download metadata source.
+/// this record as the canonical ordinary browsing-metadata cache source.
 @Model
 public final class StableGalleryMetadataRecord {
     #Index<StableGalleryMetadataRecord>([\.gid, \.token], [\.capturedAt])
@@ -304,6 +304,36 @@ public final class DownloadedGalleryDynamicRecord {
         favoriteStateRaw = snapshot.completeness.favorite.rawValue
         commentsStateRaw = snapshot.completeness.comments.rawValue
     }
+}
+
+/// Metadata owned by an imported or downloaded gallery. It deliberately has
+/// no relationship to `GalleryRecord`: ordinary browsing cache and the local
+/// download library may contain the same gallery while retaining independent
+/// snapshots and lifetimes.
+@Model
+public final class DownloadedGalleryMetadataRecord {
+    #Index<DownloadedGalleryMetadataRecord>([\.gid, \.token], [\.updatedAt])
+
+    public var gid: Int64
+    public var token: String
+    public var stableData: Data
+    public var dynamicData: Data?
+    public var updatedAt: Date
+
+    public init(
+        key: GalleryKey,
+        stableData: Data,
+        dynamicData: Data? = nil,
+        updatedAt: Date = Date()
+    ) {
+        gid = key.gid
+        token = key.token
+        self.stableData = stableData
+        self.dynamicData = dynamicData
+        self.updatedAt = updatedAt
+    }
+
+    public var key: GalleryKey { GalleryKey(gid: gid, token: token) }
 }
 
 @Model

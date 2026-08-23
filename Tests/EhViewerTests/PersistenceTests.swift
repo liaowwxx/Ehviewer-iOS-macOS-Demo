@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import SwiftData
 import EHDomain
 import EHPersistence
 
@@ -58,7 +59,23 @@ struct PersistenceTests {
         #expect(try await store.downloadJobs().isEmpty)
     }
 
-    @Test("Device sync marks a download job complete after every received page")
+    @MainActor
+    @Test("Deleting a download removes all duplicate persisted job rows")
+    func deleteDownloadRemovesDuplicateRows() async throws {
+        let container = try ModelContainerFactory.make(inMemory: true)
+        let store = PersistenceStore(modelContainer: container)
+        let key = GalleryKey(gid: 81, token: "duplicate-delete")
+        let context = container.mainContext
+        context.insert(DownloadJobRecord(key: key, title: "Duplicate 1", totalPages: 0))
+        context.insert(DownloadJobRecord(key: key, title: "Duplicate 2", totalPages: 0))
+        try context.save()
+
+        #expect(try await store.downloadJobs().count == 2)
+        try await store.deleteDownload(for: key)
+        #expect(try await store.downloadJobs().isEmpty)
+    }
+
+    @Test("Device sync commits gallery metadata and validated pages together")
     func deviceSyncCompletesReceivedDownload() async throws {
         let container = try ModelContainerFactory.make(inMemory: true)
         let store = PersistenceStore(modelContainer: container)
@@ -80,14 +97,12 @@ struct PersistenceTests {
             )
         )
 
-        try await store.prepareDeviceSyncDownload(transfer, pageIndexes: [])
-        try await store.markDownloadPageCompleted(for: key, pageIndex: 0, bytes: 10)
-        #expect(try await store.downloadJobs().first?.stateRaw != "completed")
-        try await store.markDownloadPageCompleted(for: key, pageIndex: 1, bytes: 20)
+        try await store.commitDeviceSyncGallery(transfer, completedPages: [0: 10, 1: 20])
 
         let restored = try #require(await store.downloadJobs().first)
         #expect(restored.completedPageIndexes == [0, 1])
         #expect(restored.stateRaw == "completed")
+        #expect(try await store.downloadedGallerySummary(for: key)?.title == "同步完成")
     }
 
     @Test("SwiftData deletes a batch of downloads in one operation")
@@ -110,7 +125,8 @@ struct PersistenceTests {
         try await store.deleteDownloads(for: Set(keys))
 
         #expect(try await store.downloadJobs().isEmpty)
-        #expect(try await store.gallerySummary(for: keys[0]) != nil)
+        #expect(try await store.downloadedTransferRecord(for: keys[0]) == nil)
+        #expect(try await store.gallerySummary(for: keys[0]) == nil)
     }
 
     @Test("SwiftData keeps recent quick searches and filter rules as values")
@@ -165,7 +181,7 @@ struct PersistenceTests {
         #expect(try await store.isFavorite(for: existingKey) == true)
         #expect(try await store.gallerySummary(for: missing.key)?.title == "Imported title")
         #expect(try await store.gallerySyncSummaries(for: [existingKey, missing.key]).map(\.key) == [existingKey, missing.key])
-        #expect(try await store.localGallerySummaries(for: [missing.key, existingKey]).map(\.key) == [existingKey, missing.key])
+        #expect(try await store.localGallerySummaries(for: [missing.key, existingKey]).isEmpty)
     }
 
     @Test("Gallery sync merges titles and tags without changing local reading state")
@@ -193,5 +209,35 @@ struct PersistenceTests {
         #expect(restored.tags == ["artist:sample", "female:sub tag"])
         #expect(try await store.readingPage(for: key) == 6)
         #expect(try await store.isFavorite(for: key) == true)
+    }
+
+    @Test("Ordinary cache and downloaded metadata have independent values and lifetimes")
+    func cacheAndDownloadedMetadataAreIndependent() async throws {
+        let store = PersistenceStore(modelContainer: try ModelContainerFactory.make(inMemory: true))
+        let key = GalleryKey(gid: 93, token: "separated")
+        try await store.upsertStableSnapshot(StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: "在线缓存标题",
+            tags: ["artist:cache"],
+            capturedAt: Date(timeIntervalSince1970: 200)
+        ))
+        try await store.promoteToDownloadedGallery(stable: StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: "本地下载标题",
+            tags: ["artist:download"],
+            capturedAt: Date(timeIntervalSince1970: 100)
+        ))
+
+        #expect(try await store.stableSnapshot(for: key)?.title == "在线缓存标题")
+        #expect(try await store.downloadedGallerySummary(for: key)?.title == "本地下载标题")
+        #expect(try await store.downloadedGallerySummary(for: key)?.tags == ["artist:download"])
+
+        try await store.deleteDownload(for: key)
+
+        #expect(try await store.downloadedTransferRecord(for: key) == nil)
+        #expect(try await store.localGallerySummaries(for: [key]).isEmpty)
+        #expect(try await store.stableSnapshot(for: key)?.title == "在线缓存标题")
     }
 }

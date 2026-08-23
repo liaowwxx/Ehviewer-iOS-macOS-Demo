@@ -356,7 +356,6 @@ struct GalleryCard: View {
                 DownloadCover(
                     job: localJob,
                     title: displayTitle,
-                    fallbackPreviewURL: gallery.thumbnailURL,
                     size: CGSize(width: 78, height: 108),
                     cornerRadius: 10
                 )

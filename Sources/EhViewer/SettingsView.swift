@@ -142,7 +142,7 @@ struct SettingsView: View {
                 Label("导出", systemImage: "square.and.arrow.up")
                     .font(.subheadline.weight(.semibold))
                 Button("导出元数据(.ehgallery)", systemImage: "square.and.arrow.up") {
-                    Task {
+                    model.runFileOperation {
                         guard let url = await model.exportGallerySync() else { return }
 #if os(iOS)
                         pendingShareFile = PendingSharedFile(url: url)
@@ -155,7 +155,7 @@ struct SettingsView: View {
                 }
                 .disabled(model.isMigrating || model.isRestoringDownloads)
                 Button("导出归档(.eharchive)", systemImage: "square.and.arrow.up") {
-                    Task {
+                    model.runFileOperation {
                         guard let url = await model.exportDownloadArchive() else { return }
 #if os(iOS)
                         pendingShareFile = PendingSharedFile(url: url)
@@ -206,10 +206,14 @@ struct SettingsView: View {
             titleVisibility: .visible
         ) {
             Button("更新全部") {
-                Task { await model.refreshDownloadedGalleryMetadata(mode: .all) }
+                model.runFileOperation {
+                    await model.refreshDownloadedGalleryMetadata(mode: .all)
+                }
             }
             Button("仅更新缺失信息") {
-                Task { await model.refreshDownloadedGalleryMetadata(mode: .missingOnly) }
+                model.runFileOperation {
+                    await model.refreshDownloadedGalleryMetadata(mode: .missingOnly)
+                }
             }
             Button("取消", role: .cancel) {}
         } message: {
@@ -266,7 +270,7 @@ struct SettingsView: View {
                     }
                     return
                 }
-                Task {
+                model.runFileOperation {
                     downloadRestoreMessage = await model.restoreDownloads(from: url).message
                     showingDownloadRestoreResult = true
                     // iOS 文件选择器会在 tmp/Inbox 留下副本，导入后清理。

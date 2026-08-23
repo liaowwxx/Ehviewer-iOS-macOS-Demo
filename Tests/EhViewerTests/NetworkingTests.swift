@@ -702,7 +702,7 @@ struct NetworkingTests {
         await pipeline.removeAll()
     }
 
-    @Test("Gallery cache keeps static detail data, caches preview images, and clears only its own root")
+    @Test("Gallery cache keeps online detail and preview data inside its own root")
     func galleryCacheStore() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ehviewer-gallery-cache-\(UUID().uuidString)")
@@ -740,16 +740,12 @@ struct NetworkingTests {
             favoriteName: "收藏夹",
             ratingCount: 12
         )
-
         await store.save(detail, for: key, site: .eHentai)
         let cached = try #require(await store.detail(for: key, site: .eHentai))
         #expect(cached.summary.title == "Cached gallery")
-        #expect(cached.tags == ["artist:sample"])
         #expect(cached.pages == [page])
         #expect(cached.comments.isEmpty)
-        #expect(cached.favoriteCount == nil)
         #expect(cached.summary.rating == nil)
-        #expect(cached.summary.ratingCount == nil)
 
         let image = GalleryPageImage(galleryKey: key, index: 0, imageURL: page.previewURL!)
         let imageData = try await store.imageData(for: image, resolution: .preview) {
@@ -757,6 +753,9 @@ struct NetworkingTests {
         }
         #expect(imageData == Data("preview".utf8))
         #expect((await store.usage()).byteCount > 0)
+        #expect(await store.legacyStableSnapshots().isEmpty)
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Stable").path))
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Details").path) == false)
 
         await store.removeAll()
         #expect((await store.usage()).byteCount == 0)

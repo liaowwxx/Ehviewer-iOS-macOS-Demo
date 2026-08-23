@@ -261,18 +261,34 @@ public enum ModelContainerFactory {
         ]
     }
 
-    public enum MigrationPlan: SchemaMigrationPlan {
-        public static let schemas: [any VersionedSchema.Type] = [SchemaV1.self, SchemaV2.self, SchemaV3.self]
-        public static let stages: [MigrationStage] = [
-            .lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self),
-            .lightweight(fromVersion: SchemaV2.self, toVersion: SchemaV3.self)
+    public enum SchemaV4: VersionedSchema {
+        public static let versionIdentifier = Schema.Version(4, 0, 0)
+
+        public static let models: [any PersistentModel.Type] = [
+            GalleryRecord.self,
+            StableGalleryMetadataRecord.self,
+            GalleryPreviewPageRecord.self,
+            DownloadedGalleryDynamicRecord.self,
+            DownloadedGalleryMetadataRecord.self,
+            GalleryImageIndexRecord.self,
+            DownloadJobRecord.self,
+            DownloadPageRecord.self,
+            DownloadLabelRecord.self,
+            QuickSearchRecord.self,
+            FilterRuleRecord.self,
+            TagTranslationRecord.self
         ]
+    }
+
+    public enum MigrationPlan: SchemaMigrationPlan {
+        public static let schemas: [any VersionedSchema.Type] = [SchemaV4.self]
+        public static let stages: [MigrationStage] = []
     }
 
     public static func make(inMemory: Bool = false) throws -> ModelContainer {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: inMemory)
         return try ModelContainer(
-            for: Schema(SchemaV3.models),
+            for: Schema(SchemaV4.models),
             migrationPlan: MigrationPlan.self,
             configurations: configuration
         )
@@ -295,76 +311,6 @@ public actor PersistenceStore {
             try applyDynamicSnapshotIfPresent(from: snapshot, capturedAt: stable.capturedAt, retainForDownload: false)
         }
         try modelContext.save()
-    }
-
-    /// Converts pre-V3 scalar records into the separated content records. A
-    /// legacy dynamic value is retained only when a matching download job is
-    /// present; otherwise it is intentionally discarded from the ordinary
-    /// cache path.
-    @discardableResult
-    public func migrateLegacyGalleryRecords() throws -> Int {
-        let galleries = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
-        guard galleries.isEmpty == false else { return 0 }
-        let downloadKeys = Set(try modelContext.fetch(FetchDescriptor<DownloadJobRecord>()).map(\.key))
-        var migratedCount = 0
-        for record in galleries where record.stableMetadata == nil {
-            var completeness = GalleryMetadataCompleteness(
-                title: record.metadataTitleComplete ? .loadedWithValue : .notLoaded,
-                japaneseTitle: record.metadataJapaneseTitleComplete ? .loadedWithValue : .notLoaded,
-                tags: record.metadataTagsComplete ? .loadedWithValue : .notLoaded
-            )
-            completeness.category = record.category == nil ? .notLoaded : .loadedWithValue
-            completeness.pageCount = record.pageCount == nil ? .notLoaded : .loadedWithValue
-            completeness.postedAt = record.postedAt == nil ? .notLoaded : .loadedWithValue
-            completeness.thumbnailURL = record.thumbnailURLString == nil ? .notLoaded : .loadedWithValue
-            completeness.uploader = record.uploader == nil ? .notLoaded : .loadedWithValue
-            let stable = StableGalleryMetadataSnapshot(
-                key: record.key,
-                sourceSite: .eHentai,
-                title: record.title,
-                japaneseTitle: record.japaneseTitle,
-                uploader: record.uploader,
-                tags: record.tags,
-                category: record.category,
-                pageCount: record.pageCount,
-                postedAt: record.postedAt,
-                thumbnailURL: record.thumbnailURL,
-                capturedAt: .distantPast,
-                completeness: completeness
-            )
-            let stableRecord = StableGalleryMetadataRecord(snapshot: stable)
-            stableRecord.gallery = record
-            record.stableMetadata = stableRecord
-            record.cacheRetention = true
-            modelContext.insert(stableRecord)
-
-            if downloadKeys.contains(record.key) {
-                record.downloadRetention = true
-                var dynamicCompleteness = GalleryMetadataCompleteness()
-                dynamicCompleteness.rating = record.rating == nil ? .notLoaded : .loadedWithValue
-                dynamicCompleteness.ratingCount = record.ratingCount == nil ? .notLoaded : .loadedWithValue
-                dynamicCompleteness.favorite = record.favoriteCategory == nil ? .notLoaded : .loadedWithValue
-                let dynamic = DownloadedGalleryDynamicSnapshot(
-                    key: record.key,
-                    rating: record.rating,
-                    ratingCount: record.ratingCount,
-                    favoriteCategory: record.favoriteCategory,
-                    capturedAt: .distantPast,
-                    completeness: dynamicCompleteness
-                )
-                let dynamicRecord = DownloadedGalleryDynamicRecord(snapshot: dynamic)
-                dynamicRecord.gallery = record
-                record.dynamicSnapshot = dynamicRecord
-                modelContext.insert(dynamicRecord)
-            } else {
-                record.rating = nil
-                record.ratingCount = nil
-                record.favoriteCategory = nil
-            }
-            migratedCount += 1
-        }
-        if migratedCount > 0 { try modelContext.save() }
-        return migratedCount
     }
 
     /// Stores only stable content. Ratings, favorites and comments never enter
@@ -421,6 +367,10 @@ public actor PersistenceStore {
         _ snapshot: StableGalleryMetadataSnapshot,
         retainForDownload: Bool
     ) throws {
+        if retainForDownload {
+            try applyDownloadedStableSnapshot(snapshot)
+            return
+        }
         let record = try record(for: snapshot.key, creatingFrom: snapshot.summary)
         let merged: StableGalleryMetadataSnapshot
         if let existing = record.stableMetadata {
@@ -436,15 +386,12 @@ public actor PersistenceStore {
             syncPreviewPages(stable, with: merged.pages, state: merged.completeness.pages)
         }
         record.cacheRetention = true
-        if retainForDownload {
-            record.downloadRetention = true
-        }
         record.applyStableCompatibilityFields(from: merged)
     }
 
     public func stableSnapshot(for key: GalleryKey) throws -> StableGalleryMetadataSnapshot? {
         guard let record = try record(for: key) else { return nil }
-        guard record.cacheRetention || record.downloadRetention else { return nil }
+        guard record.cacheRetention else { return nil }
         if let stable = record.stableMetadata {
             return stable.snapshot
         }
@@ -459,20 +406,15 @@ public actor PersistenceStore {
         guard keys.isEmpty == false else { return [] }
         return try modelContext.fetch(FetchDescriptor<GalleryRecord>())
             .compactMap { record in
-                guard keys.contains(record.key) else { return nil }
+                guard keys.contains(record.key), record.cacheRetention else { return nil }
                 if let stable = record.stableMetadata { return stable.snapshot }
                 return StableGalleryMetadataSnapshot(summary: record.summary, sourceSite: .eHentai, capturedAt: .distantPast)
             }
     }
 
     public func downloadedStableSnapshots() throws -> [StableGalleryMetadataSnapshot] {
-        try modelContext.fetch(FetchDescriptor<GalleryRecord>())
-            .filter(\.downloadRetention)
-            .compactMap { $0.stableMetadata?.snapshot ?? StableGalleryMetadataSnapshot(
-                summary: $0.summary,
-                sourceSite: .eHentai,
-                capturedAt: .distantPast
-            ) }
+        try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>())
+            .compactMap { try? decodeStable(from: $0) }
     }
 
     public func saveDownloadedDynamicSnapshot(_ snapshot: DownloadedGalleryDynamicSnapshot) throws {
@@ -491,22 +433,22 @@ public actor PersistenceStore {
         _ snapshot: DownloadedGalleryDynamicSnapshot,
         retainForDownload: Bool = true
     ) throws {
-        let fallback = GallerySummary(key: snapshot.key, title: "Gallery \(snapshot.key.gid)")
-        let record = try record(for: snapshot.key, creatingFrom: fallback)
-        if retainForDownload {
-            record.downloadRetention = true
-        }
-        if let existing = record.dynamicSnapshot {
-            let merged = GallerySnapshotMerger.merge(existing: existing.snapshot, incoming: snapshot)
-            existing.update(from: merged)
-            record.applyDynamicCompatibilityFields(from: merged)
+        guard retainForDownload else { return }
+        let record: DownloadedGalleryMetadataRecord
+        if let existing = try downloadedMetadataRecord(for: snapshot.key) {
+            record = existing
         } else {
-            let dynamic = DownloadedGalleryDynamicRecord(snapshot: snapshot)
-            dynamic.gallery = record
-            record.dynamicSnapshot = dynamic
-            modelContext.insert(dynamic)
-            record.applyDynamicCompatibilityFields(from: snapshot)
+            let stable = StableGalleryMetadataSnapshot(
+                summary: GallerySummary(key: snapshot.key, title: "Gallery \(snapshot.key.gid)"),
+                sourceSite: .eHentai,
+                capturedAt: .distantPast
+            )
+            record = try insertDownloadedMetadata(stable: stable, dynamic: nil)
         }
+        let existingDynamic = try decodeDynamic(from: record)
+        let merged = GallerySnapshotMerger.merge(existing: existingDynamic, incoming: snapshot)
+        record.dynamicData = try JSONEncoder().encode(merged)
+        record.updatedAt = Date()
     }
 
     private func applyDynamicSnapshotIfPresent(
@@ -514,41 +456,110 @@ public actor PersistenceStore {
         capturedAt: Date,
         retainForDownload: Bool
     ) throws {
-        let completeness = summary.metadataCompleteness ?? GalleryMetadataCompleteness()
-        guard completeness.rating.isLoaded
-                || completeness.ratingCount.isLoaded
-                || completeness.favorite.isLoaded else { return }
-        let dynamic = DownloadedGalleryDynamicSnapshot(
-            key: summary.key,
-            rating: summary.rating,
-            ratingCount: summary.ratingCount,
-            favoriteCategory: summary.favoriteCategory,
-            capturedAt: capturedAt,
-            completeness: GalleryMetadataCompleteness(
-                rating: completeness.rating,
-                ratingCount: completeness.ratingCount,
-                favorite: completeness.favorite,
-                comments: completeness.comments
-            )
+        let sourceCompleteness = summary.metadataCompleteness
+        let ratingState = summaryOptionalState(
+            explicit: sourceCompleteness?.rating,
+            value: summary.rating
         )
-        try applyDownloadedDynamicSnapshot(dynamic, retainForDownload: retainForDownload)
+        let ratingCountState = summaryOptionalState(
+            explicit: sourceCompleteness?.ratingCount,
+            value: summary.ratingCount
+        )
+        let favoriteState = summaryFavoriteState(
+            explicit: sourceCompleteness?.favorite,
+            value: summary.favoriteCategory
+        )
+        guard ratingState.isLoaded || ratingCountState.isLoaded || favoriteState.isLoaded else { return }
+
+        if retainForDownload {
+            try applyDownloadedDynamicSnapshot(DownloadedGalleryDynamicSnapshot(
+                key: summary.key,
+                rating: summary.rating,
+                ratingCount: summary.ratingCount,
+                favoriteCategory: summary.favoriteCategory,
+                capturedAt: capturedAt,
+                completeness: GalleryMetadataCompleteness(
+                    rating: ratingState,
+                    ratingCount: ratingCountState,
+                    favorite: favoriteState,
+                    comments: .notLoaded
+                )
+            ))
+            return
+        }
+
+        let fallback = GallerySummary(key: summary.key, title: summary.title)
+        let record = try record(for: summary.key, creatingFrom: fallback)
+        if retainForDownload {
+            record.downloadRetention = true
+        }
+
+        if let existing = record.dynamicSnapshot {
+            var merged = existing.snapshot
+            let incomingIsNewer = capturedAt >= merged.capturedAt
+            if ratingState.isLoaded,
+               merged.completeness.rating.isLoaded == false || incomingIsNewer {
+                merged.rating = summary.rating
+                merged.completeness.rating = ratingState
+            }
+            if ratingCountState.isLoaded,
+               merged.completeness.ratingCount.isLoaded == false || incomingIsNewer {
+                merged.ratingCount = summary.ratingCount
+                merged.completeness.ratingCount = ratingCountState
+            }
+            if favoriteState == .loadedEmpty, incomingIsNewer {
+                merged.favoriteCount = nil
+                merged.favoriteName = nil
+                merged.favoriteCategory = nil
+                merged.completeness.favorite = .loadedEmpty
+            } else if favoriteState.isLoaded,
+                      summary.favoriteCategory != nil,
+                      incomingIsNewer {
+                // A GallerySummary contains only the favorite category. Do
+                // not let this summary-only projection erase the detail-only
+                // favorite count, name or comments already in persistence.
+                merged.favoriteCategory = summary.favoriteCategory
+                if merged.favoriteCount == nil, merged.favoriteName == nil {
+                    merged.completeness.favorite = favoriteState
+                }
+            }
+            merged.capturedAt = max(merged.capturedAt, capturedAt)
+            existing.update(from: merged)
+            record.applyDynamicCompatibilityFields(from: merged)
+        } else {
+            let dynamic = DownloadedGalleryDynamicSnapshot(
+                key: summary.key,
+                rating: summary.rating,
+                ratingCount: summary.ratingCount,
+                favoriteCategory: summary.favoriteCategory,
+                capturedAt: capturedAt,
+                completeness: GalleryMetadataCompleteness(
+                    rating: ratingState,
+                    ratingCount: ratingCountState,
+                    favorite: favoriteState,
+                    comments: .notLoaded
+                )
+            )
+            let dynamicRecord = DownloadedGalleryDynamicRecord(snapshot: dynamic)
+            dynamicRecord.gallery = record
+            record.dynamicSnapshot = dynamicRecord
+            modelContext.insert(dynamicRecord)
+            record.applyDynamicCompatibilityFields(from: dynamic)
+        }
     }
 
     public func downloadedDynamicSnapshot(for key: GalleryKey) throws -> DownloadedGalleryDynamicSnapshot? {
-        try record(for: key)?.dynamicSnapshot?.snapshot
+        guard let record = try downloadedMetadataRecord(for: key) else { return nil }
+        return try decodeDynamic(from: record)
     }
 
     public func galleryTransferRecords(for keys: Set<GalleryKey>) throws -> [GalleryTransferRecord] {
         guard keys.isEmpty == false else { return [] }
-        let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
+        let records = try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>())
         return try records.compactMap { record in
-            guard keys.contains(record.key), record.downloadRetention else { return nil }
-            let stable = record.stableMetadata?.snapshot ?? StableGalleryMetadataSnapshot(
-                summary: record.summary,
-                sourceSite: .eHentai,
-                capturedAt: .distantPast
-            )
-            let dynamic = record.downloadRetention ? record.dynamicSnapshot?.snapshot : nil
+            guard keys.contains(record.key) else { return nil }
+            let stable = try decodeStable(from: record)
+            let dynamic = try decodeDynamic(from: record)
             return try GalleryTransferRecord(
                 stable: stable,
                 dynamic: dynamic,
@@ -561,19 +572,11 @@ public actor PersistenceStore {
     /// Returns only galleries retained by a download job. Ordinary gallery
     /// cache records are deliberately excluded from device synchronization.
     public func downloadedGalleryTransferRecords() throws -> [GalleryTransferRecord] {
-        var descriptor = FetchDescriptor<GalleryRecord>(predicate: #Predicate {
-            $0.downloadRetention
-        })
-        descriptor.relationshipKeyPathsForPrefetching = [\.stableMetadata, \.dynamicSnapshot]
-        return try modelContext.fetch(descriptor).compactMap { record in
-            let stable = record.stableMetadata?.snapshot ?? StableGalleryMetadataSnapshot(
-                summary: record.summary,
-                sourceSite: .eHentai,
-                capturedAt: .distantPast
-            )
+        return try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>()).compactMap { record in
+            let stable = try decodeStable(from: record)
             return try GalleryTransferRecord(
                 stable: stable,
-                dynamic: record.dynamicSnapshot?.snapshot,
+                dynamic: try decodeDynamic(from: record),
                 exportedAt: Date(),
                 sourceSite: stable.sourceSite
             )
@@ -598,6 +601,47 @@ public actor PersistenceStore {
         _ transfer: GalleryTransferRecord,
         pageIndexes: Set<Int>
     ) throws {
+        _ = try applyDeviceSyncDownload(transfer, pageIndexes: pageIndexes)
+        try modelContext.save()
+    }
+
+    /// Atomically merges a gallery's metadata, creates any required download
+    /// rows, and marks the validated pages complete in one SwiftData save.
+    /// Callers commit the corresponding files before invoking this method.
+    public func commitDeviceSyncGallery(
+        _ transfer: GalleryTransferRecord,
+        completedPages: [Int: Int64]
+    ) throws {
+        do {
+            let job = try applyDeviceSyncDownload(
+                transfer,
+                pageIndexes: Set(completedPages.keys)
+            )
+            for (pageIndex, byteCount) in completedPages {
+                guard let page = job.pages.first(where: { $0.pageIndex == pageIndex }) else { continue }
+                page.stateRaw = "completed"
+                page.bytes = byteCount
+                page.backgroundTaskIdentifier = nil
+            }
+            job.completedPages = job.pages.filter { $0.stateRaw == "completed" }.count
+            if job.totalPages > 0, job.completedPages >= job.totalPages {
+                job.stateRaw = "completed"
+                job.errorMessage = nil
+            } else if job.stateRaw == "completed" {
+                job.stateRaw = "paused"
+            }
+            job.updatedAt = Date()
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+    }
+
+    private func applyDeviceSyncDownload(
+        _ transfer: GalleryTransferRecord,
+        pageIndexes: Set<Int>
+    ) throws -> DownloadJobRecord {
         try applyStableSnapshot(transfer.stable, retainForDownload: true)
         if let dynamic = transfer.dynamic {
             try applyDownloadedDynamicSnapshot(dynamic)
@@ -653,31 +697,33 @@ public actor PersistenceStore {
             job.stateRaw = "queued"
         }
         job.updatedAt = Date()
-        try modelContext.save()
+        return job
     }
 
     public func promoteToDownloadedGallery(
         stable: StableGalleryMetadataSnapshot,
         dynamic: DownloadedGalleryDynamicSnapshot? = nil
     ) throws {
-        try upsertStableSnapshot(stable, retainForDownload: true)
+        try applyDownloadedStableSnapshot(stable)
         if let dynamic {
-            try saveDownloadedDynamicSnapshot(dynamic)
-        } else if let record = try record(for: stable.key) {
-            record.downloadRetention = true
-            try modelContext.save()
+            try applyDownloadedDynamicSnapshot(dynamic)
         }
+        try modelContext.save()
     }
 
-    /// Removes ordinary content and image index entries while preserving the
-    /// identity record, reading state, local favorite state and all downloads.
+    /// Removes all ordinary browsing metadata and media indexes. Downloaded
+    /// metadata lives in a separate model and is therefore unaffected.
     public func clearOrdinaryCache() throws {
         let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
-        let removableKeys = Set(records.filter { $0.cacheRetention && !$0.downloadRetention }.map(\.key))
-        for record in records where removableKeys.contains(record.key) {
+        var didChange = false
+        for record in records where record.cacheRetention {
             if let stable = record.stableMetadata {
                 modelContext.delete(stable)
                 record.stableMetadata = nil
+            }
+            if let dynamic = record.dynamicSnapshot {
+                modelContext.delete(dynamic)
+                record.dynamicSnapshot = nil
             }
             record.cacheRetention = false
             record.title = ""
@@ -686,17 +732,21 @@ public actor PersistenceStore {
             record.category = nil
             record.pageCount = nil
             record.postedAt = nil
+            record.rating = nil
+            record.ratingCount = nil
+            record.favoriteCategory = nil
             record.uploader = nil
             record.tags = []
             record.metadataTitleComplete = false
             record.metadataJapaneseTitleComplete = false
             record.metadataTagsComplete = false
+            didChange = true
         }
         let imageRecords = try modelContext.fetch(FetchDescriptor<GalleryImageIndexRecord>())
-        for image in imageRecords where removableKeys.contains(GalleryKey(gid: image.gid, token: image.token)) {
+        for image in imageRecords {
             modelContext.delete(image)
         }
-        if removableKeys.isEmpty == false || imageRecords.isEmpty == false {
+        if didChange || imageRecords.isEmpty == false {
             try modelContext.save()
         }
     }
@@ -767,6 +817,85 @@ public actor PersistenceStore {
         let created = GalleryRecord(snapshot: summary)
         modelContext.insert(created)
         return created
+    }
+
+    private func downloadedMetadataRecords(
+        for key: GalleryKey
+    ) throws -> [DownloadedGalleryMetadataRecord] {
+        try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>(predicate: #Predicate {
+            $0.gid == key.gid && $0.token == key.token
+        }))
+    }
+
+    private func downloadedMetadataRecord(
+        for key: GalleryKey
+    ) throws -> DownloadedGalleryMetadataRecord? {
+        var descriptor = FetchDescriptor<DownloadedGalleryMetadataRecord>(predicate: #Predicate {
+            $0.gid == key.gid && $0.token == key.token
+        })
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first
+    }
+
+    @discardableResult
+    private func insertDownloadedMetadata(
+        stable: StableGalleryMetadataSnapshot,
+        dynamic: DownloadedGalleryDynamicSnapshot?
+    ) throws -> DownloadedGalleryMetadataRecord {
+        let record = DownloadedGalleryMetadataRecord(
+            key: stable.key,
+            stableData: try JSONEncoder().encode(stable),
+            dynamicData: try dynamic.map { try JSONEncoder().encode($0) }
+        )
+        modelContext.insert(record)
+        return record
+    }
+
+    private func applyDownloadedStableSnapshot(
+        _ snapshot: StableGalleryMetadataSnapshot
+    ) throws {
+        if let record = try downloadedMetadataRecord(for: snapshot.key) {
+            let merged = GallerySnapshotMerger.merge(
+                existing: try decodeStable(from: record),
+                incoming: snapshot
+            )
+            record.stableData = try JSONEncoder().encode(merged)
+            record.updatedAt = Date()
+        } else {
+            try insertDownloadedMetadata(stable: snapshot, dynamic: nil)
+        }
+    }
+
+    private func decodeStable(
+        from record: DownloadedGalleryMetadataRecord
+    ) throws -> StableGalleryMetadataSnapshot {
+        try JSONDecoder().decode(StableGalleryMetadataSnapshot.self, from: record.stableData)
+    }
+
+    private func decodeDynamic(
+        from record: DownloadedGalleryMetadataRecord
+    ) throws -> DownloadedGalleryDynamicSnapshot? {
+        guard let data = record.dynamicData else { return nil }
+        return try JSONDecoder().decode(DownloadedGalleryDynamicSnapshot.self, from: data)
+    }
+
+    private func downloadedSummary(
+        from record: DownloadedGalleryMetadataRecord
+    ) throws -> GallerySummary {
+        let stable = try decodeStable(from: record)
+        var summary = stable.summary
+        var completeness = stable.completeness
+        if let dynamic = try decodeDynamic(from: record) {
+            summary.rating = dynamic.rating
+            summary.ratingCount = dynamic.ratingCount
+            summary.favoriteCategory = dynamic.favoriteCategory
+            completeness.rating = dynamic.completeness.rating
+            completeness.ratingCount = dynamic.completeness.ratingCount
+            completeness.favorite = dynamic.completeness.favorite
+            completeness.comments = dynamic.completeness.comments
+        }
+        summary.metadataCompleteness = completeness
+        return summary
     }
 
     private func syncPreviewPages(
@@ -874,35 +1003,32 @@ public actor PersistenceStore {
         key: GalleryKey,
         title: String,
         japaneseTitle: String? = nil,
+        tags: [String] = [],
         pages: [GalleryPageDescriptor],
         completedPageIndexes: Set<Int>,
         stateRaw: String,
         errorMessage: String?,
         label: String? = nil
     ) throws {
-        if let gallery = try record(for: key) {
-            gallery.downloadRetention = true
-        } else {
-            var completeness = GalleryMetadataCompleteness()
-            completeness.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? .loadedEmpty
-                : .loadedWithValue
-            completeness.japaneseTitle = japaneseTitle == nil ? .notLoaded : .loadedWithValue
-            completeness.pageCount = .loadedWithValue
-            completeness.pages = pages.isEmpty ? .loadedEmpty : .loadedWithValue
-            try upsertStableSnapshot(
-                StableGalleryMetadataSnapshot(
-                    key: key,
-                    sourceSite: .eHentai,
-                    title: title,
-                    japaneseTitle: japaneseTitle,
-                    pageCount: pages.count,
-                    pages: pages,
-                    completeness: completeness
-                ),
-                retainForDownload: true
-            )
-        }
+        var completeness = GalleryMetadataCompleteness()
+        completeness.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? .loadedEmpty
+            : .loadedWithValue
+        completeness.japaneseTitle = japaneseTitle == nil ? .notLoaded : .loadedWithValue
+        completeness.tags = tags.isEmpty ? .notLoaded : .loadedWithValue
+        completeness.pageCount = pages.isEmpty ? .notLoaded : .loadedWithValue
+        completeness.pages = pages.isEmpty ? .notLoaded : .loadedWithValue
+        try applyDownloadedStableSnapshot(StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: title,
+            japaneseTitle: japaneseTitle,
+            tags: tags,
+            pageCount: pages.isEmpty ? nil : pages.count,
+            pages: pages,
+            capturedAt: .distantPast,
+            completeness: completeness
+        ))
         var descriptor = FetchDescriptor<DownloadJobRecord>(predicate: #Predicate {
             $0.gid == key.gid && $0.token == key.token
         })
@@ -949,8 +1075,13 @@ public actor PersistenceStore {
         )
         descriptor.relationshipKeyPathsForPrefetching = [\.pages]
         let records = try modelContext.fetch(descriptor)
-        let galleryRecords = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
-        let summariesByKey = Dictionary(uniqueKeysWithValues: galleryRecords.map { ($0.key, $0.summary) })
+        let metadataRecords = try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>())
+        let summariesByKey = Dictionary(
+            metadataRecords.compactMap { record in
+                (try? downloadedSummary(from: record)).map { (record.key, $0) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         return records.map { record in
             let key = record.key
             var pages: [GalleryPageDescriptor] = []
@@ -1023,19 +1154,19 @@ public actor PersistenceStore {
     }
 
     public func deleteDownload(for key: GalleryKey) throws {
-        var descriptor = FetchDescriptor<DownloadJobRecord>(predicate: #Predicate {
+        let descriptor = FetchDescriptor<DownloadJobRecord>(predicate: #Predicate {
             $0.gid == key.gid && $0.token == key.token
         })
-        descriptor.fetchLimit = 1
-        if let downloadRecord = try modelContext.fetch(descriptor).first {
+        let downloadRecords = try modelContext.fetch(descriptor)
+        for downloadRecord in downloadRecords {
             modelContext.delete(downloadRecord)
-            if let gallery = try record(for: key) {
-                gallery.downloadRetention = false
-                if let dynamic = gallery.dynamicSnapshot {
-                    modelContext.delete(dynamic)
-                    gallery.dynamicSnapshot = nil
-                }
-            }
+        }
+
+        let metadataRecords = try downloadedMetadataRecords(for: key)
+        for metadata in metadataRecords {
+            modelContext.delete(metadata)
+        }
+        if downloadRecords.isEmpty == false || metadataRecords.isEmpty == false {
             try modelContext.save()
         }
     }
@@ -1047,20 +1178,17 @@ public actor PersistenceStore {
         guard keys.isEmpty == false else { return }
 
         let downloadRecords = try modelContext.fetch(FetchDescriptor<DownloadJobRecord>())
-        let galleryRecords = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
-        let galleriesByKey = Dictionary(uniqueKeysWithValues: galleryRecords.map { ($0.key, $0) })
+        let metadataRecords = try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>())
         var didChange = false
 
         for downloadRecord in downloadRecords where keys.contains(downloadRecord.key) {
             modelContext.delete(downloadRecord)
             didChange = true
+        }
 
-            guard let gallery = galleriesByKey[downloadRecord.key] else { continue }
-            gallery.downloadRetention = false
-            if let dynamic = gallery.dynamicSnapshot {
-                modelContext.delete(dynamic)
-                gallery.dynamicSnapshot = nil
-            }
+        for metadata in metadataRecords where keys.contains(metadata.key) {
+            modelContext.delete(metadata)
+            didChange = true
         }
 
         if didChange {
@@ -1223,8 +1351,62 @@ public actor PersistenceStore {
     public func localGallerySummaries(for keys: Set<GalleryKey>) throws -> [GallerySummary] {
         guard keys.isEmpty == false else { return [] }
         return try keys.sorted { $0.id < $1.id }.compactMap { key in
-            try record(for: key)?.summary
+            guard let record = try downloadedMetadataRecord(for: key) else { return nil }
+            return try downloadedSummary(from: record)
         }
+    }
+
+    public func downloadedGallerySummary(for key: GalleryKey) throws -> GallerySummary? {
+        guard let record = try downloadedMetadataRecord(for: key) else { return nil }
+        return try downloadedSummary(from: record)
+    }
+
+    public func downloadedGallerySummaries(for keys: Set<GalleryKey>) throws -> [GallerySummary] {
+        try localGallerySummaries(for: keys)
+    }
+
+    public func downloadedTransferRecord(for key: GalleryKey) throws -> GalleryTransferRecord? {
+        guard let record = try downloadedMetadataRecord(for: key) else { return nil }
+        let stable = try decodeStable(from: record)
+        return try GalleryTransferRecord(
+            stable: stable,
+            dynamic: try decodeDynamic(from: record),
+            exportedAt: Date(),
+            sourceSite: stable.sourceSite
+        )
+    }
+
+    /// Imports summary-only metadata directly into the local download library.
+    /// It never creates or mutates an ordinary browsing-cache record.
+    public func mergeDownloadedGallerySyncSummaries(
+        _ summaries: [GallerySummary]
+    ) throws -> GallerySyncImportOutcome {
+        var uniqueSummaries: [GallerySummary] = []
+        var incomingKeys = Set<GalleryKey>()
+        for summary in summaries where incomingKeys.insert(summary.key).inserted {
+            uniqueSummaries.append(summary)
+        }
+        let existingKeys = Set(try modelContext.fetch(
+            FetchDescriptor<DownloadedGalleryMetadataRecord>()
+        ).map(\.key))
+        for summary in uniqueSummaries {
+            try applyDownloadedStableSnapshot(
+                StableGalleryMetadataSnapshot(summary: summary, sourceSite: .eHentai)
+            )
+            try applyDynamicSnapshotIfPresent(
+                from: summary,
+                capturedAt: Date(),
+                retainForDownload: true
+            )
+        }
+        try modelContext.save()
+        let insertedCount = uniqueSummaries.filter { existingKeys.contains($0.key) == false }.count
+        return GallerySyncImportOutcome(
+            sourceCount: summaries.count,
+            duplicateInFileCount: summaries.count - uniqueSummaries.count,
+            existingCount: uniqueSummaries.count - insertedCount,
+            insertedCount: insertedCount
+        )
     }
 
     /// Inserts only galleries that do not already exist locally. Existing
@@ -1442,4 +1624,27 @@ private extension DownloadedGalleryDynamicRecord {
             )
         )
     }
+}
+
+private func summaryOptionalState<T>(
+    explicit: GalleryFieldState?,
+    value: T?
+) -> GalleryFieldState {
+    if let explicit, explicit == .notLoaded {
+        return .notLoaded
+    }
+    if value != nil {
+        return explicit?.isLoaded == true ? explicit! : .loadedWithValue
+    }
+    return explicit?.isLoaded == true ? .loadedEmpty : .notLoaded
+}
+
+private func summaryFavoriteState(
+    explicit: GalleryFieldState?,
+    value: Int?
+) -> GalleryFieldState {
+    if value != nil {
+        return explicit?.isLoaded == true ? explicit! : .loadedWithValue
+    }
+    return explicit == .loadedEmpty ? .loadedEmpty : .notLoaded
 }

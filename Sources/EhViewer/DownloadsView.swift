@@ -708,7 +708,7 @@ struct DownloadsView: View {
 
     private func shareSelectedGalleries(as format: SelectedGalleryShareFormat) {
         let keys = selectedKeys
-        Task {
+        model.runFileOperation {
             let url: URL?
             switch format {
             case .gallerySync:
@@ -1940,7 +1940,6 @@ struct DownloadCover: View {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
     let title: String
-    var fallbackPreviewURL: URL?
     var size: CGSize? = CGSize(width: 72, height: 96)
     var cornerRadius: CGFloat = 10
     var allowsTransition = false
@@ -1968,7 +1967,6 @@ struct DownloadCover: View {
             do {
                 let decoded = try await model.coverImage(
                     for: job,
-                    fallbackPreviewURL: previewURL,
                     maxPixelSize: 320
                 )
                 guard Task.isCancelled == false, let decoded else { return }
@@ -1989,11 +1987,7 @@ struct DownloadCover: View {
         job.pages.first(where: { job.completedPageIndexes.contains($0.index) })?.index
     }
 
-    private var previewURL: URL? {
-        job.pages.lazy.compactMap(\.previewURL).first ?? fallbackPreviewURL
-    }
-
     private var coverTaskID: String {
-        "\(job.key.id)|\(coverPageIndex.map(String.init) ?? "remote")|\(previewURL?.absoluteString ?? "none")"
+        "\(job.key.id)|\(coverPageIndex.map(String.init) ?? "missing")"
     }
 }

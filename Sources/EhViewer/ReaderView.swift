@@ -328,56 +328,9 @@ struct ReaderView: View {
         }
     }
 
-    /// A download job may have been created from an early preview batch, so
-    /// its descriptor list can be shorter than the detail page currently
-    /// showing. Keep local pages as the source of truth and fetch only enough
-    /// remote preview batches to resolve the requested page.
     private func readerDetail(for job: DownloadJob) async throws -> GalleryDetail {
-        let localDetail = await model.localGalleryDetail(for: key, job: job)
+        await model.localGalleryDetail(for: key, job: job)
             ?? Self.downloadedDetail(for: job, site: model.site)
-        guard localDetail.pages.contains(where: { $0.index == initialPage }) == false else {
-            return localDetail
-        }
-
-        var mergedDetail = localDetail
-        do {
-            for try await liveDetail in model.detailStream(for: key) {
-                mergedDetail = Self.mergingPages(from: liveDetail, with: mergedDetail)
-                if mergedDetail.pages.contains(where: { $0.index == initialPage }) {
-                    break
-                }
-            }
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            // The local detail is still usable for completed pages.
-        }
-        return mergedDetail
-    }
-
-    private static func mergingPages(from liveDetail: GalleryDetail, with localDetail: GalleryDetail) -> GalleryDetail {
-        var pagesByIndex = Dictionary(uniqueKeysWithValues: localDetail.pages.map { ($0.index, $0) })
-        for page in liveDetail.pages where pagesByIndex[page.index] == nil {
-            pagesByIndex[page.index] = page
-        }
-        return GalleryDetail(
-            summary: liveDetail.summary,
-            pages: pagesByIndex.values.sorted { $0.index < $1.index },
-            tags: liveDetail.tags.isEmpty ? localDetail.tags : liveDetail.tags,
-            comments: liveDetail.comments,
-            descriptionText: liveDetail.descriptionText ?? localDetail.descriptionText,
-            externalURL: liveDetail.externalURL ?? localDetail.externalURL,
-            apiUID: liveDetail.apiUID ?? localDetail.apiUID,
-            apiKey: liveDetail.apiKey ?? localDetail.apiKey,
-            favoriteCount: liveDetail.favoriteCount ?? localDetail.favoriteCount,
-            favoriteName: liveDetail.favoriteName ?? localDetail.favoriteName,
-            ratingCount: liveDetail.ratingCount ?? localDetail.ratingCount,
-            language: liveDetail.language ?? localDetail.language,
-            fileSize: liveDetail.fileSize ?? localDetail.fileSize,
-            torrentURL: liveDetail.torrentURL ?? localDetail.torrentURL,
-            torrentCount: liveDetail.torrentCount ?? localDetail.torrentCount,
-            archiveURL: liveDetail.archiveURL ?? localDetail.archiveURL
-        )
     }
 
     private func scheduleProgressSave() {

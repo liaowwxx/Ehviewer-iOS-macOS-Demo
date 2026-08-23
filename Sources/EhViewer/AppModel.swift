@@ -72,6 +72,8 @@ struct DownloadedGalleryMetadataRefreshResult: Sendable, Hashable {
     let incompleteCount: Int
     let gdataRetriedCount: Int
     let detailCompletionCount: Int
+    let removedEmptyGalleryCount: Int
+    let invalidPageCount: Int
 
     static let empty = DownloadedGalleryMetadataRefreshResult(
         targetCount: 0,
@@ -79,7 +81,9 @@ struct DownloadedGalleryMetadataRefreshResult: Sendable, Hashable {
         failedCount: 0,
         incompleteCount: 0,
         gdataRetriedCount: 0,
-        detailCompletionCount: 0
+        detailCompletionCount: 0,
+        removedEmptyGalleryCount: 0,
+        invalidPageCount: 0
     )
 }
 
@@ -93,6 +97,7 @@ struct DownloadRestoreOutcome: Sendable {
     let failedPageCount: Int
     let invalidItemCount: Int
     let incompleteMetadataCount: Int
+    let issues: [FileOperationIssue]
     let message: String
 
     init(
@@ -105,6 +110,7 @@ struct DownloadRestoreOutcome: Sendable {
         failedPageCount: Int = 0,
         invalidItemCount: Int = 0,
         incompleteMetadataCount: Int = 0,
+        issues: [FileOperationIssue] = [],
         message: String
     ) {
         self.candidateCount = candidateCount
@@ -116,6 +122,7 @@ struct DownloadRestoreOutcome: Sendable {
         self.failedPageCount = failedPageCount
         self.invalidItemCount = invalidItemCount
         self.incompleteMetadataCount = incompleteMetadataCount
+        self.issues = issues
         self.message = message
     }
 }
@@ -241,6 +248,9 @@ final class AppModel {
     private var activeListRequestID = UUID()
     @ObservationIgnored private var searchPageModels: [SearchPageKey: BrowsePageModel] = [:]
     @ObservationIgnored private var incomingStagingGeneration = 0
+    @ObservationIgnored private var incomingStagingTask: Task<Void, Never>?
+    @ObservationIgnored private var currentFileOperationTask: Task<Void, Never>?
+    @ObservationIgnored private var fileOperationGeneration = 0
     @ObservationIgnored private var tagTranslationLoadTask: Task<Void, Never>?
     @ObservationIgnored private var tagTranslationImportTask: Task<Void, Never>?
     @ObservationIgnored private var downloadRevisionTask: Task<Void, Never>?
@@ -359,6 +369,7 @@ final class AppModel {
                     key: job.key,
                     title: job.title,
                     japaneseTitle: job.japaneseTitle,
+                    tags: job.tags,
                     pages: job.pages,
                     completedPageIndexes: job.completedPageIndexes,
                     stateRaw: job.state.rawValue,
@@ -375,8 +386,8 @@ final class AppModel {
         )
         Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = try? await self.persistence.migrateLegacyGalleryRecords()
             await self.migrateLegacyGalleryCache()
+            await GalleryCoverLoader.shared.removeLegacyLocalEntries()
             await self.refreshGalleryCacheUsage()
             if self.forceGuestMode == false {
                 await self.refreshSessionStatus()
@@ -384,7 +395,16 @@ final class AppModel {
             await self.loadFilterRules()
         }
         Task { @MainActor [weak self] in
-            await self?.restoreDownloads()
+            guard let self else { return }
+            _ = await self.downloadFiles.sweepTemporaryFiles()
+            let recovery = await self.deviceSync.recoverInterruptedTransfers()
+            if recovery.recoveredAnything {
+                self.importResultMessage = String(
+                    localized: "上次设备同步已恢复：保留 \(recovery.completedGalleryCount) 本，回滚未完成画廊 \(recovery.rolledBackGalleryCount) 本。"
+                )
+                self.publishLocalLibraryChange()
+            }
+            await self.restoreDownloads()
         }
         Task.detached(priority: .utility) {
             Self.sweepStaleTemporaryFiles()
@@ -459,6 +479,31 @@ final class AppModel {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    var canCancelCurrentFileOperation: Bool {
+        currentFileOperationTask != nil || incomingStagingTask != nil
+    }
+
+    func runFileOperation(_ operation: @escaping @MainActor () async -> Void) {
+        currentFileOperationTask?.cancel()
+        fileOperationGeneration += 1
+        let generation = fileOperationGeneration
+        currentFileOperationTask = Task { @MainActor [weak self] in
+            await operation()
+            guard let self, self.fileOperationGeneration == generation else { return }
+            self.currentFileOperationTask = nil
+        }
+    }
+
+    func cancelCurrentFileOperation() {
+        fileOperationGeneration += 1
+        currentFileOperationTask?.cancel()
+        currentFileOperationTask = nil
+        incomingStagingGeneration += 1
+        incomingStagingTask?.cancel()
+        incomingStagingTask = nil
+        migrationProgress = nil
     }
 
     /// List pages only carry a few summary tags. Fetch the full tag list for
@@ -626,10 +671,8 @@ final class AppModel {
         api.detailStream(for: key, site: site)
     }
 
-    /// Builds the detail page from data already stored for a downloaded
-    /// gallery. The detail cache contributes fields that are not part of a
-    /// download job, while SwiftData and the job remain the source of truth
-    /// for local metadata and page descriptors.
+    /// Builds the detail page exclusively from download-owned metadata and the
+    /// download job. Ordinary browsing metadata/cache is never consulted.
     func localGalleryDetail(for key: GalleryKey, job: DownloadJob? = nil) async -> GalleryDetail? {
         let resolvedJob: DownloadJob?
         if let job {
@@ -639,78 +682,45 @@ final class AppModel {
         }
         guard let job = resolvedJob else { return nil }
 
-        let storedStable = try? await persistence.stableSnapshot(for: key)
-        let storedSummary = storedStable?.summary
-        let cachedDetail = await cachedDetail(for: key)
-        let dynamic = try? await persistence.downloadedDynamicSnapshot(for: key)
-        let cachedSummary = cachedDetail?.summary
-        let pages = storedStable?.pages.isEmpty == false
-            ? storedStable?.pages ?? []
-            : (job.pages.isEmpty ? (cachedDetail?.pages ?? []) : job.pages)
-
-        let storedCompleteness = storedSummary?.metadataCompleteness
-        let tags: [String] = if storedSummary != nil, storedCompleteness?.tags != .notLoaded {
-            storedSummary?.tags ?? []
-        } else if cachedDetail != nil, cachedSummary?.metadataCompleteness?.tags != .notLoaded {
-            cachedDetail?.tags ?? []
-        } else {
-            job.tags
-        }
-        let title: String = if let storedSummary, storedCompleteness?.title != .notLoaded {
-            storedSummary.title
-        } else if let cachedSummary, cachedSummary.metadataCompleteness?.title != .notLoaded {
-            cachedSummary.title
-        } else {
-            job.title
-        }
-        let japaneseTitle: String? = if let storedSummary, storedCompleteness?.japaneseTitle != .notLoaded {
-            storedSummary.japaneseTitle
-        } else if let cachedSummary, cachedSummary.metadataCompleteness?.japaneseTitle != .notLoaded {
-            cachedSummary.japaneseTitle
-        } else {
-            job.japaneseTitle
-        }
-        var localSummary = GallerySummary(
+        let transfer = try? await persistence.downloadedTransferRecord(for: key)
+        let stable = transfer?.stable
+        let dynamic = transfer?.dynamic
+        let pages = stable?.completeness.pages.isLoaded == true && stable?.pages.isEmpty == false
+            ? stable?.pages ?? []
+            : job.pages
+        var localSummary = stable?.detail(with: dynamic).summary ?? GallerySummary(
             key: key,
-            title: title,
-            japaneseTitle: japaneseTitle,
-            thumbnailURL: storedSummary?.thumbnailURL
-                ?? cachedSummary?.thumbnailURL
-                ?? pages.first(where: { $0.index == 0 })?.previewURL,
-            category: storedSummary?.category ?? cachedSummary?.category,
-            pageCount: storedSummary?.pageCount ?? cachedSummary?.pageCount ?? (pages.isEmpty ? nil : pages.count),
-            postedAt: storedSummary?.postedAt ?? cachedSummary?.postedAt,
-            rating: dynamic?.rating ?? storedSummary?.rating ?? cachedSummary?.rating,
-            ratingCount: dynamic?.ratingCount ?? storedSummary?.ratingCount ?? cachedSummary?.ratingCount,
-            favoriteCategory: dynamic?.favoriteCategory ?? storedSummary?.favoriteCategory ?? cachedSummary?.favoriteCategory,
-            uploader: storedSummary?.uploader ?? cachedSummary?.uploader,
-            tags: tags,
-            metadataCompleteness: storedSummary?.metadataCompleteness ?? cachedSummary?.metadataCompleteness
+            title: job.title,
+            japaneseTitle: job.japaneseTitle,
+            pageCount: pages.isEmpty ? nil : pages.count,
+            tags: job.tags
         )
-        if localSummary.title.isEmpty,
-           storedSummary == nil,
-           cachedSummary == nil,
-           job.title.isEmpty == false {
-            localSummary.title = job.title
+        if localSummary.title.isEmpty { localSummary.title = job.title }
+        if localSummary.japaneseTitle == nil { localSummary.japaneseTitle = job.japaneseTitle }
+        if localSummary.tags.isEmpty,
+           localSummary.metadataCompleteness?.tags.isLoaded != true {
+            localSummary.tags = job.tags
+        }
+        if localSummary.pageCount == nil, pages.isEmpty == false {
+            localSummary.pageCount = pages.count
         }
         return GalleryDetail(
             summary: localSummary,
             pages: pages,
-            tags: tags,
+            tags: localSummary.tags,
             comments: dynamic?.comments.map(\.galleryComment) ?? [],
-            descriptionText: cachedDetail?.descriptionText,
-            externalURL: cachedDetail?.externalURL
-                ?? URL(string: "https://\(site.host)/g/\(key.gid)/\(key.token)/"),
+            descriptionText: stable?.descriptionText,
+            externalURL: stable?.externalURL ?? URL(string: "https://\(site.host)/g/\(key.gid)/\(key.token)/"),
             apiUID: nil,
             apiKey: nil,
             favoriteCount: dynamic?.favoriteCount,
             favoriteName: dynamic?.favoriteName,
             ratingCount: dynamic?.ratingCount ?? localSummary.ratingCount,
-            language: cachedDetail?.language,
-            fileSize: cachedDetail?.fileSize,
-            torrentURL: cachedDetail?.torrentURL,
-            torrentCount: cachedDetail?.torrentCount,
-            archiveURL: cachedDetail?.archiveURL
+            language: stable?.language,
+            fileSize: stable?.fileSize,
+            torrentURL: nil,
+            torrentCount: nil,
+            archiveURL: nil
         )
     }
 
@@ -807,37 +817,18 @@ final class AppModel {
         }
     }
 
-    /// Prefers a completed local page for downloaded galleries and falls back
-    /// to the remote preview only when the local page is unavailable.
+    /// Decodes a completed local page without reading or writing the browsing
+    /// thumbnail cache. Missing local media remains missing in the local UI.
     func coverImage(
         for job: DownloadJob,
-        fallbackPreviewURL: URL?,
         maxPixelSize: Int
     ) async throws -> CGImage? {
-        if let pageIndex = job.pages.first(where: { job.completedPageIndexes.contains($0.index) })?.index {
-            let cacheKey = "local|\(job.key.id)|\(pageIndex)|\(maxPixelSize)"
-            do {
-                if let image = try await GalleryCoverLoader.shared.image(
-                    for: cacheKey,
-                    maxPixelSize: maxPixelSize,
-                    fetchData: { [downloadFiles] in
-                        try await downloadFiles.data(for: job.key, pageIndex: pageIndex)
-                    }
-                ) {
-                    return image
-                }
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                // The local file may be incomplete or unavailable; use the
-                // persisted preview URL as a non-blocking fallback.
-            }
-        }
-        guard let fallbackPreviewURL else { return nil }
-        return try await coverImage(
-            for: job.key,
-            previewURL: fallbackPreviewURL,
-            prefersGalleryCache: true,
+        guard let pageIndex = job.pages.first(where: {
+            job.completedPageIndexes.contains($0.index)
+        })?.index else { return nil }
+        let url = await downloadFiles.finalURL(for: job.key, pageIndex: pageIndex)
+        return await GalleryCoverLoader.shared.transientImage(
+            fileURL: url,
             maxPixelSize: maxPixelSize
         )
     }
@@ -848,16 +839,12 @@ final class AppModel {
         localPage: GalleryPageDescriptor?,
         maxPixelSize: Int
     ) async throws -> CGImage? {
-        if let localPage,
-           let data = await downloadedPageDataIfAvailable(for: localPage) {
-            let cacheKey = "local|\(key.id)|\(localPage.index)|\(maxPixelSize)"
-            if let image = try await GalleryCoverLoader.shared.image(
-                for: cacheKey,
-                maxPixelSize: maxPixelSize,
-                fetchData: { data }
-            ) {
-                return image
-            }
+        if let localPage {
+            let url = await downloadFiles.finalURL(for: key, pageIndex: localPage.index)
+            return await GalleryCoverLoader.shared.transientImage(
+                fileURL: url,
+                maxPixelSize: maxPixelSize
+            )
         }
         guard let previewURL else { return nil }
         return try await coverImage(
@@ -885,25 +872,10 @@ final class AppModel {
         for descriptor: GalleryPageDescriptor,
         resolution: ImageResolution = .preview
     ) async throws -> Data {
-        do {
-            return try await downloadFiles.data(
-                for: descriptor.galleryKey,
-                pageIndex: descriptor.index
-            )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            let directImage = GalleryPageImage(
-                galleryKey: descriptor.galleryKey,
-                index: descriptor.index,
-                imageURL: descriptor.pageURL
-            )
-            if descriptor.requiresPageResolution {
-                let image = try await pageImage(for: descriptor)
-                return try await imageData(for: image, resolution: resolution)
-            }
-            return try await imageData(for: directImage, resolution: resolution)
-        }
+        try await downloadFiles.data(
+            for: descriptor.galleryKey,
+            pageIndex: descriptor.index
+        )
     }
 
     func downloadedPageDataIfAvailable(for descriptor: GalleryPageDescriptor) async -> Data? {
@@ -1272,6 +1244,7 @@ final class AppModel {
         isRestoringDownloads = true
         downloadRestoreStatus = String(localized: "正在检查备份压缩包…")
         let restoreSite = site
+        var operationIssues: [FileOperationIssue] = []
         defer {
             isRestoringDownloads = false
             downloadRestoreStatus = ""
@@ -1292,7 +1265,7 @@ final class AppModel {
             }
 
             let existingJobs = Dictionary(uniqueKeysWithValues: await downloads.snapshot().map { ($0.key, $0) })
-            let storedSummaries = try await persistence.gallerySyncSummaries(
+            let storedSummaries = try await persistence.downloadedGallerySummaries(
                 for: Set(candidates.map(\.key))
             )
             var existingLocalIndexes: [GalleryKey: Set<Int>] = [:]
@@ -1306,6 +1279,16 @@ final class AppModel {
 
             let archiveSummaries = candidates.map { candidate in
                 let transferred = candidate.transferRecord?.stable.summary
+                let transferredDynamic = candidate.transferRecord?.dynamic
+                var completeness = candidate.transferRecord?.stable.completeness
+                    ?? candidate.metadataCompleteness
+                if let dynamic = transferredDynamic {
+                    var mergedCompleteness = completeness ?? GalleryMetadataCompleteness()
+                    mergedCompleteness.rating = dynamic.completeness.rating
+                    mergedCompleteness.ratingCount = dynamic.completeness.ratingCount
+                    mergedCompleteness.favorite = dynamic.completeness.favorite
+                    completeness = mergedCompleteness
+                }
                 return GallerySummary(
                     key: candidate.key,
                     title: transferred?.title
@@ -1315,43 +1298,29 @@ final class AppModel {
                     japaneseTitle: transferred?.japaneseTitle
                         ?? candidate.japaneseTitle
                         ?? existingJobs[candidate.key]?.japaneseTitle,
-                    pageCount: candidate.declaredPageCount,
+                    thumbnailURL: transferred?.thumbnailURL,
+                    category: transferred?.category,
+                    pageCount: transferred?.pageCount ?? candidate.declaredPageCount,
+                    postedAt: transferred?.postedAt,
+                    rating: transferredDynamic?.rating,
+                    ratingCount: transferredDynamic?.ratingCount,
+                    favoriteCategory: transferredDynamic?.favoriteCategory,
+                    uploader: transferred?.uploader,
                     tags: transferred?.tags
                         ?? candidate.tags
                         ?? existingJobs[candidate.key]?.tags
                         ?? [],
-                    metadataCompleteness: candidate.transferRecord?.stable.completeness
-                        ?? candidate.metadataCompleteness
+                    metadataCompleteness: completeness
                 )
             }
 
-            downloadRestoreStatus = String(localized: "正在获取画廊信息…")
+            downloadRestoreStatus = String(localized: "正在读取归档画廊信息…")
             let resolution = try await resolveTransferMetadata(
                 archiveSummaries,
-                existing: storedSummaries
-            ) { [weak self] completed, total in
-                guard let self else { return }
-                self.downloadRestoreStatus = total > 0
-                    ? String(localized: "正在补全画廊信息 \(completed)/\(total)…")
-                    : String(localized: "画廊信息已完备")
-            }
+                existing: storedSummaries,
+                fetchMissingMetadata: false
+            )
             let summaryByKey = resolution.summariesByKey
-            for candidate in candidates {
-                guard let transfer = candidate.transferRecord else { continue }
-                let refreshedStable: StableGalleryMetadataSnapshot
-                if let summary = summaryByKey[candidate.key] {
-                    refreshedStable = GallerySnapshotMerger.merge(
-                        existing: transfer.stable,
-                        incoming: StableGalleryMetadataSnapshot(summary: summary, sourceSite: restoreSite)
-                    )
-                } else {
-                    refreshedStable = transfer.stable
-                }
-                try await persistence.promoteToDownloadedGallery(
-                    stable: refreshedStable,
-                    dynamic: transfer.dynamic
-                )
-            }
 
             var importCandidates: [LegacyDownloadCandidate] = []
             var skippedDuplicateItemCount = 0
@@ -1380,6 +1349,19 @@ final class AppModel {
             }
 
             guard importCandidates.isEmpty == false else {
+                for candidate in candidates {
+                    guard let transfer = candidate.transferRecord else { continue }
+                    let refreshedStable = summaryByKey[candidate.key].map {
+                        GallerySnapshotMerger.merge(
+                            existing: transfer.stable,
+                            incoming: StableGalleryMetadataSnapshot(summary: $0, sourceSite: restoreSite)
+                        )
+                    } ?? transfer.stable
+                    try await persistence.promoteToDownloadedGallery(
+                        stable: refreshedStable,
+                        dynamic: transfer.dynamic
+                    )
+                }
                 await downloads.mergeMetadata(Array(summaryByKey.values))
                 progress?(0, 0)
                 return DownloadRestoreOutcome(
@@ -1424,33 +1406,73 @@ final class AppModel {
             )
             defer { try? FileManager.default.removeItem(at: extraction.temporaryDirectory) }
 
-            var importedIndexes = existingLocalIndexes
             var importedPageCount = 0
             var failedPageCount = extraction.failedPageCount
-            for (offset, page) in extraction.pages.enumerated() {
-                try Task.checkCancellation()
-                downloadRestoreStatus = String(localized: "正在导入图片 \(offset + 1)/\(extraction.pages.count)…")
-                do {
-                    _ = try await downloadFiles.importFile(
-                        at: page.fileURL,
-                        for: page.key,
-                        pageIndex: page.pageIndex
-                    )
-                    importedIndexes[page.key, default: []].insert(page.pageIndex)
-                    importedPageCount += 1
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    failedPageCount += 1
-                }
+            if extraction.failedPageCount > 0 {
+                operationIssues.append(FileOperationIssue(
+                    phase: .extracting,
+                    message: String(localized: "有 \(extraction.failedPageCount) 个归档页面无法解压。")
+                ))
             }
-
+            let extractedByKey = Dictionary(grouping: extraction.pages, by: \.key)
             var restoredJobs: [DownloadJob] = []
             restoredJobs.reserveCapacity(importCandidates.count)
             for (offset, candidate) in importCandidates.enumerated() {
                 try Task.checkCancellation()
 
-                let imported = importedIndexes[candidate.key] ?? []
+                var imported = existingLocalIndexes[candidate.key] ?? []
+                var newlyImported: [(pageIndex: Int, sha256: Data)] = []
+                var galleryImportFailed = false
+                let galleryPages = extractedByKey[candidate.key] ?? []
+                for (pageOffset, page) in galleryPages.enumerated() {
+                    try Task.checkCancellation()
+                    downloadRestoreStatus = String(
+                        localized: "正在导入《\(summaryByKey[candidate.key]?.title ?? fallbackDownloadTitle(for: candidate))》图片 \(pageOffset + 1)/\(galleryPages.count)…"
+                    )
+                    do {
+                        let result = try await downloadFiles.importFileResult(
+                            at: page.fileURL,
+                            for: page.key,
+                            pageIndex: page.pageIndex
+                        )
+                        imported.insert(page.pageIndex)
+                        if case let .imported(_, sha256) = result {
+                            newlyImported.append((page.pageIndex, sha256))
+                            importedPageCount += 1
+                        }
+                    } catch is CancellationError {
+                        for newPage in newlyImported {
+                            try? await downloadFiles.rollbackReceivedPage(
+                                for: candidate.key,
+                                pageIndex: newPage.pageIndex,
+                                sha256: newPage.sha256
+                            )
+                        }
+                        throw CancellationError()
+                    } catch {
+                        failedPageCount += 1
+                        galleryImportFailed = true
+                        operationIssues.append(FileOperationIssue(
+                            galleryKey: candidate.key,
+                            pageIndex: page.pageIndex,
+                            phase: .validating,
+                            message: error.localizedDescription
+                        ))
+                        break
+                    }
+                }
+
+                if galleryImportFailed || imported.isEmpty {
+                    for newPage in newlyImported {
+                        try? await downloadFiles.rollbackReceivedPage(
+                            for: candidate.key,
+                            pageIndex: newPage.pageIndex,
+                            sha256: newPage.sha256
+                        )
+                    }
+                    continue
+                }
+
                 let legacyPages = legacyPageDescriptors(candidate: candidate, site: restoreSite)
                 var pageByIndex = Dictionary(uniqueKeysWithValues: legacyPages.pages.map { ($0.index, $0) })
                 if let existing = existingJobs[candidate.key] {
@@ -1495,11 +1517,47 @@ final class AppModel {
                 job.completedPageIndexes = imported
                 job.state = state
                 job.errorMessage = itemError
-                restoredJobs.append(job)
+                do {
+                    if let transfer = candidate.transferRecord {
+                        let refreshedStable = summaryByKey[candidate.key].map {
+                            GallerySnapshotMerger.merge(
+                                existing: transfer.stable,
+                                incoming: StableGalleryMetadataSnapshot(summary: $0, sourceSite: restoreSite)
+                            )
+                        } ?? transfer.stable
+                        try await persistence.promoteToDownloadedGallery(
+                            stable: refreshedStable,
+                            dynamic: transfer.dynamic
+                        )
+                    } else if let summary = summaryByKey[candidate.key] {
+                        try await persistence.upsertStableSnapshot(
+                            StableGalleryMetadataSnapshot(summary: summary, sourceSite: restoreSite),
+                            retainForDownload: true
+                        )
+                    }
+                    await downloads.mergeRestored([job])
+                    if let summary = summaryByKey[candidate.key] {
+                        await downloads.mergeMetadata([summary])
+                    }
+                    restoredJobs.append(job)
+                } catch {
+                    for newPage in newlyImported {
+                        try? await downloadFiles.rollbackReceivedPage(
+                            for: candidate.key,
+                            pageIndex: newPage.pageIndex,
+                            sha256: newPage.sha256
+                        )
+                    }
+                    failedPageCount += max(1, newlyImported.count)
+                    operationIssues.append(FileOperationIssue(
+                        galleryKey: candidate.key,
+                        phase: .committing,
+                        message: error.localizedDescription
+                    ))
+                    continue
+                }
                 progress?(offset + 1, importCandidates.count)
             }
-            await downloads.mergeRestored(restoredJobs)
-            await downloads.mergeMetadata(Array(summaryByKey.values))
 
             let mergedItemCount = restoredJobs.filter { existingJobs[$0.key] != nil }.count
             let importedItemCount = restoredJobs.count - mergedItemCount
@@ -1513,6 +1571,7 @@ final class AppModel {
                 failedPageCount: failedPageCount,
                 invalidItemCount: inspection.invalidItemCount,
                 incompleteMetadataCount: resolution.incompleteCount,
+                issues: operationIssues,
                 message: Self.restoreOutcomeMessage(
                     importedItemCount: importedItemCount,
                     mergedItemCount: mergedItemCount,
@@ -1524,9 +1583,19 @@ final class AppModel {
                 )
             )
         } catch is CancellationError {
-            return DownloadRestoreOutcome(message: String(localized: "已取消恢复下载项。"))
+            return DownloadRestoreOutcome(
+                issues: operationIssues,
+                message: String(localized: "已取消恢复下载项；已完整提交的画廊保持不变。")
+            )
         } catch {
-            return DownloadRestoreOutcome(message: String(localized: "恢复下载项失败：\(error.localizedDescription)"))
+            operationIssues.append(FileOperationIssue(
+                phase: .committing,
+                message: error.localizedDescription
+            ))
+            return DownloadRestoreOutcome(
+                issues: operationIssues,
+                message: String(localized: "恢复下载项失败：\(error.localizedDescription)")
+            )
         }
     }
 
@@ -1893,6 +1962,7 @@ final class AppModel {
     }
 
     private func stageIncomingArchive(_ url: URL) {
+        incomingStagingTask?.cancel()
         incomingStagingGeneration += 1
         let generation = incomingStagingGeneration
         let previousDirectoryToRemove: URL?
@@ -1904,14 +1974,22 @@ final class AppModel {
             previousDirectoryToRemove = nil
         }
 
-        Task { @MainActor [weak self] in
+        incomingStagingTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let outcome = await Task.detached(priority: .userInitiated) {
-                Self.copyIncomingFileToTemporaryDirectory(
-                    url,
-                    previousDirectoryToRemove: previousDirectoryToRemove
-                )
-            }.value
+            self.migrationProgress = MigrationProgress(status: String(localized: "正在暂存导入文件…"))
+            let outcome = await Self.copyIncomingFileToTemporaryDirectory(
+                url,
+                previousDirectoryToRemove: previousDirectoryToRemove
+            ) { copied, total in
+                await MainActor.run {
+                    guard generation == self.incomingStagingGeneration else { return }
+                    self.migrationProgress = MigrationProgress(
+                        status: String(localized: "正在暂存导入文件…"),
+                        completed: Int(min(copied, Int64(Int.max))),
+                        total: Int(min(total, Int64(Int.max)))
+                    )
+                }
+            }
 
             guard generation == incomingStagingGeneration else {
                 if case .success(let staged) = outcome {
@@ -1921,6 +1999,8 @@ final class AppModel {
                 }
                 return
             }
+            self.migrationProgress = nil
+            self.incomingStagingTask = nil
 
             switch outcome {
             case .success(let staged):
@@ -1938,6 +2018,7 @@ final class AppModel {
     }
 
     private func stageIncomingGallerySync(_ url: URL) {
+        incomingStagingTask?.cancel()
         incomingStagingGeneration += 1
         let generation = incomingStagingGeneration
         let previousDirectoryToRemove: URL?
@@ -1948,15 +2029,23 @@ final class AppModel {
             previousDirectoryToRemove = nil
         }
 
-        Task { @MainActor [weak self] in
+        incomingStagingTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let outcome = await Task.detached(priority: .userInitiated) {
-                Self.copyIncomingFileToTemporaryDirectory(
-                    url,
-                    previousDirectoryToRemove: previousDirectoryToRemove,
-                    maximumBytes: GallerySyncArchive.maximumArchiveBytes
-                )
-            }.value
+            self.migrationProgress = MigrationProgress(status: String(localized: "正在暂存画廊信息包…"))
+            let outcome = await Self.copyIncomingFileToTemporaryDirectory(
+                url,
+                previousDirectoryToRemove: previousDirectoryToRemove,
+                maximumBytes: GallerySyncArchive.maximumArchiveBytes
+            ) { copied, total in
+                await MainActor.run {
+                    guard generation == self.incomingStagingGeneration else { return }
+                    self.migrationProgress = MigrationProgress(
+                        status: String(localized: "正在暂存画廊信息包…"),
+                        completed: Int(min(copied, Int64(Int.max))),
+                        total: Int(min(total, Int64(Int.max)))
+                    )
+                }
+            }
 
             guard generation == incomingStagingGeneration else {
                 if case .success(let staged) = outcome {
@@ -1966,6 +2055,8 @@ final class AppModel {
                 }
                 return
             }
+            self.migrationProgress = nil
+            self.incomingStagingTask = nil
 
             switch outcome {
             case .success(let staged):
@@ -1982,18 +2073,21 @@ final class AppModel {
         }
     }
 
+    @concurrent
     nonisolated private static func copyIncomingFileToTemporaryDirectory(
         _ url: URL,
         previousDirectoryToRemove: URL?,
-        maximumBytes: Int64? = nil
-    ) -> IncomingStagingOutcome {
+        maximumBytes: Int64? = nil,
+        progress: (@Sendable (Int64, Int64) async -> Void)? = nil
+    ) async -> IncomingStagingOutcome {
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
 
         do {
+            try Task.checkCancellation()
+            let totalBytes = Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
             if let maximumBytes,
-               let fileSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-               Int64(fileSize) > maximumBytes {
+               totalBytes > maximumBytes {
                 throw GallerySyncArchiveError.archiveTooLarge
             }
             let directory = FileManager.default.temporaryDirectory
@@ -2003,7 +2097,28 @@ final class AppModel {
             let fileName = url.lastPathComponent.isEmpty ? "EhViewer-Incoming" : url.lastPathComponent
             let stagedURL = directory.appendingPathComponent(fileName)
             do {
-                try FileManager.default.copyItem(at: url, to: stagedURL)
+                guard FileManager.default.createFile(atPath: stagedURL.path, contents: nil) else {
+                    throw EHError.storageFailed(String(localized: "无法创建导入暂存文件。"))
+                }
+                let source = try FileHandle(forReadingFrom: url)
+                let destination = try FileHandle(forWritingTo: stagedURL)
+                defer {
+                    try? source.close()
+                    try? destination.close()
+                }
+                var copiedBytes: Int64 = 0
+                while let chunk = try source.read(upToCount: 64 * 1024), chunk.isEmpty == false {
+                    try Task.checkCancellation()
+                    copiedBytes += Int64(chunk.count)
+                    if let maximumBytes, copiedBytes > maximumBytes {
+                        throw GallerySyncArchiveError.archiveTooLarge
+                    }
+                    try destination.write(contentsOf: chunk)
+                    await progress?(copiedBytes, max(totalBytes, copiedBytes))
+                }
+                guard totalBytes == 0 || copiedBytes == totalBytes else {
+                    throw EHError.storageFailed(String(localized: "导入文件在复制期间发生变化。"))
+                }
             } catch {
                 try? FileManager.default.removeItem(at: directory)
                 throw error
@@ -2120,11 +2235,13 @@ final class AppModel {
         }
         let archiveURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(archiveName)
+        let partialURL = archiveURL.appendingPathExtension("part")
         var archiveReady = false
         defer {
             // 导出失败或取消时清理未完成的压缩包，避免残留占用存储。
             if archiveReady == false {
                 try? FileManager.default.removeItem(at: archiveURL)
+                try? FileManager.default.removeItem(at: partialURL)
             }
         }
 
@@ -2148,7 +2265,7 @@ final class AppModel {
                 return nil
             }
 
-            let storedSummaries = try await persistence.gallerySyncSummaries(for: Set(selectedJobs.map(\.key)))
+            let storedSummaries = try await persistence.downloadedGallerySummaries(for: Set(selectedJobs.map(\.key)))
             let summariesByKey = try await transferSummaries(
                 for: Set(selectedJobs.map(\.key)),
                 stored: storedSummaries
@@ -2173,7 +2290,13 @@ final class AppModel {
             setMigrationProgress(status: String(localized: "正在创建画廊同步包…"), fraction: 0.45)
             let snapshot = GallerySyncSnapshot(records: records)
             try await Task.detached(priority: .userInitiated) {
-                try GallerySyncArchive.export(snapshot, to: archiveURL)
+                try GallerySyncArchive.export(snapshot, to: partialURL)
+                let verified = try GallerySyncArchive.read(from: partialURL)
+                guard verified.records.count == snapshot.records.count,
+                      verified.records.map(\.stable.key) == snapshot.records.map(\.stable.key) else {
+                    throw GallerySyncArchiveError.invalidArchive
+                }
+                try FileManager.default.moveItem(at: partialURL, to: archiveURL)
             }.value
             setMigrationProgress(status: String(localized: "画廊同步包已准备完成"), fraction: 1)
             archiveReady = true
@@ -2187,9 +2310,11 @@ final class AppModel {
         }
     }
 
-    /// Refreshes downloaded-gallery metadata with a bounded gdata retry phase
-    /// followed by one lightweight detail-page fallback for still-incomplete
-    /// summaries. Media files and download progress are never touched.
+    /// Refreshes downloaded-gallery metadata with one complete gdata pass,
+    /// followed by up to three retries for failed or incomplete galleries and
+    /// one lightweight detail-page fallback. Before making network requests,
+    /// the download library is reconciled with the real media files so stale
+    /// metadata-only entries cannot survive or participate in device sync.
     @discardableResult
     func refreshDownloadedGalleryMetadata(
         mode: DownloadedGalleryMetadataRefreshMode = .all
@@ -2199,17 +2324,88 @@ final class AppModel {
             return .empty
         }
         guard beginMigration(status: String(localized: "正在准备更新已下载画廊信息…")) else { return .empty }
-        defer { finishMigration() }
+        var didUpdateDownloadedMetadata = false
+        defer {
+            if didUpdateDownloadedMetadata {
+                publishLocalLibraryChange()
+            }
+            finishMigration()
+        }
 
         do {
-            let jobs = await downloads.snapshot()
-            guard jobs.isEmpty == false else {
+            let originalJobs = await downloads.snapshot()
+            guard originalJobs.isEmpty == false else {
                 importResultMessage = String(localized: "下载列表中没有需要更新的画廊。")
                 return .empty
             }
 
+            var emptyKeys: [GalleryKey] = []
+            var invalidPageCount = 0
+            for (offset, job) in originalJobs.enumerated() {
+                try Task.checkCancellation()
+                setMigrationProgress(
+                    status: String(
+                        format: String(localized: "正在检查本地文件 %lld/%lld…"),
+                        Int64(offset + 1),
+                        Int64(originalJobs.count)
+                    ),
+                    completed: offset + 1,
+                    total: originalJobs.count,
+                    fraction: 0.1 * Double(offset + 1) / Double(originalJobs.count)
+                )
+                let audit = await downloadFiles.auditLocalGallery(
+                    for: job.key,
+                    removeInvalidFiles: true
+                )
+                invalidPageCount += audit.invalidFinalFileCount
+                if audit.validPages.isEmpty {
+                    emptyKeys.append(job.key)
+                }
+            }
+
+            var removedEmptyGalleryCount = 0
+            if emptyKeys.isEmpty == false {
+                let removal = await downloads.remove(emptyKeys) { [weak self] progress in
+                    guard let self else { return }
+                    let normalized = progress.total > 0
+                        ? Double(progress.completed) / Double(progress.total)
+                        : 1
+                    await MainActor.run {
+                        self.setMigrationProgress(
+                            status: String(
+                                format: String(localized: "正在清理空壳画廊 %lld/%lld…"),
+                                Int64(progress.completed),
+                                Int64(progress.total)
+                            ),
+                            completed: progress.completed,
+                            total: progress.total,
+                            fraction: 0.1 + 0.05 * normalized
+                        )
+                    }
+                }
+                removedEmptyGalleryCount = removal.removedCount
+                didUpdateDownloadedMetadata = removal.removedCount > 0
+            }
+
+            let emptyKeySet = Set(emptyKeys)
+            let jobs = originalJobs.filter { emptyKeySet.contains($0.key) == false }
+            guard jobs.isEmpty == false else {
+                let result = DownloadedGalleryMetadataRefreshResult(
+                    targetCount: 0,
+                    completeCount: 0,
+                    failedCount: 0,
+                    incompleteCount: 0,
+                    gdataRetriedCount: 0,
+                    detailCompletionCount: 0,
+                    removedEmptyGalleryCount: removedEmptyGalleryCount,
+                    invalidPageCount: invalidPageCount
+                )
+                importResultMessage = refreshResultMessage(result)
+                return result
+            }
+
             let allKeys = jobs.map(\.key)
-            let stored = try await persistence.gallerySyncSummaries(for: Set(allKeys))
+            let stored = try await persistence.downloadedGallerySummaries(for: Set(allKeys))
             var summariesByKey = Dictionary(
                 stored.map { ($0.key, $0) },
                 uniquingKeysWith: { first, _ in first }
@@ -2235,33 +2431,75 @@ final class AppModel {
                     failedCount: 0,
                     incompleteCount: 0,
                     gdataRetriedCount: 0,
-                    detailCompletionCount: 0
+                    detailCompletionCount: 0,
+                    removedEmptyGalleryCount: removedEmptyGalleryCount,
+                    invalidPageCount: invalidPageCount
                 )
                 importResultMessage = refreshResultMessage(result)
                 return result
             }
 
+            let maximumGdataRetries = 3
+            let initialGdataStartFraction = 0.15
+            let initialGdataEndFraction = 0.4
+            let retryGdataStartFraction = 0.4
+            let retryGdataEndFraction = 0.75
+            let detailStartFraction = 0.75
+            let detailEndFraction = 0.95
+
             var pendingKeys = targetKeys
             var hadUsableResponse = Set<GalleryKey>()
             var gdataRetriedKeys = Set<GalleryKey>()
             var gdataBlocked = false
+            var nextGdataAttempt = 0 // 0 is the initial request; 1...3 are retries.
 
-            for round in 0...2 {
+            while pendingKeys.isEmpty == false, nextGdataAttempt <= maximumGdataRetries {
                 try Task.checkCancellation()
-                guard pendingKeys.isEmpty == false else { break }
-                if round > 0 {
-                    try await Task.sleep(for: .seconds(round))
-                    gdataRetriedKeys.formUnion(pendingKeys)
+                let requestKeys = pendingKeys
+                let attempt = nextGdataAttempt
+                if attempt > 0 {
+                    let retryFraction = retryGdataStartFraction
+                        + (retryGdataEndFraction - retryGdataStartFraction)
+                        * Double(attempt - 1) / Double(maximumGdataRetries)
+                    setMigrationProgress(
+                        status: String(format: String(localized: "正在等待第 %lld/3 次重试…"), Int64(attempt)),
+                        completed: targetKeys.count - requestKeys.count,
+                        total: targetKeys.count,
+                        fraction: retryFraction
+                    )
+                    try await Task.sleep(for: .seconds(attempt))
+                    gdataRetriedKeys.formUnion(requestKeys)
+                } else {
+                    setMigrationProgress(
+                        status: String(format: String(localized: "正在获取画廊信息（首次） %lld/%lld…"), Int64(0), Int64(requestKeys.count)),
+                        completed: 0,
+                        total: requestKeys.count,
+                        fraction: initialGdataStartFraction
+                    )
                 }
 
-                setMigrationProgress(
-                    status: String(format: String(localized: "正在获取画廊信息（第 %d 轮）…"), round + 1),
-                    completed: targetKeys.count - pendingKeys.count,
-                    total: targetKeys.count,
-                    fraction: 0.05 + 0.55 * Double(round) / 3
-                )
-
-                let fetched = try await fetchGallerySummaryResponses(for: pendingKeys)
+                let fetched = try await fetchGallerySummaryResponses(for: requestKeys) { [weak self] processed, total in
+                    guard let self else { return }
+                    let normalized = total > 0 ? Double(processed) / Double(total) : 1
+                    let fraction: Double
+                    let status: String
+                    if attempt == 0 {
+                        fraction = initialGdataStartFraction
+                            + (initialGdataEndFraction - initialGdataStartFraction) * normalized
+                        status = String(format: String(localized: "正在获取画廊信息（首次） %lld/%lld…"), Int64(processed), Int64(total))
+                    } else {
+                        fraction = retryGdataStartFraction
+                            + (retryGdataEndFraction - retryGdataStartFraction)
+                            * (Double(attempt - 1) + normalized) / Double(maximumGdataRetries)
+                        status = String(format: String(localized: "正在重试画廊信息（第 %lld/3 次） %lld/%lld…"), Int64(attempt), Int64(processed), Int64(total))
+                    }
+                    self.setMigrationProgress(
+                        status: status,
+                        completed: processed,
+                        total: total,
+                        fraction: fraction
+                    )
+                }
                 var nextPending: [GalleryKey] = []
                 var successfulSummaries: [GallerySummary] = []
                 for response in fetched.responses {
@@ -2304,19 +2542,35 @@ final class AppModel {
                             )
                         }
                     )
-                    await downloads.mergeMetadata(successfulSummaries)
-                    publishLocalLibraryChange()
+                    await downloads.mergeMetadataInMemory(successfulSummaries)
+                    didUpdateDownloadedMetadata = true
                 }
 
                 pendingKeys = Array(Set(nextPending)).sorted { $0.id < $1.id }
                 gdataBlocked = fetched.blocked
-                if gdataBlocked { break }
+                if pendingKeys.isEmpty || gdataBlocked { break }
+                nextGdataAttempt += 1
             }
 
             var detailCompletionKeys = Set<GalleryKey>()
             let detailKeys = pendingKeys.filter { summariesByKey[$0]?.metadataCompleteness?.isSummaryComplete != true }
             if detailKeys.isEmpty == false, gdataBlocked == false {
-                let detailResults = try await fetchDetailMetadata(for: detailKeys)
+                setMigrationProgress(
+                    status: String(format: String(localized: "正在补全画廊详情 %lld/%lld…"), Int64(0), Int64(detailKeys.count)),
+                    completed: 0,
+                    total: detailKeys.count,
+                    fraction: detailStartFraction
+                )
+                let detailResults = try await fetchDetailMetadata(for: detailKeys) { [weak self] completed, total in
+                    guard let self else { return }
+                    let normalized = total > 0 ? Double(completed) / Double(total) : 1
+                    self.setMigrationProgress(
+                        status: String(format: String(localized: "正在补全画廊详情 %lld/%lld…"), Int64(completed), Int64(total)),
+                        completed: completed,
+                        total: total,
+                        fraction: detailStartFraction + (detailEndFraction - detailStartFraction) * normalized
+                    )
+                }
                 var detailStable: [StableGalleryMetadataSnapshot] = []
                 var detailDynamic: [DownloadedGalleryDynamicSnapshot] = []
                 var detailSummaries: [GallerySummary] = []
@@ -2340,8 +2594,8 @@ final class AppModel {
                         stableSnapshots: detailStable,
                         dynamicSnapshots: detailDynamic
                     )
-                    await downloads.mergeMetadata(detailSummaries)
-                    publishLocalLibraryChange()
+                    await downloads.mergeMetadataInMemory(detailSummaries)
+                    didUpdateDownloadedMetadata = true
                 }
             }
 
@@ -2365,7 +2619,9 @@ final class AppModel {
                 failedCount: failedKeys.count,
                 incompleteCount: incompleteKeys.count,
                 gdataRetriedCount: gdataRetriedKeys.count,
-                detailCompletionCount: detailCompletionKeys.count
+                detailCompletionCount: detailCompletionKeys.count,
+                removedEmptyGalleryCount: removedEmptyGalleryCount,
+                invalidPageCount: invalidPageCount
             )
             setMigrationProgress(
                 status: String(localized: "已完成画廊信息更新"),
@@ -2389,7 +2645,8 @@ final class AppModel {
     }
 
     private func fetchGallerySummaryResponses(
-        for keys: [GalleryKey]
+        for keys: [GalleryKey],
+        progress: ((Int, Int) -> Void)? = nil
     ) async throws -> GallerySummaryFetchResult {
         var responses: [GallerySummaryResponse] = []
         var blocked = false
@@ -2400,6 +2657,7 @@ final class AppModel {
             do {
                 let result = try await api.gallerySummaryBatch(for: batch, site: site)
                 responses.append(contentsOf: result.responses)
+                progress?(end, keys.count)
                 if result.hasBlockingResponse {
                     blocked = true
                     responses.append(contentsOf: keys[end...].map {
@@ -2414,6 +2672,7 @@ final class AppModel {
                 responses.append(contentsOf: batch.map {
                     GallerySummaryResponse(key: $0, status: status)
                 })
+                progress?(end, keys.count)
                 if Self.shouldStopMetadataRefresh(for: error) {
                     blocked = true
                     responses.append(contentsOf: keys[end...].map {
@@ -2432,7 +2691,8 @@ final class AppModel {
     }
 
     private func fetchDetailMetadata(
-        for keys: [GalleryKey]
+        for keys: [GalleryKey],
+        progress: ((Int, Int) -> Void)? = nil
     ) async throws -> [DetailMetadataFetchResult] {
         let scheduler = MetadataRequestScheduler()
         return try await withThrowingTaskGroup(of: DetailMetadataFetchResult.self) { group in
@@ -2461,6 +2721,7 @@ final class AppModel {
             var results: [DetailMetadataFetchResult] = []
             for try await result in group {
                 results.append(result)
+                progress?(results.count, keys.count)
             }
             return results
         }
@@ -2485,13 +2746,17 @@ final class AppModel {
     }
 
     private func refreshResultMessage(_ result: DownloadedGalleryMetadataRefreshResult) -> String {
-        String(format: String(localized: "目标 %d，完整成功 %d，失败 %d，仍不完整 %d，gdata 重试 %d，详情补全 %d。"),
-               result.targetCount,
-               result.completeCount,
-               result.failedCount,
-               result.incompleteCount,
-               result.gdataRetriedCount,
-               result.detailCompletionCount)
+        String(
+            format: String(localized: "清理空壳画廊 %d，发现非法页面 %d；目标 %d，完整成功 %d，失败 %d，仍不完整 %d，gdata 重试 %d，详情补全 %d。"),
+            result.removedEmptyGalleryCount,
+            result.invalidPageCount,
+            result.targetCount,
+            result.completeCount,
+            result.failedCount,
+            result.incompleteCount,
+            result.gdataRetriedCount,
+            result.detailCompletionCount
+        )
     }
 
     private func importGallerySync(from archiveURL: URL) async -> GallerySyncImportResult? {
@@ -2503,13 +2768,14 @@ final class AppModel {
             let snapshot = try await Task.detached(priority: .userInitiated) {
                 try GallerySyncArchive.read(from: archiveURL)
             }.value
-            let existing = try await persistence.gallerySyncSummaries(
+            let existing = try await persistence.downloadedGallerySummaries(
                 for: Set(snapshot.galleries.map(\.key))
             )
             setMigrationProgress(status: String(localized: "正在恢复画廊信息…"), fraction: 0.5)
             let resolution = try await resolveTransferMetadata(
                 snapshot.galleries,
-                existing: existing
+                existing: existing,
+                fetchMissingMetadata: false
             ) { [weak self] completed, total in
                 guard let self else { return }
                 let fraction = total > 0 ? Double(completed) / Double(total) : 1
@@ -2521,7 +2787,7 @@ final class AppModel {
                 )
             }
             let resolvedSummaries = Array(resolution.summariesByKey.values)
-            let galleryOutcome = try await persistence.mergeGallerySyncSummaries(resolvedSummaries)
+            let galleryOutcome = try await persistence.mergeDownloadedGallerySyncSummaries(resolvedSummaries)
             let resolvedByKey = Dictionary(uniqueKeysWithValues: resolvedSummaries.map { ($0.key, $0) })
             for record in snapshot.records {
                 let refreshedStable: StableGalleryMetadataSnapshot
@@ -2562,11 +2828,13 @@ final class AppModel {
         let scopeName = keys.map { "\($0.count)items" } ?? "All"
         let archiveURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("EhViewer-Downloads-\(scopeName)-\(Self.timestampForExportFilename()).eharchive")
+        let partialURL = archiveURL.appendingPathExtension("part")
         var archiveReady = false
         defer {
             // 导出失败或取消时清理未完成的压缩包，避免残留占用存储。
             if archiveReady == false {
                 try? FileManager.default.removeItem(at: archiveURL)
+                try? FileManager.default.removeItem(at: partialURL)
             }
         }
 
@@ -2598,7 +2866,7 @@ final class AppModel {
                 return nil
             }
 
-            let storedSummaries = try await persistence.gallerySyncSummaries(for: Set(selected.map(\.key)))
+            let storedSummaries = try await persistence.downloadedGallerySummaries(for: Set(selected.map(\.key)))
             let summariesByKey = try await transferSummaries(
                 for: Set(selected.map(\.key)),
                 stored: storedSummaries
@@ -2644,7 +2912,7 @@ final class AppModel {
             _ = try await DownloadArchiveExporter.export(
                 items: items,
                 files: downloadFiles,
-                to: archiveURL
+                to: partialURL
             ) { [weak self] progress in
                 guard let self else { return }
                 let archiveFraction = progress.fraction
@@ -2655,6 +2923,12 @@ final class AppModel {
                     fraction: 0.1 + archiveFraction * 0.85
                 )
             }
+            setMigrationProgress(status: String(localized: "正在验证下载包…"), fraction: 0.97)
+            let inspection = try await LegacyDownloadArchive.inspect(partialURL)
+            guard inspection.candidates.isEmpty == false else {
+                throw EHError.parsingFailed(String(localized: "导出的下载包没有可恢复内容。"))
+            }
+            try FileManager.default.moveItem(at: partialURL, to: archiveURL)
             setMigrationProgress(status: String(localized: "下载包已准备完成"), fraction: 1)
             archiveReady = true
             replacePendingSharedFile(with: archiveURL)
@@ -2782,13 +3056,14 @@ final class AppModel {
         let incompleteCount: Int
     }
 
-    /// Persists the package state before requesting missing fields, then
-    /// persists every successful gallery response independently. This makes a
-    /// cancelled or rate-limited import resumable without repeating completed
-    /// metadata requests.
+    /// Persists the package state before optionally requesting missing fields,
+    /// then persists every successful gallery response independently. Archive
+    /// restore passes `fetchMissingMetadata == false` so it remains offline;
+    /// metadata import can still opt into resumable network completion.
     private func resolveTransferMetadata(
         _ incoming: [GallerySummary],
         existing: [GallerySummary] = [],
+        fetchMissingMetadata: Bool = true,
         progress: ((Int, Int) -> Void)? = nil
     ) async throws -> MetadataResolution {
         let existingByKey = Dictionary(
@@ -2801,13 +3076,19 @@ final class AppModel {
         }
 
         if summariesByKey.isEmpty == false {
-            try await persistence.upsert(Array(summariesByKey.values))
+            _ = try await persistence.mergeDownloadedGallerySyncSummaries(Array(summariesByKey.values))
         }
 
         var pendingKeys = summariesByKey.values
             .filter { $0.metadataCompleteness?.isSummaryComplete != true }
             .map(\.key)
             .sorted { $0.id < $1.id }
+        guard fetchMissingMetadata else {
+            return MetadataResolution(
+                summariesByKey: summariesByKey,
+                incompleteCount: pendingKeys.count
+            )
+        }
         progress?(0, pendingKeys.count)
 
         let requestSize = 25
@@ -2832,7 +3113,7 @@ final class AppModel {
                 try Task.checkCancellation()
                 let completed = fetchedMetadataSummary(summary)
                 let merged = mergeMetadataSummary(completed, with: summariesByKey[summary.key])
-                try await persistence.upsert([merged])
+                _ = try await persistence.mergeDownloadedGallerySyncSummaries([merged])
                 summariesByKey[merged.key] = merged
                 completedCount += 1
                 progress?(completedCount, pendingKeys.count)
@@ -2893,7 +3174,7 @@ final class AppModel {
                 merged.append(completed)
             }
         }
-        try? await persistence.upsert(merged)
+        _ = try? await persistence.mergeDownloadedGallerySyncSummaries(merged)
         return summariesByKey
     }
 

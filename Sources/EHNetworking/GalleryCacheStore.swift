@@ -41,9 +41,6 @@ public actor GalleryCacheStore {
         stableSnapshot(for: key, site: site)?.detail()
     }
 
-    /// Reads the new stable snapshot first, then performs a read-only fallback
-    /// to the old detail JSON format so the app can migrate one successful
-    /// record at a time into SwiftData.
     public func stableSnapshot(for key: GalleryKey, site: SiteMode) -> StableGalleryMetadataSnapshot? {
         if let data = try? Data(contentsOf: stableURL(for: key, site: site), options: .mappedIfSafe),
            let snapshot = try? JSONDecoder().decode(StableGalleryMetadataSnapshot.self, from: data) {
@@ -57,9 +54,7 @@ public actor GalleryCacheStore {
         return StableGalleryMetadataSnapshot(detail: Self.staticSnapshot(from: detail), sourceSite: site)
     }
 
-    /// Returns legacy JSON details without mutating or deleting them. The
-    /// application imports these snapshots into SwiftData and can safely retry
-    /// the operation after an interrupted launch.
+    /// Returns legacy JSON details without mutating or deleting them.
     public func legacyStableSnapshots() -> [StableGalleryMetadataSnapshot] {
         let directory = root.appendingPathComponent("Details", isDirectory: true)
         guard let urls = try? FileManager.default.contentsOfDirectory(
@@ -91,10 +86,7 @@ public actor GalleryCacheStore {
     ) {
         if let generation, generation != self.generation { return }
         save(
-            StableGalleryMetadataSnapshot(
-                detail: Self.staticSnapshot(from: detail),
-                sourceSite: site
-            ),
+            StableGalleryMetadataSnapshot(detail: Self.staticSnapshot(from: detail), sourceSite: site),
             for: key,
             site: site,
             generation: generation
@@ -110,7 +102,6 @@ public actor GalleryCacheStore {
         if let generation, generation != self.generation { return }
         guard snapshot.key == key,
               let data = try? JSONEncoder().encode(snapshot) else { return }
-
         let url = stableURL(for: key, site: site)
         do {
             try FileManager.default.createDirectory(

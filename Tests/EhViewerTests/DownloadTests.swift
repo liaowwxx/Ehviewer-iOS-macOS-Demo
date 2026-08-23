@@ -202,6 +202,66 @@ struct DownloadTests {
         #expect(Set(jobs.map(\.key)) == [first.key, second.key])
     }
 
+    @Test("A deleted download is not resurrected by a stale persisted snapshot")
+    func deletedDownloadIsNotResurrectedByRestore() async throws {
+        let key = GalleryKey(gid: 25, token: "deleted-restore")
+        let job = restoredJob(gid: key.gid, token: key.token, title: "Deleted")
+        let coordinator = DownloadCoordinator(pageLoader: { _ in Data() })
+
+        await coordinator.loadPersisted([job])
+        #expect(await coordinator.snapshot().map(\.key) == [key])
+
+        #expect(await coordinator.remove(key) == .removed)
+        #expect(await coordinator.snapshot().isEmpty)
+
+        // This simulates the startup restore task completing with a snapshot
+        // fetched before the user pressed Delete.
+        await coordinator.loadPersisted([job])
+        #expect(await coordinator.snapshot().isEmpty)
+
+        // Removing a gallery must not permanently block a deliberate new
+        // download of the same gallery.
+        await coordinator.enqueue(key: key, title: "Downloaded again", pages: [])
+        #expect(await coordinator.snapshot().map(\.key) == [key])
+    }
+
+    @Test("In-memory metadata merge avoids per-gallery persistence and events")
+    func inMemoryMetadataMergeIsBatched() async throws {
+        let saveProbe = DownloadSaveProbe()
+        let first = restoredJob(gid: 22, token: "first", title: "First")
+        let second = restoredJob(gid: 23, token: "second", title: "Second")
+        let coordinator = DownloadCoordinator(
+            pageLoader: { _ in Data() },
+            persistence: { job in await saveProbe.record(job) }
+        )
+        let events = await coordinator.events()
+        var iterator = events.makeAsyncIterator()
+        await coordinator.loadPersisted([first, second])
+        guard case .reset? = await iterator.next() else {
+            Issue.record("bulk loading should publish its reset event")
+            return
+        }
+
+        let refreshed = [first, second].map { job in
+            GallerySummary(
+                key: job.key,
+                title: "Refreshed \(job.key.gid)",
+                tags: ["artist:refreshed"],
+                metadataCompleteness: .complete
+            )
+        }
+        await coordinator.mergeMetadataInMemory(refreshed)
+
+        #expect(await saveProbe.count == 0)
+        #expect(await coordinator.job(for: first.key)?.title == "Refreshed 22")
+        #expect(await coordinator.job(for: second.key)?.tags == ["artist:refreshed"])
+        guard case let .reset(jobs)? = await iterator.next() else {
+            Issue.record("batched metadata merge should publish one reset event")
+            return
+        }
+        #expect(Set(jobs.map(\.key)) == [first.key, second.key])
+    }
+
     @Test("Download restore merges existing pages instead of replacing the job")
     func mergeRestoredJobs() async throws {
         let key = GalleryKey(gid: 23, token: "merge")

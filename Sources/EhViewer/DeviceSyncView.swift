@@ -8,6 +8,7 @@ import EHDeviceSync
 
 struct DeviceSyncView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     @State private var pairingInput = ""
 
     var body: some View {
@@ -21,8 +22,13 @@ struct DeviceSyncView: View {
             .onAppear { model.deviceSync.start() }
             .onDisappear { model.deviceSync.stop() }
             .onChange(of: model.deviceSync.state) { _, state in
-                guard case .completed = state else { return }
+                guard case .completed(_) = state else { return }
                 Task { await model.refreshDownloadsAfterDeviceSync() }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background {
+                    model.deviceSync.interruptForBackground()
+                }
             }
     }
 
@@ -70,12 +76,33 @@ struct DeviceSyncView: View {
                 .buttonStyle(.borderedProminent)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case let .preparing(phase):
+            VStack(spacing: 12) {
+                ProgressView()
+                Label(phaseTitle(phase), systemImage: phaseSystemImage(phase))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case let .awaitingSyncConfirmation(preview):
             previewView(preview)
         case let .syncing(progress):
             progressView(progress)
-        case .completed:
-            ContentUnavailableView("同步完成", systemImage: "checkmark.circle", description: Text("两台设备已完成本地漫画数据并集合并。"))
+        case let .interrupted(interruption):
+            interruptionView(interruption)
+        case let .cancelled(result):
+            resultView(
+                title: "同步已取消",
+                systemImage: "xmark.circle",
+                description: "已完整提交的画廊和页面均已保留。",
+                result: result
+            )
+        case let .completed(result):
+            resultView(
+                title: "同步完成",
+                systemImage: "checkmark.circle",
+                description: "两台设备已完成本地漫画数据并集合并。",
+                result: result
+            )
         case let .failed(message):
             ContentUnavailableView("同步失败", systemImage: "exclamationmark.triangle", description: Text(message))
         }
@@ -128,38 +155,231 @@ struct DeviceSyncView: View {
     }
 
     private func previewView(_ preview: DeviceSyncPreview) -> some View {
-        Form {
-            Section("同步预览") {
-                LabeledContent("接收漫画", value: "\(preview.receiveGalleryCount) 本")
-                LabeledContent("接收页面", value: "\(preview.receivePageCount) 页")
-                LabeledContent("接收数据", value: ByteCountFormatter.string(fromByteCount: preview.receiveBytes, countStyle: .file))
-                LabeledContent("发送漫画", value: "\(preview.sendGalleryCount) 本")
-                LabeledContent("发送页面", value: "\(preview.sendPageCount) 页")
-                LabeledContent("发送数据", value: ByteCountFormatter.string(fromByteCount: preview.sendBytes, countStyle: .file))
-            }
-            Section {
+        ScrollView {
+            VStack(spacing: 20) {
+                Text("同步预览")
+                    .font(.title2.bold())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        previewCard(
+                            title: "接收",
+                            systemImage: "arrow.down.circle",
+                            galleries: preview.receiveGalleryCount,
+                            pages: preview.receivePageCount,
+                            bytes: preview.receiveBytes
+                        )
+                        previewCard(
+                            title: "发送",
+                            systemImage: "arrow.up.circle",
+                            galleries: preview.sendGalleryCount,
+                            pages: preview.sendPageCount,
+                            bytes: preview.sendBytes
+                        )
+                    }
+                    VStack(spacing: 12) {
+                        previewCard(
+                            title: "接收",
+                            systemImage: "arrow.down.circle",
+                            galleries: preview.receiveGalleryCount,
+                            pages: preview.receivePageCount,
+                            bytes: preview.receiveBytes
+                        )
+                        previewCard(
+                            title: "发送",
+                            systemImage: "arrow.up.circle",
+                            galleries: preview.sendGalleryCount,
+                            pages: preview.sendPageCount,
+                            bytes: preview.sendBytes
+                        )
+                    }
+                }
                 Button("确认并开始同步", systemImage: "arrow.triangle.2.circlepath") {
                     model.deviceSync.confirmSync()
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
+            .padding()
+            .frame(maxWidth: 900)
+            .frame(maxWidth: .infinity)
         }
     }
 
     private func progressView(_ progress: DeviceSyncProgress) -> some View {
-        VStack(spacing: 16) {
-            Group {
-                if let fraction = progress.fraction {
-                    ProgressView(value: fraction)
-                } else {
-                    ProgressView()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Label(phaseTitle(progress.phase), systemImage: phaseSystemImage(progress.phase))
+                    .font(.title2.bold())
+                if let title = progress.currentGalleryTitle {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(2)
+                        .accessibilityLabel("当前画廊：\(title)")
+                }
+                if let pageIndex = progress.currentPageIndex {
+                    Text("当前第 \(pageIndex + 1) 页")
+                        .foregroundStyle(.secondary)
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        directionProgressCard(
+                            title: "发送",
+                            completedPages: progress.sentPages,
+                            totalPages: progress.totalSendPages,
+                            completedBytes: progress.sentBytes,
+                            totalBytes: progress.totalSendBytes
+                        )
+                        directionProgressCard(
+                            title: "接收",
+                            completedPages: progress.receivedPages,
+                            totalPages: progress.totalReceivePages,
+                            completedBytes: progress.receivedBytes,
+                            totalBytes: progress.totalReceiveBytes
+                        )
+                    }
+                    VStack(spacing: 12) {
+                        directionProgressCard(
+                            title: "发送",
+                            completedPages: progress.sentPages,
+                            totalPages: progress.totalSendPages,
+                            completedBytes: progress.sentBytes,
+                            totalBytes: progress.totalSendBytes
+                        )
+                        directionProgressCard(
+                            title: "接收",
+                            completedPages: progress.receivedPages,
+                            totalPages: progress.totalReceivePages,
+                            completedBytes: progress.receivedBytes,
+                            totalBytes: progress.totalReceiveBytes
+                        )
+                    }
+                }
+                HStack {
+                    Label(
+                        "已完成 \(progress.completedGalleries)/\(progress.totalGalleries) 本",
+                        systemImage: "books.vertical"
+                    )
+                    Spacer()
+                    VStack(alignment: .trailing) {
+                        if let speed = progress.bytesPerSecond {
+                            Text("\(byteString(Int64(speed)))/秒")
+                        } else {
+                            Text("正在估算速度")
+                        }
+                        Text(etaText(progress))
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.footnote)
                 }
             }
-            .padding(.horizontal)
-            Text("已完成 \(progress.completedPages)/\(progress.totalPages) 页")
-            Text(ByteCountFormatter.string(fromByteCount: progress.completedBytes, countStyle: .file))
+            .padding()
+            .frame(maxWidth: 900)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func previewCard(
+        title: String,
+        systemImage: String,
+        galleries: Int,
+        pages: Int,
+        bytes: Int64
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: systemImage).font(.headline)
+            LabeledContent("漫画", value: "\(galleries) 本")
+            LabeledContent("页面", value: "\(pages) 页")
+            LabeledContent("数据", value: byteString(bytes))
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func directionProgressCard(
+        title: String,
+        completedPages: Int,
+        totalPages: Int,
+        completedBytes: Int64,
+        totalBytes: Int64
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.headline)
+            ProgressView(value: totalBytes > 0 ? Double(completedBytes) / Double(totalBytes) : 0)
+            Text("\(completedPages)/\(totalPages) 页")
+            Text("\(byteString(completedBytes)) / \(byteString(totalBytes))")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func interruptionView(_ interruption: DeviceSyncInterruption) -> some View {
+        ContentUnavailableView {
+            Label("同步已中断", systemImage: "wifi.exclamationmark")
+        } description: {
+            VStack(spacing: 8) {
+                Text(interruption.reason)
+                Text("已保留 \(interruption.completedGalleryCount) 本；已回滚当前画廊 \(interruption.rolledBackGalleryCount) 本。重新连接后会重新比对，只补传缺失内容。")
+            }
+        } actions: {
+            Button("重新搜索设备") { model.deviceSync.start() }
+        }
+    }
+
+    private func resultView(
+        title: String,
+        systemImage: String,
+        description: String,
+        result: DeviceSyncResult
+    ) -> some View {
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
+            VStack(spacing: 8) {
+                Text(description)
+                Text("发送 \(result.sentGalleryCount) 本 / \(result.sentPageCount) 页，接收 \(result.receivedGalleryCount) 本 / \(result.receivedPageCount) 页。")
+            }
+        }
+    }
+
+    private func byteString(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private func etaText(_ progress: DeviceSyncProgress) -> String {
+        guard progress.phase == .sending || progress.phase == .receiving else {
+            return "正在\(phaseTitle(progress.phase))"
+        }
+        guard let seconds = progress.estimatedRemainingSeconds else { return "剩余时间正在估算" }
+        return "预计剩余 \(Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated)))"
+    }
+
+    private func phaseTitle(_ phase: DeviceSyncPhase) -> String {
+        switch phase {
+        case .generatingManifest: "生成清单"
+        case .waitingForConfirmation: "等待确认"
+        case .sending: "正在发送"
+        case .receiving: "正在接收"
+        case .verifying: "正在校验"
+        case .committing: "正在提交"
+        case .comparingResults: "正在再次比对"
+        }
+    }
+
+    private func phaseSystemImage(_ phase: DeviceSyncPhase) -> String {
+        switch phase {
+        case .generatingManifest: "list.bullet.rectangle"
+        case .waitingForConfirmation: "person.crop.circle.badge.clock"
+        case .sending: "arrow.up.circle"
+        case .receiving: "arrow.down.circle"
+        case .verifying: "checkmark.shield"
+        case .committing: "internaldrive"
+        case .comparingResults: "arrow.triangle.2.circlepath"
+        }
     }
 }

@@ -37,7 +37,18 @@ struct ArchiveTests {
         try GallerySyncArchive.export(snapshot, to: archiveURL)
         let decoded = try GallerySyncArchive.read(from: archiveURL)
         #expect(decoded.schemaVersion == GallerySyncSnapshot.currentVersion)
-        #expect(decoded.galleries == [summary])
+        let decodedSummary = try #require(decoded.galleries.first)
+        #expect(decodedSummary.key == summary.key)
+        #expect(decodedSummary.title == summary.title)
+        #expect(decodedSummary.thumbnailURL == summary.thumbnailURL)
+        #expect(decodedSummary.category == summary.category)
+        #expect(decodedSummary.pageCount == summary.pageCount)
+        #expect(decodedSummary.rating == summary.rating)
+        #expect(decodedSummary.tags == summary.tags)
+        #expect(decodedSummary.metadataCompleteness?.rating == .loadedWithValue)
+        #expect(decodedSummary.metadataCompleteness?.ratingCount == .loadedEmpty)
+        #expect(decodedSummary.metadataCompleteness?.favorite == .loadedEmpty)
+        #expect(decodedSummary.metadataCompleteness?.comments == .loadedEmpty)
 
         try makeStoredZip(entries: [
             (GallerySyncArchive.payloadEntryName, Data("{}".utf8)),

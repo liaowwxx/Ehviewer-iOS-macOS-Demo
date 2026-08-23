@@ -151,15 +151,10 @@ struct ReaderPage: View {
                 }
                 data = try await model.imageData(for: metadata, resolution: resolution)
             case .download:
-                if let localData = await model.downloadedPageDataIfAvailable(for: descriptor) {
-                    data = localData
-                } else {
-                    let metadata = try await model.pageImage(for: descriptor)
-                    if let width = metadata.width, let height = metadata.height, height > 0 {
-                        aspectRatio = CGFloat(width) / CGFloat(height)
-                    }
-                    data = try await model.imageData(for: metadata, resolution: resolution)
+                guard let localData = await model.downloadedPageDataIfAvailable(for: descriptor) else {
+                    throw EHError.storageFailed(String(localized: "本地下载文件缺失或无效"))
                 }
+                data = localData
             }
             try Task.checkCancellation()
             let decodedMedia = try ReaderMediaView.Content.decode(data)

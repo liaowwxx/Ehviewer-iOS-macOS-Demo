@@ -130,9 +130,44 @@ enum DownloadArchiveSavePanel {
         }
 
         try await Task.detached(priority: .userInitiated) {
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            try copyFileAtomically(from: sourceURL, to: destinationURL)
         }.value
         return true
+    }
+
+    nonisolated private static func copyFileAtomically(from sourceURL: URL, to destinationURL: URL) throws {
+        let fileManager = FileManager.default
+        let partialURL = destinationURL.deletingLastPathComponent().appendingPathComponent(
+            ".\(destinationURL.lastPathComponent).ehviewer-part-\(UUID().uuidString)"
+        )
+        defer { try? fileManager.removeItem(at: partialURL) }
+        guard fileManager.createFile(atPath: partialURL.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let expectedBytes = try sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        let source = try FileHandle(forReadingFrom: sourceURL)
+        let destination = try FileHandle(forWritingTo: partialURL)
+        var copiedBytes = 0
+        do {
+            defer {
+                try? source.close()
+                try? destination.close()
+            }
+            while let chunk = try source.read(upToCount: 64 * 1024), chunk.isEmpty == false {
+                try Task.checkCancellation()
+                try destination.write(contentsOf: chunk)
+                copiedBytes += chunk.count
+            }
+            try destination.synchronize()
+        }
+        guard expectedBytes == nil || copiedBytes == expectedBytes else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: partialURL)
+        } else {
+            try fileManager.moveItem(at: partialURL, to: destinationURL)
+        }
     }
 }
 #endif

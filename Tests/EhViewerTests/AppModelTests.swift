@@ -746,6 +746,13 @@ struct AppModelTests {
                 )]
             )
         )
+        try await model.persistence.upsertStableSnapshot(StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: "Conflicting online cache title",
+            tags: ["artist:cache-only"],
+            capturedAt: .distantFuture
+        ))
 
         let detail = try #require(await model.localGalleryDetail(for: key))
 
@@ -756,6 +763,124 @@ struct AppModelTests {
         #expect(detail.comments.first?.body == "本地评论")
         #expect(try await model.comments(for: key).first?.body == "本地评论")
         #expect(await model.downloadedPageDataIfAvailable(for: descriptor) == localData)
+    }
+
+    @Test("Deleting a local gallery removes download data without touching its online cache")
+    func deletingDownloadPreservesIndependentCache() async throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-delete-isolation-\(UUID().uuidString)")
+        let downloadRoot = parent.appendingPathComponent("Downloads", isDirectory: true)
+        let cacheRoot = parent.appendingPathComponent("Cache", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let files = DownloadFileStore(root: downloadRoot, minimumFreeBytes: 1)
+        let cache = GalleryCacheStore(root: cacheRoot)
+        let key = GalleryKey(gid: 11, token: "delete-isolation")
+        let descriptor = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://example.invalid/page.jpg")!,
+            previewURL: URL(string: "https://example.invalid/preview.jpg")!
+        )
+        let summary = GallerySummary(key: key, title: "Online cached title", pageCount: 1)
+        let detail = GalleryDetail(summary: summary, pages: [descriptor], tags: [])
+        await cache.save(detail, for: key, site: .eHentai)
+        _ = try await cache.imageData(
+            for: GalleryPageImage(galleryKey: key, index: 0, imageURL: descriptor.previewURL!),
+            resolution: .preview
+        ) { Data("online preview".utf8) }
+        _ = try await files.write(try #require(Self.onePixelPNG), for: key, pageIndex: 0)
+
+        let suiteName = "EhViewerDeleteIsolationTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: OfflineReaderAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            downloadFiles: files,
+            galleryCache: cache
+        )
+        await waitUntilDownloadsLoaded(model)
+        try await model.persistence.upsertStableSnapshot(
+            StableGalleryMetadataSnapshot(detail: detail, sourceSite: .eHentai)
+        )
+        try await model.persistence.promoteToDownloadedGallery(stable: StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: "Downloaded title",
+            pageCount: 1,
+            pages: [descriptor]
+        ))
+        var job = DownloadJob(key: key, title: "Downloaded title", pages: [descriptor])
+        job.completedPageIndexes = [0]
+        job.state = .completed
+        await model.downloads.restore([job])
+
+        #expect(await model.downloads.remove(key) == .removed)
+        #expect(await files.contains(key, pageIndex: 0) == false)
+        #expect(try await model.persistence.downloadedTransferRecord(for: key) == nil)
+        #expect(try await model.persistence.stableSnapshot(for: key)?.title == "Online cached title")
+        #expect(await cache.detail(for: key, site: .eHentai)?.summary.title == "Online cached title")
+        #expect((await cache.usage()).byteCount > 0)
+    }
+
+    @Test("Metadata refresh removes an empty download shell without touching browsing cache")
+    func metadataRefreshCleansEmptyDownloadShell() async throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-empty-shell-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let files = DownloadFileStore(
+            root: parent.appendingPathComponent("Downloads", isDirectory: true),
+            minimumFreeBytes: 1
+        )
+        let cache = GalleryCacheStore(root: parent.appendingPathComponent("Cache", isDirectory: true))
+        let key = GalleryKey(gid: 111, token: "empty-shell")
+        let descriptor = GalleryPageDescriptor(
+            galleryKey: key,
+            index: 0,
+            pageURL: URL(string: "https://example.invalid/page.jpg")!
+        )
+        let cachedSummary = GallerySummary(key: key, title: "在线缓存", pageCount: 1)
+        await cache.save(
+            GalleryDetail(summary: cachedSummary, pages: [descriptor], tags: []),
+            for: key,
+            site: .eHentai
+        )
+
+        let suiteName = "EhViewerEmptyShellTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: OfflineReaderAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            downloadFiles: files,
+            galleryCache: cache
+        )
+        await waitUntilDownloadsLoaded(model)
+        try await model.persistence.upsertStableSnapshot(
+            StableGalleryMetadataSnapshot(summary: cachedSummary, sourceSite: .eHentai)
+        )
+        try await model.persistence.promoteToDownloadedGallery(stable: StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: "空壳下载",
+            pageCount: 1,
+            pages: [descriptor]
+        ))
+        var job = DownloadJob(key: key, title: "空壳下载", pages: [descriptor])
+        job.state = .paused
+        await model.downloads.restore([job])
+
+        let result = await model.refreshDownloadedGalleryMetadata()
+
+        #expect(result.removedEmptyGalleryCount == 1)
+        #expect(await model.downloads.job(for: key) == nil)
+        #expect(try await model.persistence.downloadedTransferRecord(for: key) == nil)
+        #expect(try await model.persistence.stableSnapshot(for: key)?.title == "在线缓存")
+        #expect(await cache.detail(for: key, site: .eHentai)?.summary.title == "在线缓存")
     }
 
     @Test("Search result models are reused and do not reload after returning from detail")
@@ -926,11 +1051,17 @@ struct AppModelTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let api = DownloadMetadataAPI(summary: remote)
+        let fileRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-metadata-refresh-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: fileRoot) }
+        let files = DownloadFileStore(root: fileRoot, minimumFreeBytes: 1)
+        _ = try await files.write(try #require(Self.onePixelPNG), for: key, pageIndex: 0)
         let model = AppModel(
             container: try ModelContainerFactory.make(inMemory: true),
             api: api,
             sessionVault: SessionVault(service: suiteName),
-            defaults: defaults
+            defaults: defaults,
+            downloadFiles: files
         )
         await waitUntilDownloadsLoaded(model)
         try await model.persistence.upsert([
@@ -973,7 +1104,7 @@ struct AppModelTests {
 
         await model.refreshDownloadedGalleryMetadata()
 
-        let restored = try #require(await model.persistence.gallerySummary(for: key))
+        let restored = try #require(await model.persistence.downloadedGallerySummary(for: key))
         #expect(restored.title == "普通标题")
         #expect(restored.japaneseTitle == "日本語タイトル")
         #expect(restored.thumbnailURL == remote.thumbnailURL)
@@ -999,6 +1130,43 @@ struct AppModelTests {
         #expect(snapshot.galleries.first?.title == "普通标题")
         #expect(snapshot.galleries.first?.japaneseTitle == "日本語タイトル")
         #expect(snapshot.galleries.first?.tags == remote.tags)
+    }
+
+    @Test("Downloaded metadata refresh performs three retries after the initial gdata request")
+    func refreshDownloadedMetadataRetriesIncompleteGdata() async throws {
+        let key = GalleryKey(gid: 504, token: "metadata-retry")
+        let suiteName = "EhViewerMetadataRetryTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let api = RetryingMetadataAPI(key: key)
+        let fileRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-metadata-retry-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: fileRoot) }
+        let files = DownloadFileStore(root: fileRoot, minimumFreeBytes: 1)
+        _ = try await files.write(try #require(Self.onePixelPNG), for: key, pageIndex: 0)
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: api,
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            downloadFiles: files
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        var job = DownloadJob(key: key, title: "旧标题", pages: [])
+        job.state = .paused
+        await model.downloads.restore([job])
+
+        let result = await model.refreshDownloadedGalleryMetadata()
+
+        #expect(await api.summaryRequestCount == 4)
+        #expect(result.gdataRetriedCount == 1)
+        #expect(result.completeCount == 1)
+        #expect(result.failedCount == 0)
+        #expect(result.incompleteCount == 0)
+        let stored = try #require(await model.persistence.downloadedGallerySummary(for: key))
+        #expect(stored.title == "完整标题")
+        #expect(stored.tags == ["artist:complete"])
     }
 
     @Test("Complete gallery sync metadata skips the network")
@@ -1046,9 +1214,97 @@ struct AppModelTests {
         await model.confirmIncomingGallerySync()
 
         #expect(await api.summaryRequestCount == 0)
-        let stored = try #require(await model.persistence.gallerySummary(for: key))
+        let stored = try #require(await model.persistence.downloadedGallerySummary(for: key))
         #expect(stored.metadataCompleteness?.isSummaryComplete == true)
         #expect(stored.metadataCompleteness?.isComplete == false)
+    }
+
+    @Test("Gallery sync round-trip preserves category, dates, ratings and details")
+    func gallerySyncRoundTripPreservesCompleteMetadata() async throws {
+        let key = GalleryKey(gid: 506, token: "complete-gallery-sync")
+        let suiteName = "EhViewerCompleteGallerySyncMetadataTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        let stable = StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: "同步标题",
+            japaneseTitle: "同期タイトル",
+            uploader: "uploader",
+            tags: ["artist:author", "language:english"],
+            category: "Image Set",
+            language: "English",
+            pageCount: 2,
+            postedAt: Date(timeIntervalSince1970: 789),
+            fileSize: "3 MB",
+            descriptionText: "同步描述",
+            externalURL: URL(string: "https://example.invalid/sync-gallery"),
+            pages: [
+                GalleryPageDescriptor(
+                    galleryKey: key,
+                    index: 0,
+                    pageURL: try #require(URL(string: "https://example.invalid/sync-page"))
+                )
+            ],
+            capturedAt: Date(timeIntervalSince1970: 100),
+            completeness: .complete
+        )
+        let dynamic = DownloadedGalleryDynamicSnapshot(
+            key: key,
+            rating: 4.25,
+            ratingCount: 18,
+            favoriteCount: 6,
+            favoriteName: "同步收藏夹",
+            favoriteCategory: 5,
+            comments: [DownloadedGalleryCommentSnapshot(
+                id: "sync-comment",
+                author: "reader",
+                body: "同步评论"
+            )],
+            capturedAt: Date(timeIntervalSince1970: 100),
+            completeness: .complete
+        )
+        let transfer = try GalleryTransferRecord(stable: stable, dynamic: dynamic)
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("complete-gallery-sync-\(UUID().uuidString).ehgallery")
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+        try GallerySyncArchive.export(
+            GallerySyncSnapshot(records: [transfer]),
+            to: archiveURL
+        )
+        let decoded = try GallerySyncArchive.read(from: archiveURL)
+        #expect(decoded.records.first?.dynamic?.rating == 4.25)
+        #expect(decoded.records.first?.dynamic?.ratingCount == 18)
+        #expect(decoded.galleries.first?.rating == 4.25)
+        #expect(decoded.galleries.first?.ratingCount == 18)
+
+        model.stageGallerySyncImport(from: archiveURL)
+        await waitForPendingIncomingGallerySync(model)
+        await model.confirmIncomingGallerySync()
+
+        let restoredStable = try #require(await model.persistence.downloadedTransferRecord(for: key)?.stable)
+        #expect(restoredStable.category == "Image Set")
+        #expect(restoredStable.postedAt == stable.postedAt)
+        #expect(restoredStable.fileSize == "3 MB")
+        #expect(restoredStable.descriptionText == "同步描述")
+        #expect(restoredStable.externalURL == stable.externalURL)
+        #expect(restoredStable.pages == stable.pages)
+
+        let restoredDynamic = try #require(await model.persistence.downloadedDynamicSnapshot(for: key))
+        #expect(restoredDynamic.rating == 4.25)
+        #expect(restoredDynamic.ratingCount == 18)
+        #expect(restoredDynamic.favoriteCount == 6)
+        #expect(restoredDynamic.favoriteName == "同步收藏夹")
+        #expect(restoredDynamic.favoriteCategory == 5)
+        #expect(restoredDynamic.comments.first?.body == "同步评论")
     }
 
     @Test("Incomplete gallery sync metadata resumes after a rate limit")
@@ -1097,7 +1353,7 @@ struct AppModelTests {
         await model.confirmIncomingGallerySync()
         #expect(await api.summaryRequestCount == 1)
         #expect(model.importResultMessage?.contains("待联网补全信息 1 个") == true)
-        let pending = try #require(await model.persistence.gallerySummary(for: key))
+        let pending = try #require(await model.persistence.downloadedGallerySummary(for: key))
         #expect(pending.metadataCompleteness?.isSummaryComplete == false)
         #expect(pending.metadataCompleteness?.isComplete == false)
 
@@ -1111,15 +1367,15 @@ struct AppModelTests {
 
         #expect(await api.summaryRequestCount == 2)
         #expect(model.importResultMessage?.contains("待联网补全信息") == false)
-        let resumed = try #require(await model.persistence.gallerySummary(for: key))
+        let resumed = try #require(await model.persistence.downloadedGallerySummary(for: key))
         #expect(resumed.title == "联网标题")
         #expect(resumed.tags == ["artist:resolved"])
         #expect(resumed.metadataCompleteness?.isSummaryComplete == true)
         #expect(resumed.metadataCompleteness?.isComplete == false)
     }
 
-    @Test("Legacy download archive without a completeness marker resolves metadata before import")
-    func legacyDownloadArchiveMetadataIsCompletedBeforeImport() async throws {
+    @Test("Legacy download archive import keeps local metadata offline")
+    func legacyDownloadArchiveMetadataStaysOfflineDuringImport() async throws {
         let key = GalleryKey(gid: 503, token: "legacy-metadata")
         let remoteSummary = GallerySummary(
             key: key,
@@ -1173,15 +1429,124 @@ struct AppModelTests {
 
         let outcome = await model.restoreDownloads(from: archiveURL)
 
-        #expect(await api.summaryRequestCount == 1)
+        #expect(await api.summaryRequestCount == 0)
         #expect(outcome.importedItemCount == 1)
         #expect(outcome.importedPageCount == 1)
-        #expect(outcome.incompleteMetadataCount == 0)
-        let stored = try #require(await model.persistence.gallerySummary(for: key))
-        #expect(stored.title == "联网标题")
-        #expect(stored.tags == ["artist:resolved"])
-        #expect(stored.metadataCompleteness?.isSummaryComplete == true)
+        #expect(outcome.incompleteMetadataCount == 1)
+        let stored = try #require(await model.persistence.downloadedGallerySummary(for: key))
+        #expect(stored.title == "包内标题")
+        #expect(stored.tags == [])
+        #expect(stored.metadataCompleteness?.isSummaryComplete == false)
         #expect(stored.metadataCompleteness?.isComplete == false)
+    }
+
+    @Test("Download archive round-trip preserves complete gallery metadata")
+    func downloadArchiveRoundTripPreservesCompleteMetadata() async throws {
+        let key = GalleryKey(gid: 505, token: "complete-archive")
+        let suiteName = "EhViewerCompleteArchiveMetadataTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let destinationRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("complete-archive-destination-\(UUID().uuidString)")
+        let sourceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("complete-archive-source-\(UUID().uuidString)")
+        let archiveURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("complete-archive-\(UUID().uuidString).eharchive")
+        defer {
+            try? FileManager.default.removeItem(at: destinationRoot)
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: archiveURL)
+        }
+
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true),
+            api: ControlledListAPI(),
+            sessionVault: SessionVault(service: suiteName),
+            defaults: defaults,
+            downloadFiles: DownloadFileStore(root: destinationRoot, minimumFreeBytes: 1)
+        )
+        await waitUntilDownloadsLoaded(model)
+
+        let pageURL = try #require(URL(string: "https://example.invalid/complete-archive-page"))
+        let stable = StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: "完整标题",
+            japaneseTitle: "完全なタイトル",
+            authors: ["artist:author"],
+            uploader: "uploader",
+            tags: ["artist:author", "language:english"],
+            category: "Artist CG",
+            language: "English",
+            pageCount: 1,
+            postedAt: Date(timeIntervalSince1970: 456),
+            thumbnailURL: URL(string: "https://example.invalid/thumb.jpg"),
+            fileSize: "2 MB",
+            descriptionText: "完整描述",
+            externalURL: URL(string: "https://example.invalid/gallery"),
+            pages: [GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: pageURL)],
+            capturedAt: Date(timeIntervalSince1970: 100),
+            completeness: .complete
+        )
+        let dynamic = DownloadedGalleryDynamicSnapshot(
+            key: key,
+            rating: 4.75,
+            ratingCount: 24,
+            favoriteCount: 9,
+            favoriteName: "收藏夹",
+            favoriteCategory: 4,
+            comments: [DownloadedGalleryCommentSnapshot(
+                id: "archive-comment",
+                author: "reader",
+                body: "归档评论"
+            )],
+            capturedAt: Date(timeIntervalSince1970: 100),
+            completeness: .complete
+        )
+        let transfer = try GalleryTransferRecord(
+            stable: stable,
+            dynamic: dynamic,
+            exportedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let sourceStore = DownloadFileStore(root: sourceRoot, minimumFreeBytes: 1)
+        _ = try await sourceStore.write(try #require(Self.onePixelPNG), for: key, pageIndex: 0)
+        _ = try await DownloadArchiveExporter.export(
+            items: [DownloadArchiveExportItem(
+                key: key,
+                title: stable.title,
+                japaneseTitle: stable.japaneseTitle,
+                tags: stable.tags,
+                transferRecord: transfer,
+                totalPageCount: 1,
+                pageTokens: [:]
+            )],
+            files: sourceStore,
+            to: archiveURL
+        )
+
+        let outcome = await model.restoreDownloads(from: archiveURL)
+        #expect(outcome.importedItemCount == 1)
+        #expect(outcome.importedPageCount == 1)
+
+        let restoredStable = try #require(await model.persistence.downloadedTransferRecord(for: key)?.stable)
+        #expect(restoredStable.title == stable.title)
+        #expect(restoredStable.japaneseTitle == stable.japaneseTitle)
+        #expect(restoredStable.category == "Artist CG")
+        #expect(restoredStable.postedAt == stable.postedAt)
+        #expect(restoredStable.language == stable.language)
+        #expect(restoredStable.fileSize == stable.fileSize)
+        #expect(restoredStable.descriptionText == stable.descriptionText)
+        #expect(restoredStable.externalURL == stable.externalURL)
+        #expect(restoredStable.pages == stable.pages)
+
+        let restoredDynamic = try #require(await model.persistence.downloadedDynamicSnapshot(for: key))
+        #expect(restoredDynamic.rating == 4.75)
+        #expect(restoredDynamic.ratingCount == 24)
+        #expect(restoredDynamic.favoriteCount == 9)
+        #expect(restoredDynamic.favoriteName == "收藏夹")
+        #expect(restoredDynamic.favoriteCategory == 4)
+        #expect(restoredDynamic.comments.first?.body == "归档评论")
     }
 
     @Test("Enqueue keeps page URLs so each download attempt can resolve a fresh image node")
@@ -1399,9 +1764,9 @@ struct AppModelTests {
         )
         try await model.persistence.upsert([first, second])
 
-        var firstJob = DownloadJob(key: firstKey, title: first.title, pages: [])
+        var firstJob = DownloadJob(key: firstKey, title: first.title, tags: first.tags, pages: [])
         firstJob.state = .completed
-        var secondJob = DownloadJob(key: secondKey, title: second.title, pages: [])
+        var secondJob = DownloadJob(key: secondKey, title: second.title, tags: second.tags, pages: [])
         secondJob.state = .completed
         await model.downloads.restore([firstJob, secondJob])
 
@@ -1410,7 +1775,9 @@ struct AppModelTests {
         #expect(archiveURL.pathExtension == "ehgallery")
 
         let snapshot = try GallerySyncArchive.read(from: archiveURL)
-        #expect(snapshot.galleries == [first])
+        #expect(snapshot.galleries.map(\.key) == [first.key])
+        #expect(snapshot.galleries.first?.title == first.title)
+        #expect(snapshot.galleries.first?.tags == first.tags)
     }
 
     @Test("Selected download export only contains the requested gallery keys")
@@ -1765,6 +2132,54 @@ private actor DownloadMetadataAPI: EHAPI {
     func gallerySummaries(for keys: [GalleryKey], site: SiteMode) async throws -> [GallerySummary] {
         summaryRequestCount += 1
         return keys.contains(summary.key) ? [summary] : []
+    }
+}
+
+private actor RetryingMetadataAPI: EHAPI {
+    let key: GalleryKey
+    private(set) var summaryRequestCount = 0
+
+    init(key: GalleryKey) {
+        self.key = key
+    }
+
+    func list(query: GalleryListQuery) async throws -> GalleryListPage {
+        GalleryListPage(items: [])
+    }
+
+    func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
+        throw EHError.notFound
+    }
+
+    func gallerySummaryBatch(for keys: [GalleryKey], site: SiteMode) async throws -> GallerySummaryBatchResult {
+        summaryRequestCount += 1
+        let summary: GallerySummary
+        if summaryRequestCount < 4 {
+            summary = GallerySummary(
+                key: key,
+                title: "部分标题",
+                tags: [],
+                metadataCompleteness: GalleryMetadataCompleteness(title: .loadedWithValue)
+            )
+        } else {
+            summary = GallerySummary(
+                key: key,
+                title: "完整标题",
+                thumbnailURL: URL(string: "https://e-hentai.org/t/metadata-retry.jpg"),
+                category: "Manga",
+                pageCount: 1,
+                postedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                rating: 4.5,
+                uploader: "sample-uploader",
+                tags: ["artist:complete"],
+                metadataCompleteness: .complete
+            )
+        }
+        return GallerySummaryBatchResult(
+            responses: keys.map { requestKey in
+                GallerySummaryResponse(key: requestKey, summary: summary, status: .success)
+            }
+        )
     }
 }
 

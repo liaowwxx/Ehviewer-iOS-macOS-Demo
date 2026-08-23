@@ -963,12 +963,12 @@ private struct GalleryPreviewThumbnail: View {
         }
         .task(id: "\(descriptor.previewURL?.absoluteString ?? "")-\(prefersLocalMedia)", priority: .utility) {
             image = nil
-            if prefersLocalMedia,
-               let localData = await model.downloadedPageDataIfAvailable(for: descriptor),
-               let localCGImage = await ReaderThumbnailLoader.shared.thumbnail(
-                   for: descriptor.id,
-                   data: localData
-               ) {
+            if prefersLocalMedia {
+                guard let localData = await model.downloadedPageDataIfAvailable(for: descriptor),
+                      let localCGImage = await ReaderThumbnailLoader.shared.thumbnail(
+                          for: descriptor.id,
+                          data: localData
+                      ) else { return }
                 guard Task.isCancelled == false else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
                     image = Image(decorative: localCGImage, scale: 1, orientation: .up)

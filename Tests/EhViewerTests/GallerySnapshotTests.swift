@@ -96,6 +96,126 @@ struct GallerySnapshotTests {
         #expect(merged.sourceSite == .exHentai)
     }
 
+    @Test("Summary projections do not claim unavailable detail fields")
+    func summaryProjectionDoesNotEraseDetailCompleteness() {
+        let key = GalleryKey(gid: 104, token: "summary-projection")
+        let summary = GallerySummary(
+            key: key,
+            title: "摘要标题",
+            category: "Artist CG",
+            pageCount: 12,
+            postedAt: Date(timeIntervalSince1970: 123),
+            rating: 4.5,
+            ratingCount: 42,
+            favoriteCategory: 3,
+            tags: ["artist:someone"],
+            metadataCompleteness: .complete
+        )
+
+        let snapshot = StableGalleryMetadataSnapshot(
+            summary: summary,
+            sourceSite: .eHentai,
+            capturedAt: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(snapshot.category == "Artist CG")
+        #expect(snapshot.postedAt == Date(timeIntervalSince1970: 123))
+        #expect(snapshot.completeness.category == .loadedWithValue)
+        #expect(snapshot.completeness.postedAt == .loadedWithValue)
+        #expect(snapshot.completeness.language == .notLoaded)
+        #expect(snapshot.completeness.fileSize == .notLoaded)
+        #expect(snapshot.completeness.description == .notLoaded)
+        #expect(snapshot.completeness.externalURL == .notLoaded)
+        #expect(snapshot.completeness.pages == .notLoaded)
+        #expect(snapshot.completeness.comments == .notLoaded)
+        #expect(snapshot.summary.metadataCompleteness?.rating == .notLoaded)
+        #expect(snapshot.summary.metadataCompleteness?.favorite == .notLoaded)
+    }
+
+    @Test("Summary metadata updates preserve downloaded detail fields")
+    func summaryMetadataUpdatePreservesDownloadedDetails() async throws {
+        let key = GalleryKey(gid: 105, token: "summary-merge")
+        let store = PersistenceStore(modelContainer: try ModelContainerFactory.make(inMemory: true))
+        let postedAt = Date(timeIntervalSince1970: 321)
+        let pageURL = try #require(URL(string: "https://example.invalid/page.jpg"))
+        let stable = StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: "完整标题",
+            tags: ["artist:detail"],
+            category: "Image Set",
+            language: "English",
+            pageCount: 1,
+            postedAt: postedAt,
+            fileSize: "1 MB",
+            descriptionText: "完整描述",
+            externalURL: URL(string: "https://example.invalid/gallery"),
+            pages: [GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: pageURL)],
+            capturedAt: Date(timeIntervalSince1970: 100),
+            completeness: .complete
+        )
+        let dynamic = DownloadedGalleryDynamicSnapshot(
+            key: key,
+            rating: 4.0,
+            ratingCount: 10,
+            favoriteCount: 8,
+            favoriteName: "收藏夹",
+            favoriteCategory: 1,
+            comments: [DownloadedGalleryCommentSnapshot(
+                id: "comment",
+                author: "reader",
+                body: "评论"
+            )],
+            capturedAt: Date(timeIntervalSince1970: 100),
+            completeness: .complete
+        )
+        try await store.promoteToDownloadedGallery(stable: stable, dynamic: dynamic)
+
+        let newerSummary = GallerySummary(
+            key: key,
+            title: "更新后的标题",
+            category: "Image Set",
+            pageCount: 1,
+            postedAt: postedAt,
+            rating: 4.5,
+            ratingCount: 11,
+            favoriteCategory: 2,
+            tags: ["artist:detail"],
+            metadataCompleteness: .complete
+        )
+        try await store.saveDownloadedMetadata(
+            stableSnapshots: [StableGalleryMetadataSnapshot(summary: newerSummary, sourceSite: .eHentai)],
+            dynamicSnapshots: [DownloadedGalleryDynamicSnapshot(
+                key: key,
+                rating: newerSummary.rating,
+                ratingCount: newerSummary.ratingCount,
+                favoriteCategory: newerSummary.favoriteCategory,
+                capturedAt: Date(),
+                completeness: GalleryMetadataCompleteness(
+                    rating: .loadedWithValue,
+                    ratingCount: .loadedWithValue,
+                    favorite: .loadedWithValue,
+                    comments: .notLoaded
+                )
+            )]
+        )
+
+        let restoredStable = try #require(await store.downloadedTransferRecord(for: key)?.stable)
+        #expect(restoredStable.title == "更新后的标题")
+        #expect(restoredStable.descriptionText == "完整描述")
+        #expect(restoredStable.fileSize == "1 MB")
+        #expect(restoredStable.externalURL == URL(string: "https://example.invalid/gallery"))
+        #expect(restoredStable.pages.count == 1)
+
+        let restoredDynamic = try #require(await store.downloadedDynamicSnapshot(for: key))
+        #expect(restoredDynamic.rating == 4.5)
+        #expect(restoredDynamic.ratingCount == 11)
+        #expect(restoredDynamic.favoriteCount == 8)
+        #expect(restoredDynamic.favoriteName == "收藏夹")
+        #expect(restoredDynamic.favoriteCategory == 2)
+        #expect(restoredDynamic.comments.first?.body == "评论")
+    }
+
     @Test("Persistence separates ordinary stable cache from downloaded dynamic data")
     func persistenceSeparatesStableAndDynamicData() async throws {
         let store = PersistenceStore(modelContainer: try ModelContainerFactory.make(inMemory: true))
@@ -139,7 +259,8 @@ struct GallerySnapshotTests {
         #expect(try await store.stableSnapshot(for: ordinaryKey) == nil)
         #expect(try await store.readingPage(for: ordinaryKey) == 4)
         #expect(try await store.isFavorite(for: ordinaryKey) == true)
-        #expect(try await store.stableSnapshot(for: downloadedKey)?.title == "下载画廊")
+        #expect(try await store.stableSnapshot(for: downloadedKey) == nil)
+        #expect(try await store.downloadedTransferRecord(for: downloadedKey)?.stable.title == "下载画廊")
         #expect(try await store.downloadedDynamicSnapshot(for: downloadedKey)?.favoriteCategory == 2)
     }
 
@@ -164,6 +285,6 @@ struct GallerySnapshotTests {
 
         #expect(try await store.recent().isEmpty)
         #expect(try await store.isFavorite(for: key) == false)
-        #expect(try await store.stableSnapshot(for: key)?.title == "下载画廊")
+        #expect(try await store.downloadedTransferRecord(for: key)?.stable.title == "下载画廊")
     }
 }

@@ -68,7 +68,9 @@ struct RootView: View {
                     title: Text("收到 EhViewer 下载包"),
                     message: Text("将导入下载包，并自动跳过已有页面。"),
                     primaryButton: .default(Text("导入")) {
-                        Task { await model.confirmIncomingArchive(pending) }
+                        model.runFileOperation {
+                            await model.confirmIncomingArchive(pending)
+                        }
                     },
                     secondaryButton: .cancel(Text("取消")) {
                         model.discardIncomingArchive()
@@ -79,7 +81,9 @@ struct RootView: View {
                     title: Text("收到 EhViewer 画廊同步包"),
                     message: Text("将恢复画廊的普通标题、日文标题和标签；保留本机已有的阅读进度、收藏及下载文件。"),
                     primaryButton: .default(Text("导入")) {
-                        Task { await model.confirmIncomingGallerySync(pending) }
+                        model.runFileOperation {
+                            await model.confirmIncomingGallerySync(pending)
+                        }
                     },
                     secondaryButton: .cancel(Text("取消")) {
                         model.discardIncomingGallerySync()
@@ -95,10 +99,17 @@ struct RootView: View {
         }
         .overlay {
             if let progress = model.migrationProgress {
-                MigrationProgressOverlay(progress: progress)
+                MigrationProgressOverlay(
+                    progress: progress,
+                    canCancel: model.canCancelCurrentFileOperation,
+                    cancel: model.cancelCurrentFileOperation
+                )
             }
             if model.isRestoringDownloads {
-                DownloadRestoreProgressOverlay(status: model.downloadRestoreStatus)
+                DownloadRestoreProgressOverlay(
+                    status: model.downloadRestoreStatus,
+                    cancel: model.cancelCurrentFileOperation
+                )
             }
         }
     }
@@ -137,6 +148,8 @@ private enum RootAlert: Identifiable {
 
 private struct MigrationProgressOverlay: View {
     let progress: MigrationProgress
+    let canCancel: Bool
+    let cancel: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
@@ -149,6 +162,10 @@ private struct MigrationProgressOverlay: View {
             Text(progress.status)
                 .font(.callout)
                 .multilineTextAlignment(.center)
+            if canCancel {
+                Button("取消", role: .cancel, action: cancel)
+                    .buttonStyle(.bordered)
+            }
         }
         .padding()
         .frame(maxWidth: 280)
@@ -160,12 +177,19 @@ private struct MigrationProgressOverlay: View {
 
 private struct DownloadRestoreProgressOverlay: View {
     let status: String
+    let cancel: () -> Void
 
     var body: some View {
-        ProgressView(status.isEmpty ? String(localized: "正在恢复下载项…") : status)
-            .padding()
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-            .accessibilityLabel(status)
+        VStack(spacing: 10) {
+            ProgressView(status.isEmpty ? String(localized: "正在恢复下载项…") : status)
+            Button("取消", role: .cancel, action: cancel)
+                .buttonStyle(.bordered)
+        }
+        .padding()
+        .frame(maxWidth: 280)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(status)
     }
 }
 

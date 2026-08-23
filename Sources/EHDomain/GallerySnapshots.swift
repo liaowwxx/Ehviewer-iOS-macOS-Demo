@@ -138,23 +138,33 @@ public struct StableGalleryMetadataSnapshot: Codable, Hashable, Sendable, Identi
     }
 
     public init(summary: GallerySummary, sourceSite: SiteMode, capturedAt: Date = Date()) {
-        let completeness = summary.metadataCompleteness ?? GalleryMetadataCompleteness(
-            // A summary without explicit completeness predates field-level
-            // tracking. Values present in it are known, but absent optional
-            // values must remain unresolved so gdata can fill them later.
-            title: Self.legacyState(for: summary.title),
-            japaneseTitle: Self.legacyState(for: summary.japaneseTitle),
-            authors: Self.legacyState(for: Self.authors(from: summary.tags)),
-            uploader: Self.legacyState(for: summary.uploader),
-            tags: Self.legacyState(for: summary.tags),
-            category: Self.legacyState(for: summary.category),
-            pageCount: Self.legacyState(for: summary.pageCount),
-            postedAt: Self.legacyState(for: summary.postedAt),
-            thumbnailURL: Self.legacyState(for: summary.thumbnailURL)
+        let sourceCompleteness = summary.metadataCompleteness
+        // A GallerySummary is intentionally a projection. It cannot carry
+        // language, file size, description, external URL, page descriptors or
+        // comments, so those fields must never inherit a `.complete` state
+        // from the snapshot that produced the projection. Otherwise a newer
+        // summary-only write can replace a real value with nil during a later
+        // field-level merge.
+        let completeness = GalleryMetadataCompleteness(
+            title: Self.summaryStringState(explicit: sourceCompleteness?.title, value: summary.title),
+            japaneseTitle: Self.summaryOptionalState(explicit: sourceCompleteness?.japaneseTitle, value: summary.japaneseTitle),
+            authors: Self.summaryArrayState(explicit: sourceCompleteness?.authors, value: Self.authors(from: summary.tags)),
+            uploader: Self.summaryOptionalState(explicit: sourceCompleteness?.uploader, value: summary.uploader),
+            tags: Self.summaryArrayState(explicit: sourceCompleteness?.tags, value: summary.tags),
+            category: Self.summaryOptionalState(explicit: sourceCompleteness?.category, value: summary.category),
+            language: .notLoaded,
+            pageCount: Self.summaryOptionalState(explicit: sourceCompleteness?.pageCount, value: summary.pageCount),
+            postedAt: Self.summaryOptionalState(explicit: sourceCompleteness?.postedAt, value: summary.postedAt),
+            thumbnailURL: Self.summaryOptionalState(explicit: sourceCompleteness?.thumbnailURL, value: summary.thumbnailURL),
+            fileSize: .notLoaded,
+            description: .notLoaded,
+            externalURL: .notLoaded,
+            pages: .notLoaded,
+            rating: Self.summaryOptionalState(explicit: sourceCompleteness?.rating, value: summary.rating),
+            ratingCount: Self.summaryOptionalState(explicit: sourceCompleteness?.ratingCount, value: summary.ratingCount),
+            favorite: Self.summaryFavoriteState(explicit: sourceCompleteness?.favorite, value: summary.favoriteCategory),
+            comments: .notLoaded
         )
-        // A list summary cannot prove that detail-only fields are empty. Keep
-        // explicit states (for example a complete transfer record), while
-        // legacy summaries naturally retain their `.notLoaded` defaults.
         self.init(
             key: summary.key,
             sourceSite: sourceSite,
@@ -225,7 +235,15 @@ public struct StableGalleryMetadataSnapshot: Codable, Hashable, Sendable, Identi
     public var id: String { key.id }
 
     public var summary: GallerySummary {
-        GallerySummary(
+        var summaryCompleteness = completeness
+        // Ratings, favorites and comments belong to the dynamic snapshot.
+        // A stable snapshot must not expose their states through a summary,
+        // because callers may feed that summary back into a stable-only write.
+        summaryCompleteness.rating = .notLoaded
+        summaryCompleteness.ratingCount = .notLoaded
+        summaryCompleteness.favorite = .notLoaded
+        summaryCompleteness.comments = .notLoaded
+        return GallerySummary(
             key: key,
             title: title,
             japaneseTitle: japaneseTitle,
@@ -235,7 +253,7 @@ public struct StableGalleryMetadataSnapshot: Codable, Hashable, Sendable, Identi
             postedAt: postedAt,
             uploader: uploader,
             tags: tags,
-            metadataCompleteness: completeness
+            metadataCompleteness: summaryCompleteness
         )
     }
 
@@ -302,6 +320,58 @@ public struct StableGalleryMetadataSnapshot: Codable, Hashable, Sendable, Identi
         value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? .loadedEmpty
             : .loadedWithValue
+    }
+
+    private static func summaryOptionalState<T>(
+        explicit: GalleryFieldState?,
+        value: T?
+    ) -> GalleryFieldState {
+        if let explicit, explicit == .notLoaded {
+            return .notLoaded
+        }
+        if value != nil {
+            return explicit?.isLoaded == true ? explicit! : .loadedWithValue
+        }
+        return explicit?.isLoaded == true ? .loadedEmpty : .notLoaded
+    }
+
+    private static func summaryArrayState<T>(
+        explicit: GalleryFieldState?,
+        value: [T]
+    ) -> GalleryFieldState {
+        if explicit == .notLoaded {
+            return .notLoaded
+        }
+        if value.isEmpty {
+            return explicit?.isLoaded == true ? .loadedEmpty : .notLoaded
+        }
+        return explicit?.isLoaded == true ? explicit! : .loadedWithValue
+    }
+
+    private static func summaryStringState(
+        explicit: GalleryFieldState?,
+        value: String
+    ) -> GalleryFieldState {
+        if explicit == .notLoaded {
+            return .notLoaded
+        }
+        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return explicit?.isLoaded == true ? .loadedEmpty : .notLoaded
+        }
+        return explicit?.isLoaded == true ? explicit! : .loadedWithValue
+    }
+
+    private static func summaryFavoriteState(
+        explicit: GalleryFieldState?,
+        value: Int?
+    ) -> GalleryFieldState {
+        if value != nil {
+            return explicit?.isLoaded == true ? explicit! : .loadedWithValue
+        }
+        // A summary does not carry favorite count/name. Do not treat a
+        // loaded-with-value favorite state without a category as a command to
+        // clear those detail-only values.
+        return explicit == .loadedEmpty ? .loadedEmpty : .notLoaded
     }
 }
 
@@ -462,10 +532,26 @@ public enum GallerySnapshotMerger {
         merged.capturedAt = max(existing.capturedAt, incoming.capturedAt)
         mergeField(&merged.rating, &merged.completeness.rating, incoming.rating, incoming.completeness.rating, existing.completeness.rating, incomingIsNewer)
         mergeField(&merged.ratingCount, &merged.completeness.ratingCount, incoming.ratingCount, incoming.completeness.ratingCount, existing.completeness.ratingCount, incomingIsNewer)
-        mergeField(&merged.favoriteCount, &merged.completeness.favorite, incoming.favoriteCount, incoming.completeness.favorite, existing.completeness.favorite, incomingIsNewer)
-        if incoming.completeness.favorite.isLoaded && incomingIsNewer {
+        let incomingHasFavoriteDetails = incoming.favoriteCount != nil || incoming.favoriteName != nil
+        let existingHasFavoriteDetails = existing.favoriteCount != nil || existing.favoriteName != nil
+        if incoming.completeness.favorite == .loadedEmpty, incomingIsNewer {
+            merged.favoriteCount = nil
+            merged.favoriteName = nil
+            merged.favoriteCategory = nil
+            merged.completeness.favorite = .loadedEmpty
+        } else if incomingHasFavoriteDetails,
+                  existingHasFavoriteDetails == false || incomingIsNewer {
+            merged.favoriteCount = incoming.favoriteCount
             merged.favoriteName = incoming.favoriteName
             merged.favoriteCategory = incoming.favoriteCategory
+            merged.completeness.favorite = incoming.completeness.favorite
+        } else if incoming.favoriteCategory != nil, incomingIsNewer {
+            // GallerySummary carries only the favorite category. Preserve the
+            // detail-only count/name when a newer summary projection arrives.
+            merged.favoriteCategory = incoming.favoriteCategory
+            if existingHasFavoriteDetails == false {
+                merged.completeness.favorite = incoming.completeness.favorite
+            }
         }
         mergeField(&merged.comments, &merged.completeness.comments, incoming.comments, incoming.completeness.comments, existing.completeness.comments, incomingIsNewer)
         return merged
