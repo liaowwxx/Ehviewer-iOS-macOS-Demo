@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Testing
 import EHDomain
+import EHDeviceSync
 import EHDownloads
 
 struct DeviceSyncStorageTests {
@@ -158,13 +159,24 @@ struct DeviceSyncStorageTests {
         let image = try imageData()
         _ = try await store.write(image, for: key, pageIndex: 0)
         let probe = ChunkProbe()
-        try await store.readPageChunks(for: key, pageIndex: 0, chunkSize: 3) { chunk in
+        let streamResult = try await store.readPageChunksAndHash(for: key, pageIndex: 0, chunkSize: 3) { chunk in
             await probe.add(chunk.count)
         }
         let (total, largestChunk) = await probe.result()
         #expect(total == image.count)
         #expect(largestChunk <= 3)
+        #expect(streamResult.byteCount == Int64(image.count))
+        #expect(streamResult.sha256 == Data(SHA256.hash(data: image)))
         try await store.remove(key)
+    }
+
+    @Test("Device sync v3 uses bounded adaptive transfer windows")
+    func usesAdaptiveTransferTuning() {
+        #expect(DeviceSyncCoordinator.protocolVersion == 3)
+        #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 1 * 1024 * 1024) == 256 * 1024)
+        #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 16 * 1024 * 1024) == 512 * 1024)
+        #expect(DeviceSyncCoordinator.sendWindowBytes == 4 * 1024 * 1024)
+        #expect(DeviceSyncCoordinator.maximumPageChunkBytes <= DeviceSyncCoordinator.sendWindowBytes)
     }
 
     private func imageData() throws -> Data {

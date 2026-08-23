@@ -50,6 +50,16 @@ public struct DownloadGalleryFileAudit: Sendable, Hashable {
     }
 }
 
+public struct DownloadPageStreamResult: Sendable, Hashable {
+    public let byteCount: Int64
+    public let sha256: Data
+
+    public init(byteCount: Int64, sha256: Data) {
+        self.byteCount = byteCount
+        self.sha256 = sha256
+    }
+}
+
 public struct DownloadReceiveHandle: Sendable, Hashable {
     fileprivate let id: UUID
 
@@ -250,6 +260,23 @@ public actor DownloadFileStore {
         chunkSize: Int = 64 * 1024,
         consume: @Sendable (Data) async throws -> Void
     ) async throws {
+        _ = try await readPageChunksAndHash(
+            for: key,
+            pageIndex: pageIndex,
+            chunkSize: chunkSize,
+            consume: consume
+        )
+    }
+
+    /// Streams one page and computes its digest in the same file read. Keeping
+    /// the hasher beside the file handle avoids an actor hop for every chunk
+    /// while retaining bounded memory and transport back-pressure.
+    public func readPageChunksAndHash(
+        for key: GalleryKey,
+        pageIndex: Int,
+        chunkSize: Int = 256 * 1024,
+        consume: @Sendable (Data) async throws -> Void
+    ) async throws -> DownloadPageStreamResult {
         guard chunkSize > 0 else { throw EHError.storageFailed("Invalid chunk size") }
         let url = finalURL(for: key, pageIndex: pageIndex)
         guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
@@ -264,20 +291,28 @@ public actor DownloadFileStore {
         do {
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
+            var byteCount: Int64 = 0
+            var hasher = SHA256()
             while true {
                 try Task.checkCancellation()
                 guard let chunk = try handle.read(upToCount: chunkSize), chunk.isEmpty == false else { break }
+                hasher.update(data: chunk)
+                byteCount += Int64(chunk.count)
                 try await consume(chunk)
             }
+
+            let finalSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            guard finalSize == initialSize, byteCount == Int64(initialSize) else {
+                throw EHError.storageFailed(String(localized: "同步页面在读取期间发生变化。"))
+            }
+            return DownloadPageStreamResult(
+                byteCount: byteCount,
+                sha256: Data(hasher.finalize())
+            )
         } catch let error as EHError {
             throw error
         } catch {
             throw EHError.storageFailed(error.localizedDescription)
-        }
-
-        let finalSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
-        guard finalSize == initialSize else {
-            throw EHError.storageFailed(String(localized: "同步页面在读取期间发生变化。"))
         }
     }
 

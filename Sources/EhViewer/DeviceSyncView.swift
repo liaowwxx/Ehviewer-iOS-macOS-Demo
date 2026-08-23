@@ -38,7 +38,9 @@ struct DeviceSyncView: View {
         case .idle, .discovering:
             discoveringView
         case .awaitingPairingCode:
-            pairingView
+            DeviceSyncPairingView(code: $pairingInput) {
+                model.deviceSync.acceptPairing(code: pairingInput)
+            }
         case .connecting:
             if let pairingCode = model.deviceSync.pairingCode {
                 VStack(spacing: 16) {
@@ -131,25 +133,6 @@ struct DeviceSyncView: View {
                 Text("设备发现只在本页面打开期间运行，不会广播漫画、账号或 Cookie 信息。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var pairingView: some View {
-        Form {
-            Section("输入验证码") {
-                TextField("6 位数字验证码", text: $pairingInput)
-#if os(iOS)
-                    .keyboardType(.numberPad)
-                    .textContentType(.oneTimeCode)
-#endif
-                    .onChange(of: pairingInput) { _, value in
-                        pairingInput = String(value.filter(\.isNumber).prefix(6))
-                    }
-                Button("确认设备") {
-                    model.deviceSync.acceptPairing(code: pairingInput)
-                }
-                .disabled(pairingInput.count != 6)
             }
         }
     }
@@ -365,7 +348,7 @@ struct DeviceSyncView: View {
         case .waitingForConfirmation: "等待确认"
         case .sending: "正在发送"
         case .receiving: "正在接收"
-        case .verifying: "正在校验"
+        case .verifying: "正在校验传输结果"
         case .committing: "正在提交"
         case .comparingResults: "正在再次比对"
         }

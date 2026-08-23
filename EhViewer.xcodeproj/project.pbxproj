@@ -77,6 +77,7 @@
 		EHB00000000000000000058 /* GalleryCoverLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000058 /* GalleryCoverLoader.swift */; };
 		EHB00000000000000000059 /* AppDataResetter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000059 /* AppDataResetter.swift */; };
 		EHB0000000000000000005A /* DeviceSyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005A /* DeviceSyncView.swift */; };
+		EHB0000000000000000005B /* DeviceSyncPairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005B /* DeviceSyncPairingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -181,6 +182,7 @@
 		EHF00000000000000000058 /* GalleryCoverLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCoverLoader.swift; sourceTree = "<group>"; };
 		EHF00000000000000000059 /* AppDataResetter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataResetter.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005A /* DeviceSyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncView.swift; sourceTree = "<group>"; };
+		EHF0000000000000000005B /* DeviceSyncPairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncPairingView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -245,6 +247,7 @@
 				EHF00000000000000000058 /* GalleryCoverLoader.swift */,
 				EHF00000000000000000059 /* AppDataResetter.swift */,
 				EHF0000000000000000005A /* DeviceSyncView.swift */,
+				EHF0000000000000000005B /* DeviceSyncPairingView.swift */,
 				EHF00000000000000000038 /* AppTheme.swift */,
 				EHF00000000000000000002 /* BrowseView.swift */,
 				EHF00000000000000000033 /* BrowseSearchSuggestions.swift */,
@@ -471,6 +474,7 @@
 				EHB00000000000000000058 /* GalleryCoverLoader.swift in Sources */,
 				EHB00000000000000000059 /* AppDataResetter.swift in Sources */,
 				EHB0000000000000000005A /* DeviceSyncView.swift in Sources */,
+				EHB0000000000000000005B /* DeviceSyncPairingView.swift in Sources */,
 				EHB00000000000000000038 /* AppTheme.swift in Sources */,
 				EHB00000000000000000002 /* BrowseView.swift in Sources */,
 				EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */,
