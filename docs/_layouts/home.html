@@ -74,13 +74,13 @@
         </div>
         <div class="footer-col">
           <h4>{% if page.lang == 'en' %}Docs{% else %}文档{% endif %}</h4>
-          <a href="{{ '/guide/' | relative_url }}">{% if page.lang == 'en' %}User guide{% else %}使用说明{% endif %}</a>
+          <a href="{% if page.lang == 'en' %}{{ '/en/guide/' | relative_url }}{% else %}{{ '/guide/' | relative_url }}{% endif %}">{% if page.lang == 'en' %}User guide{% else %}使用说明{% endif %}</a>
           <a href="https://github.com/liaowwxx/ehviewer-iosdemo/blob/main/CHANGELOG.md" rel="noreferrer" target="_blank">{% if page.lang == 'en' %}Changelog{% else %}更新日志{% endif %}</a>
         </div>
       </div>
       <div class="footer-bottom">
         <span>
-          <a href="{{ '/guide/' | relative_url }}">{% if page.lang == 'en' %}Guide{% else %}使用说明{% endif %}</a>
+          <a href="{% if page.lang == 'en' %}{{ '/en/guide/' | relative_url }}{% else %}{{ '/guide/' | relative_url }}{% endif %}">{% if page.lang == 'en' %}Guide{% else %}使用说明{% endif %}</a>
           <span aria-hidden="true"> · </span>
           <a href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer">GitHub</a>
         </span>

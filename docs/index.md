@@ -12,9 +12,9 @@ permalink: /
     <div class="hero-copy" data-reveal>
       <p class="kicker">E-Hentai 浏览器</p>
       <h1 class="display">EhViewer For<br><em>iOS / macOS</em></h1>
-      <p class="hero-sub">浏览画廊、阅读漫画、管理下载，支持 iPhone、iPad 与 Mac(M系列芯片)。</p>
+      <p class="hero-sub">浏览画廊、离线阅读、管理本地资料库，并在 Apple 设备间同步下载内容。</p>
       <div class="hero-actions" data-reveal style="--d:.14s">
-        <a class="btn btn-primary" href="https://github.com/liaowwxx/Ehviewer-iOS-macOS-Demo" rel="noreferrer" target="_blank">
+        <a class="btn btn-primary" href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
           GitHub 仓库
           <svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12 12 4M6.5 4H12v5.5"/></svg>
         </a>
@@ -52,7 +52,7 @@ permalink: /
     <div class="section-head" data-reveal>
       <p class="kicker">功能</p>
       <h2 class="display">主要功能</h2>
-      <p class="lede">浏览、搜索、下载、阅读与数据迁移。</p>
+      <p class="lede">从在线发现到离线资料库，再到附近设备安全同步。</p>
     </div>
 
     <div class="feature-grid">
@@ -62,7 +62,7 @@ permalink: /
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/><path d="M8.5 11h5"/></svg>
         </div>
         <h3>浏览与搜索</h3>
-        <p>首页、订阅、热门、排行、收藏；支持标签联想、多标签组合与高级搜索。</p>
+        <p>首页、订阅、热门、排行与收藏；支持标签联想、多标签组合、高级搜索和过滤规则。</p>
       </article>
 
       <article class="feature-card" data-tilt data-reveal style="--d:.06s">
@@ -80,16 +80,34 @@ permalink: /
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 16v3.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V16"/></svg>
         </div>
         <h3>下载</h3>
-        <p>队列、断点续传、失败重试、后台恢复；支持状态筛选、排序与标签管理。</p>
+        <p>队列、暂停继续、失败重试与后台恢复；支持搜索、分类/状态筛选、排序和批量管理。</p>
       </article>
 
       <article class="feature-card" data-tilt data-reveal>
         <div class="glare" aria-hidden="true"></div>
         <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v16.5H7.5A2.5 2.5 0 0 0 5 21.5Z"/><path d="M5 4.5v15A2.5 2.5 0 0 1 7.5 17H20"/><path d="M9 7h7M9 11h5"/></svg>
+        </div>
+        <h3>本地资料库</h3>
+        <p>已下载内容离线可读；支持本地搜索、分类筛选、列表/卡片布局、阅读历史与本地收藏。</p>
+      </article>
+
+      <article class="feature-card" data-tilt data-reveal style="--d:.06s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10a3 3 0 0 1 3 3"/><path d="m17 4 3 3-3 3"/><path d="M17 17H7a3 3 0 0 1-3-3"/><path d="m7 20-3-3 3-3"/><path d="M9 11.5h6v5H9z"/></svg>
+        </div>
+        <h3>设备间同步 <span class="feature-beta">Beta</span></h3>
+        <p>在同一局域网发现附近设备，通过验证码和双方确认建立加密连接，双向补齐缺失画廊与页面。</p>
+      </article>
+
+      <article class="feature-card" data-tilt data-reveal style="--d:.12s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h9.5A2.5 2.5 0 0 1 20 9.5v0A2.5 2.5 0 0 1 17.5 12H8"/><path d="m11.5 4.5-3.5 3 3.5 3"/><path d="M16 17H6.5A2.5 2.5 0 0 1 4 14.5v0A2.5 2.5 0 0 1 6.5 12H16"/><path d="m12.5 20.5 3.5-3-3.5-3"/></svg>
         </div>
-        <h3>数据迁移</h3>
-        <p>导出 .ehgallery 元数据或 .eharchive 归档，隔空投送即可换机；支持导入 Android 归档。</p>
+        <h3>备份与迁移</h3>
+        <p>导入导出 .ehgallery 元数据或 .eharchive 完整归档，支持选择部分本地画廊和迁移 Android 下载。</p>
       </article>
 
     </div>

@@ -937,6 +937,11 @@ public enum AppRoute: Hashable, Codable, Sendable {
     case history
     case favorites
     case settings
+    case settingsSiteAndBrowsing
+    case settingsAccount
+    case settingsFilters
+    case settingsDataAndBackup
+    case settingsDeviceSync
     case gallery(GalleryKey)
     case comments(GalleryKey)
     case reader(GalleryKey, page: Int)

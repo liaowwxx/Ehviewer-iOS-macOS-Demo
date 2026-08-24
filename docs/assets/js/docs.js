@@ -506,30 +506,16 @@ if (showcase) {
   function settingsPanelHTML(isPhone) {
     const isEn = lang === "en";
     const rows = [
-      { section: isEn ? "Site" : "站点" },
-      { label: isEn ? "Gallery site" : "画廊站点", value: "Example", icon: "forward" },
-      { label: isEn ? "Session" : "会话状态", value: isEn ? "Guest" : "游客模式", icon: "person" },
-      { section: isEn ? "Browsing" : "浏览" },
-      { label: isEn ? "Japanese titles" : "显示日文标题", toggle: true, on: true },
-      { label: isEn ? "Tag translations" : "显示标签翻译", toggle: true, on: true },
-      { label: isEn ? "Detail cache" : "启用详情缓存", toggle: true, on: false },
-      { label: isEn ? "Cache size" : "详情缓存占用", value: "—" },
-      { label: isEn ? "Clear detail cache" : "清除详情缓存", destructive: true, icon: "trash" },
-      { section: isEn ? "Login" : "登录" },
-      { label: isEn ? "Username & password" : "用户名&密码登录", icon: "person" },
-      { label: isEn ? "Web login" : "网页登录", icon: "safari" },
-      { label: isEn ? "Cookie login" : "Cookie登录", icon: "key" },
-      { label: isEn ? "Clear cookies" : "清除Cookie", destructive: true, icon: "xmark" },
-      { section: "About" },
-      { label: isEn ? "Version" : "版本", value: "Example" },
-      { section: isEn ? "Help" : "帮助" },
-      { label: isEn ? "User guide" : "使用说明", icon: "book" },
-      { section: isEn ? "Migration / Backup" : "数据迁移/备份" },
-      { label: isEn ? "Update downloaded gallery info" : "更新已下载画廊信息", icon: "arrowCircle" },
-      { label: isEn ? "Import metadata (.ehgallery)" : "导入元数据(.ehgallery)", icon: "download" },
-      { label: isEn ? "Import archive (.eharchive)" : "导入归档(.eharchive)", icon: "download" },
-      { label: isEn ? "Export metadata (.ehgallery)" : "导出元数据(.ehgallery)", icon: "forward" },
-      { label: isEn ? "Export archive (.eharchive)" : "导出归档(.eharchive)", icon: "forward" },
+      { section: isEn ? "Settings" : "设置" },
+      { label: isEn ? "Site & Browsing" : "站点与浏览", value: "E-Hentai", icon: "slider" },
+      { label: isEn ? "Account & Login" : "账户与登录", value: isEn ? "Guest" : "游客模式", icon: "person" },
+      { label: isEn ? "Filter Rules" : "过滤规则", icon: "list" },
+      { section: isEn ? "Data & Devices" : "数据与设备" },
+      { label: isEn ? "Data & Backup" : "数据与备份", icon: "doc" },
+      { label: isEn ? "Device Sync" : "设备间同步", icon: "arrowCircle" },
+      { section: isEn ? "About" : "关于" },
+      { label: isEn ? "User Guide" : "使用说明", icon: "book" },
+      { label: isEn ? "Version" : "版本", value: "—" },
     ];
     const rowHTML = (r) => {
       const icon = r.icon ? '<span class="s-icon">' + ICONS[r.icon] + '</span>' : "";
@@ -620,10 +606,10 @@ if (showcase) {
 
   function appMenuHTML() {
     const actions = lang === "en"
-      ? [["arrowCircle", "Refresh"], ["person", "Account"], ["gear", "Settings"]]
-      : [["arrowCircle", "刷新"], ["person", "账户"], ["gear", "设置"]];
+      ? [["tag", "Subscriptions", "subscriptions"], ["chart", "Popular", "popular"], ["listNumber", "Toplist", "toplist"]]
+      : [["tag", "订阅", "subscriptions"], ["chart", "热门", "popular"], ["listNumber", "排行", "toplist"]];
     return '<div class="app-more-menu" data-app-more-menu>' +
-      actions.map((item) => '<button type="button" data-app-menu-action="' + item[1] + '">' + ICONS[item[0]] + '<span>' + item[1] + '</span></button>').join("") +
+      actions.map((item) => '<button type="button" data-app-menu-action data-panel="' + item[2] + '">' + ICONS[item[0]] + '<span>' + item[1] + '</span></button>').join("") +
     '</div>';
   }
 
@@ -790,7 +776,7 @@ if (showcase) {
       const appMenuAction = event.target.closest("[data-app-menu-action]");
       if (appMenuAction) {
         frame.querySelector("[data-app-more-menu]")?.remove();
-        if (appMenuAction.textContent.trim().toLocaleLowerCase().includes(lang === "en" ? "settings" : "设置")) pushPanel(device, "settings");
+        if (appMenuAction.dataset.panel) pushPanel(device, appMenuAction.dataset.panel);
         return;
       }
       const download = event.target.closest("[data-download-toggle]");

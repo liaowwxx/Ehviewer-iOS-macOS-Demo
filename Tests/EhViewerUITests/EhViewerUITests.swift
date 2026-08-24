@@ -69,6 +69,10 @@ final class EhViewerUITests: XCTestCase {
             app.tabBars.buttons.element(boundBy: min(3, app.tabBars.buttons.count - 1)).tap()
         }
 
+        let siteAndBrowsing = app.buttons["settings-site-and-browsing-link"]
+        XCTAssertTrue(siteAndBrowsing.waitForExistence(timeout: 5))
+        siteAndBrowsing.tap()
+
         let toggle = app.switches["show-japanese-title-toggle"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         let wasOn = (toggle.value as? String) == "1"

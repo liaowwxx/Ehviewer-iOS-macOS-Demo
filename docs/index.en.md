@@ -12,7 +12,7 @@ permalink: /en/
     <div class="hero-copy" data-reveal>
       <p class="kicker">E-Hentai / ExHentai client</p>
       <h1 class="display">EhViewer For<br><em>iOS / macOS</em></h1>
-      <p class="hero-sub">Browse galleries, read manga, and manage downloads on iPhone, iPad, and Mac.</p>
+      <p class="hero-sub">Browse galleries, read offline, manage a local library, and sync downloads between Apple devices.</p>
       <div class="hero-actions" data-reveal style="--d:.14s">
         <a class="btn btn-primary" href="https://github.com/liaowwxx/ehviewer-iosdemo" rel="noreferrer" target="_blank">
           GitHub
@@ -52,7 +52,7 @@ permalink: /en/
     <div class="section-head" data-reveal>
       <p class="kicker">Features</p>
       <h2 class="display">Key features</h2>
-      <p class="lede">Browse, search, download, read, and migrate.</p>
+      <p class="lede">From online discovery to an offline library and secure nearby-device sync.</p>
     </div>
 
     <div class="feature-grid">
@@ -62,7 +62,7 @@ permalink: /en/
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/><path d="M8.5 11h5"/></svg>
         </div>
         <h3>Browse &amp; Search</h3>
-        <p>Home, subscriptions, popular, toplists, and favorites. Tag suggestions, multi-tag queries, and advanced search.</p>
+        <p>Home, subscriptions, popular, toplists, and favorites, with tag suggestions, multi-tag queries, advanced search, and filter rules.</p>
       </article>
 
       <article class="feature-card" data-tilt data-reveal style="--d:.06s">
@@ -80,16 +80,34 @@ permalink: /en/
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4 16v3.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V16"/></svg>
         </div>
         <h3>Downloads</h3>
-        <p>Queuing, resumable transfers, automatic retries, and background recovery. Filter, sort, and tag your library.</p>
+        <p>Queuing, pause/resume, retries, and background recovery, with search, category/status filters, sorting, and batch management.</p>
       </article>
 
       <article class="feature-card" data-tilt data-reveal>
         <div class="glare" aria-hidden="true"></div>
         <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v16.5H7.5A2.5 2.5 0 0 0 5 21.5Z"/><path d="M5 4.5v15A2.5 2.5 0 0 1 7.5 17H20"/><path d="M9 7h7M9 11h5"/></svg>
+        </div>
+        <h3>Local Library</h3>
+        <p>Read completed downloads offline, with local search, category filters, list/card layouts, reading history, and local favorites.</p>
+      </article>
+
+      <article class="feature-card" data-tilt data-reveal style="--d:.06s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10a3 3 0 0 1 3 3"/><path d="m17 4 3 3-3 3"/><path d="M17 17H7a3 3 0 0 1-3-3"/><path d="m7 20-3-3 3-3"/><path d="M9 11.5h6v5H9z"/></svg>
+        </div>
+        <h3>Device Sync <span class="feature-beta">Beta</span></h3>
+        <p>Discover a nearby device, establish an encrypted connection with a code and mutual approval, and fill missing galleries and pages both ways.</p>
+      </article>
+
+      <article class="feature-card" data-tilt data-reveal style="--d:.12s">
+        <div class="glare" aria-hidden="true"></div>
+        <div class="feature-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h9.5A2.5 2.5 0 0 1 20 9.5v0A2.5 2.5 0 0 1 17.5 12H8"/><path d="m11.5 4.5-3.5 3 3.5 3"/><path d="M16 17H6.5A2.5 2.5 0 0 1 4 14.5v0A2.5 2.5 0 0 1 6.5 12H16"/><path d="m12.5 20.5 3.5-3-3.5-3"/></svg>
         </div>
-        <h3>Migration</h3>
-        <p>Export .ehgallery metadata or .eharchive archives and AirDrop them to a new device. Android archives are supported too.</p>
+        <h3>Backup &amp; Migration</h3>
+        <p>Import or export .ehgallery metadata and complete .eharchive backups, share selected local galleries, and migrate Android downloads.</p>
       </article>
 
     </div>

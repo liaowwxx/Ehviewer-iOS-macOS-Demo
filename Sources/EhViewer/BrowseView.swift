@@ -22,6 +22,7 @@ import EHDomain
 import EHDownloads
 
 struct BrowseView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let model: AppModel
     var kind: GalleryListQuery.ListKind = .home
     let onOpenSearchResults: ((String, GalleryAdvancedSearch?) -> Void)?
@@ -169,8 +170,12 @@ struct BrowseView: View {
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 if kind == .home || kind == .search {
-                    BrowseMoreMenu {
+                    Button("高级搜索", systemImage: "slider.horizontal.3") {
                         showingAdvancedSearch = true
+                    }
+                    .accessibilityIdentifier("advanced-search-action")
+                    if horizontalSizeClass == .compact {
+                        BrowseMoreMenu()
                     }
                 }
             }
@@ -313,11 +318,8 @@ struct SearchTagChipBar: View {
 }
 
 private struct BrowseMoreMenu: View {
-    let showAdvancedSearch: () -> Void
-
     var body: some View {
         Menu("更多", systemImage: "ellipsis.circle") {
-            Button("高级搜索", systemImage: "slider.horizontal.3", action: showAdvancedSearch)
             Section("浏览") {
                 NavigationLink(value: AppRoute.subscriptions) {
                     Label("subscriptions_title", systemImage: "tag")

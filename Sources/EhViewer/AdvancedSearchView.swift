@@ -99,9 +99,10 @@ struct AdvancedSearchView: View {
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                                    .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary)
                                 Text(category.rawValue)
                                     .lineLimit(1)
+                                    .foregroundStyle(isSelected ? AppTheme.accent : Color.primary)
                                 Spacer(minLength: 0)
                             }
                             .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
@@ -110,9 +111,13 @@ struct AdvancedSearchView: View {
                         }
                         .buttonStyle(.plain)
                         .background(
-                            isSelected ? Color.accentColor.opacity(0.14) : Color.clear,
+                            isSelected ? AppTheme.accent.opacity(0.14) : Color.clear,
                             in: RoundedRectangle(cornerRadius: 6)
                         )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(isSelected ? AppTheme.accent.opacity(0.45) : Color.clear)
+                        }
                         .accessibilityIdentifier("advanced-search-category-\(category.id)")
                         .accessibilityValue(isSelected ? String(localized: "已选择") : String(localized: "未选择"))
                     }
@@ -127,6 +132,7 @@ struct AdvancedSearchView: View {
                     }
                 }
                 .buttonStyle(.borderless)
+                .tint(AppTheme.accent)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -258,9 +264,10 @@ struct AdvancedSearchView: View {
                         } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                                    .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary)
                                 Text(category.rawValue)
                                     .lineLimit(1)
+                                    .foregroundStyle(isSelected ? AppTheme.accent : Color.primary)
                                 Spacer(minLength: 0)
                             }
                             .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
@@ -269,9 +276,13 @@ struct AdvancedSearchView: View {
                         }
                         .buttonStyle(.plain)
                         .background(
-                            isSelected ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08),
+                            isSelected ? AppTheme.accent.opacity(0.14) : Color.secondary.opacity(0.08),
                             in: RoundedRectangle(cornerRadius: 8)
                         )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(isSelected ? AppTheme.accent.opacity(0.45) : Color.clear)
+                        }
                         .accessibilityIdentifier("advanced-search-category-\(category.id)")
                         .accessibilityValue(isSelected ? String(localized: "已选择") : String(localized: "未选择"))
                     }
@@ -286,6 +297,7 @@ struct AdvancedSearchView: View {
                     }
                 }
                 .buttonStyle(.borderless)
+                .tint(AppTheme.accent)
             }
             .padding(10)
         }

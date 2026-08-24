@@ -148,22 +148,18 @@ struct GalleryDetailView: View {
         }
         .navigationTitle("详情")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                if let externalURL = detail?.externalURL {
+                    Link(destination: externalURL) {
+                        Label("在站点打开", systemImage: "safari")
+                    }
+                    .accessibilityIdentifier("detail-open-site-action")
+                }
                 Button("刷新", systemImage: "arrow.clockwise") {
                     shouldFullyRefreshDetail = true
                     detailLoadToken = UUID()
                 }
                 .accessibilityIdentifier("detail-refresh-action")
-            }
-            ToolbarItem(placement: .secondaryAction) {
-                Menu {
-                    if let externalURL = detail?.externalURL {
-                        Link("在站点打开", destination: externalURL)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityIdentifier("detail-more-menu")
             }
         }
         .task(id: "\(key.id)-\(detailLoadToken)") {

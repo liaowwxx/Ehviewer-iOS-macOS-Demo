@@ -287,7 +287,12 @@ private struct CompactRootView: View {
         case .favorites:
             libraryMode = .favorites
             selection = .history
-        case .settings:
+        case .settings,
+             .settingsSiteAndBrowsing,
+             .settingsAccount,
+             .settingsFilters,
+             .settingsDataAndBackup,
+             .settingsDeviceSync:
             selection = .settings
         case .gallery, .reader:
             browsePath = [route]
@@ -307,22 +312,23 @@ private struct SplitRootView: View {
         NavigationSplitView {
             List(selection: $selection) {
                 Section("浏览") {
-                    NavigationLink(value: AppRoute.browse) { Label("home_title", systemImage: "house") }
-                    NavigationLink(value: AppRoute.subscriptions) { Label("subscriptions_title", systemImage: "tag") }
-                    NavigationLink(value: AppRoute.popular) { Label("popular_title", systemImage: "chart.line.uptrend.xyaxis") }
-                    NavigationLink(value: AppRoute.toplist) { Label("toplist_title", systemImage: "list.number") }
+                    NavigationLink(value: AppRoute.browse) { SidebarLabel("home_title", systemImage: "house") }
+                    NavigationLink(value: AppRoute.subscriptions) { SidebarLabel("subscriptions_title", systemImage: "tag") }
+                    NavigationLink(value: AppRoute.popular) { SidebarLabel("popular_title", systemImage: "chart.line.uptrend.xyaxis") }
+                    NavigationLink(value: AppRoute.toplist) { SidebarLabel("toplist_title", systemImage: "list.number") }
                 }
                 Section("个人") {
-                    NavigationLink(value: AppRoute.downloads) { Label("downloads_title", systemImage: "arrow.down.circle") }
-                    NavigationLink(value: AppRoute.local) { Label("本地", systemImage: "books.vertical") }
-                    NavigationLink(value: AppRoute.history) { Label("history_title", systemImage: "clock") }
-                    NavigationLink(value: AppRoute.favorites) { Label("favorites_title", systemImage: "heart") }
+                    NavigationLink(value: AppRoute.downloads) { SidebarLabel("downloads_title", systemImage: "arrow.down.circle") }
+                    NavigationLink(value: AppRoute.local) { SidebarLabel("本地", systemImage: "books.vertical") }
+                    NavigationLink(value: AppRoute.history) { SidebarLabel("history_title", systemImage: "clock") }
+                    NavigationLink(value: AppRoute.favorites) { SidebarLabel("favorites_title", systemImage: "heart") }
                 }
                 Section {
-                    NavigationLink(value: AppRoute.settings) { Label("settings_title", systemImage: "gearshape") }
+                    NavigationLink(value: AppRoute.settings) { SidebarLabel("settings_title", systemImage: "gearshape") }
                         .accessibilityIdentifier("settings-sidebar")
                 }
             }
+            .tint(AppTheme.accent)
             .navigationTitle("EhViewer")
         } detail: {
             RootNavigationStack(path: $detailPath) { path in
@@ -335,6 +341,25 @@ private struct SplitRootView: View {
         }
         .onChange(of: model.selectedRoute) { _, route in
             if let route { selection = route }
+        }
+    }
+}
+
+private struct SidebarLabel: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+
+    init(_ title: LocalizedStringKey, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(AppTheme.accent)
         }
     }
 }
@@ -374,6 +399,16 @@ struct DestinationView: View {
             LibraryView(mode: .favorites)
         case .settings:
             SettingsView()
+        case .settingsSiteAndBrowsing:
+            SettingsView(page: .siteAndBrowsing)
+        case .settingsAccount:
+            SettingsView(page: .account)
+        case .settingsFilters:
+            SettingsView(page: .filters)
+        case .settingsDataAndBackup:
+            SettingsView(page: .dataAndBackup)
+        case .settingsDeviceSync:
+            DeviceSyncView()
         case .gallery(let key):
             GalleryDetailView(key: key)
         case .comments(let key):
