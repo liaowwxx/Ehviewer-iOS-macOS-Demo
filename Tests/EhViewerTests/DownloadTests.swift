@@ -398,23 +398,49 @@ struct DownloadTests {
         #expect(DownloadMediaValidator.kind(of: Data("<html>error</html>".utf8)) == nil)
     }
 
-    @Test("Downloads can sort by the time they were added in both directions")
-    func sortsByAddedTime() {
+    @Test("Local downloads sort by gallery upload time with missing metadata last")
+    func sortsByPostedTime() {
         let older = DownloadJob(
             key: GalleryKey(gid: 15, token: "older"),
             title: "Older",
             pages: [],
-            addedAt: Date(timeIntervalSince1970: 1)
+            addedAt: Date(timeIntervalSince1970: 3)
         )
         let newer = DownloadJob(
             key: GalleryKey(gid: 16, token: "newer"),
             title: "Newer",
             pages: [],
-            addedAt: Date(timeIntervalSince1970: 2)
+            addedAt: Date(timeIntervalSince1970: 1)
         )
+        let missing = DownloadJob(
+            key: GalleryKey(gid: 17, token: "missing"),
+            title: "Missing",
+            pages: [],
+            addedAt: Date(timeIntervalSince1970: 4)
+        )
+        let summaries = [
+            older.key: GallerySummary(
+                key: older.key,
+                title: older.title,
+                postedAt: Date(timeIntervalSince1970: 1)
+            ),
+            newer.key: GallerySummary(
+                key: newer.key,
+                title: newer.title,
+                postedAt: Date(timeIntervalSince1970: 2)
+            )
+        ]
 
-        #expect([older, newer].sorted(by: DownloadSortOrder.addedNewest.areInIncreasingOrder).map(\.key) == [newer.key, older.key])
-        #expect([older, newer].sorted(by: DownloadSortOrder.addedOldest.areInIncreasingOrder).map(\.key) == [older.key, newer.key])
+        #expect(
+            [older, newer, missing]
+                .sorted { DownloadSortOrder.addedNewest.areInIncreasingOrder($0, $1, summaries: summaries) }
+                .map(\.key) == [newer.key, older.key, missing.key]
+        )
+        #expect(
+            [older, newer, missing]
+                .sorted { DownloadSortOrder.addedOldest.areInIncreasingOrder($0, $1, summaries: summaries) }
+                .map(\.key) == [older.key, newer.key, missing.key]
+        )
     }
 
     @Test("A failed download removal keeps the job visible with an actionable error")

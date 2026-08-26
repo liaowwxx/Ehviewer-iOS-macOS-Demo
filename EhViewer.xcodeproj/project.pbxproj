@@ -78,6 +78,10 @@
 		EHB00000000000000000059 /* AppDataResetter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000059 /* AppDataResetter.swift */; };
 		EHB0000000000000000005A /* DeviceSyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005A /* DeviceSyncView.swift */; };
 		EHB0000000000000000005B /* DeviceSyncPairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005B /* DeviceSyncPairingView.swift */; };
+		EHB0000000000000000005C /* GalleryCardDisplaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005C /* GalleryCardDisplaySettings.swift */; };
+		EHB0000000000000000005D /* GalleryCardSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005D /* GalleryCardSettingsSection.swift */; };
+		EHB0000000000000000005E /* GalleryRatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005E /* GalleryRatingView.swift */; };
+		EHB0000000000000000005F /* GalleryCardDownloadStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -183,6 +187,10 @@
 		EHF00000000000000000059 /* AppDataResetter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataResetter.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005A /* DeviceSyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005B /* DeviceSyncPairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncPairingView.swift; sourceTree = "<group>"; };
+		EHF0000000000000000005C /* GalleryCardDisplaySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardDisplaySettings.swift; sourceTree = "<group>"; };
+		EHF0000000000000000005D /* GalleryCardSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardSettingsSection.swift; sourceTree = "<group>"; };
+		EHF0000000000000000005E /* GalleryRatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryRatingView.swift; sourceTree = "<group>"; };
+		EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardDownloadStatus.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -250,6 +258,10 @@
 				EHF0000000000000000005B /* DeviceSyncPairingView.swift */,
 				EHF00000000000000000038 /* AppTheme.swift */,
 				EHF00000000000000000002 /* BrowseView.swift */,
+				EHF0000000000000000005C /* GalleryCardDisplaySettings.swift */,
+				EHF0000000000000000005D /* GalleryCardSettingsSection.swift */,
+				EHF0000000000000000005E /* GalleryRatingView.swift */,
+				EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */,
 				EHF00000000000000000033 /* BrowseSearchSuggestions.swift */,
 				EHF0000000000000000003B /* BrowsePageModel.swift */,
 				EHF0000000000000000003C /* HomeBrowseView.swift */,
@@ -477,6 +489,10 @@
 				EHB0000000000000000005B /* DeviceSyncPairingView.swift in Sources */,
 				EHB00000000000000000038 /* AppTheme.swift in Sources */,
 				EHB00000000000000000002 /* BrowseView.swift in Sources */,
+				EHB0000000000000000005C /* GalleryCardDisplaySettings.swift in Sources */,
+				EHB0000000000000000005D /* GalleryCardSettingsSection.swift in Sources */,
+				EHB0000000000000000005E /* GalleryRatingView.swift in Sources */,
+				EHB0000000000000000005F /* GalleryCardDownloadStatus.swift in Sources */,
 				EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */,
 				EHB00000000000000000045 /* GalleryCategoryBadge.swift in Sources */,
 				EHB00000000000000000046 /* TagFlowLayout.swift in Sources */,

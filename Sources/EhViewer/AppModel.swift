@@ -191,6 +191,20 @@ private struct SearchPageKey: Hashable {
     let advancedSearch: GalleryAdvancedSearch?
 }
 
+struct FavoriteDownloadEnqueueProgress: Equatable, Sendable {
+    let completed: Int
+    let total: Int
+    let enqueued: Int
+    let failed: Int
+}
+
+struct FavoriteDownloadEnqueueResult: Equatable, Sendable {
+    let requested: Int
+    let enqueued: Int
+    let failed: Int
+    let cancelled: Bool
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -1210,6 +1224,71 @@ final class AppModel {
             japaneseTitle: detail.summary.japaneseTitle,
             tags: detail.summary.tags,
             pages: detail.pages
+        )
+    }
+
+    /// Resolves and queues favorites one at a time so bulk actions do not
+    /// create an unbounded burst of detail requests for large local libraries.
+    func enqueueUndownloadedFavorites(
+        _ favorites: [GallerySummary],
+        updateProgress: (FavoriteDownloadEnqueueProgress) -> Void
+    ) async -> FavoriteDownloadEnqueueResult {
+        let existingDownloadKeys = Set(await downloads.snapshot().map(\.key))
+        let targets = favorites.filter { existingDownloadKeys.contains($0.key) == false }
+        let total = targets.count
+        var completed = 0
+        var enqueued = 0
+        var failed = 0
+
+        for gallery in targets {
+            guard Task.isCancelled == false else {
+                return FavoriteDownloadEnqueueResult(
+                    requested: total,
+                    enqueued: enqueued,
+                    failed: failed,
+                    cancelled: true
+                )
+            }
+
+            do {
+                let detail = try await detail(for: gallery.key)
+                guard Task.isCancelled == false else {
+                    return FavoriteDownloadEnqueueResult(
+                        requested: total,
+                        enqueued: enqueued,
+                        failed: failed,
+                        cancelled: true
+                    )
+                }
+                await enqueue(detail)
+                enqueued += 1
+            } catch is CancellationError {
+                return FavoriteDownloadEnqueueResult(
+                    requested: total,
+                    enqueued: enqueued,
+                    failed: failed,
+                    cancelled: true
+                )
+            } catch {
+                failed += 1
+            }
+
+            completed += 1
+            updateProgress(
+                FavoriteDownloadEnqueueProgress(
+                    completed: completed,
+                    total: total,
+                    enqueued: enqueued,
+                    failed: failed
+                )
+            )
+        }
+
+        return FavoriteDownloadEnqueueResult(
+            requested: total,
+            enqueued: enqueued,
+            failed: failed,
+            cancelled: false
         )
     }
 

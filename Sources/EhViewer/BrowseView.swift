@@ -31,6 +31,8 @@ struct BrowseView: View {
     @State private var suppressNextSearchSubmission = false
     @State private var suppressSearchSuggestions = false
     @State private var showingAdvancedSearch = false
+    @State private var downloadStatuses: [GalleryKey: GalleryCardDownloadStatus] = [:]
+    @State private var hasResolvedDownloadStatuses = false
 
     init(
         model: AppModel,
@@ -184,6 +186,13 @@ struct BrowseView: View {
         .task(id: BrowseLoadID(query: pageModel.listQuery, configurationID: pageModel.configurationID, refreshToken: model.browseRefreshToken)) {
             await pageModel.loadIfNeeded(query: pageModel.listQuery)
         }
+        .task {
+            let events = await model.downloads.events()
+            await refreshDownloadStatuses()
+            for await event in events {
+                applyDownloadEvent(event)
+            }
+        }
         .task(id: pageModel.searchText) {
             let query = pageModel.searchText
             await pageModel.refreshSearchSuggestions(for: query)
@@ -245,10 +254,54 @@ struct BrowseView: View {
 
     private func galleryLink(_ gallery: GallerySummary) -> some View {
         NavigationLink(value: AppRoute.gallery(gallery.key)) {
-            GalleryCard(gallery: gallery, showsTags: true)
+            GalleryCard(
+                gallery: gallery,
+                displaySettings: model.readingSettings.galleryCard,
+                isCompactWidth: horizontalSizeClass == .compact,
+                downloadStatus: hasResolvedDownloadStatuses
+                    ? downloadStatuses[gallery.key] ?? .notDownloaded
+                    : nil
+            )
         }
         .id(gallery.key)
         .buttonStyle(.plain)
+    }
+
+    private func refreshDownloadStatuses() async {
+        let jobs = await model.downloads.snapshot()
+        guard Task.isCancelled == false else { return }
+        downloadStatuses = Dictionary(
+            uniqueKeysWithValues: jobs.map { ($0.key, GalleryCardDownloadStatus(job: $0)) }
+        )
+        hasResolvedDownloadStatuses = true
+    }
+
+    private func applyDownloadEvent(_ event: DownloadEvent) {
+        switch event {
+        case .reset(let jobs):
+            downloadStatuses = Dictionary(
+                uniqueKeysWithValues: jobs.map { ($0.key, GalleryCardDownloadStatus(job: $0)) }
+            )
+            hasResolvedDownloadStatuses = true
+        case .changed(let job):
+            let status = GalleryCardDownloadStatus(job: job)
+            if downloadStatuses[job.key] != status {
+                downloadStatuses[job.key] = status
+            }
+            hasResolvedDownloadStatuses = true
+        case .removed(let key):
+            if downloadStatuses.removeValue(forKey: key) != nil {
+                hasResolvedDownloadStatuses = true
+            }
+        case .removedMany(let keys):
+            var didChange = false
+            for key in keys {
+                didChange = downloadStatuses.removeValue(forKey: key) != nil || didChange
+            }
+            if didChange {
+                hasResolvedDownloadStatuses = true
+            }
+        }
     }
 }
 
@@ -345,14 +398,21 @@ private struct BrowseLoadID: Hashable {
 struct GalleryCard: View {
     @Environment(AppModel.self) private var model
     let gallery: GallerySummary
+    let displaySettings: GalleryCardDisplaySettings
+    let isCompactWidth: Bool
     var supplementalText: String?
-    var showsTags = false
     var localJob: DownloadJob?
     var localMediaResolved = true
     var prefersGalleryCache = false
     var showsBackground = true
+    var downloadStatus: GalleryCardDownloadStatus?
 
     var body: some View {
+        let settings = effectiveDisplaySettings
+        let rating = settings.showsRating ? gallery.rating : nil
+        let showsCompactStarRating = isCompactWidth
+            && settings.ratingDisplayStyle == .stars
+            && rating != nil
         HStack(spacing: 10) {
             if let localJob {
                 DownloadCover(
@@ -370,14 +430,24 @@ struct GalleryCard: View {
                 )
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(displayTitle)
-                    .font(.headline)
-                    .lineLimit(2)
-                if let authorText {
+                HStack(alignment: .top, spacing: 6) {
+                    Text(displayTitle)
+                        .font(.headline)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    if let downloadStatus {
+                        GalleryCardDownloadStatusBadge(status: downloadStatus)
+                    }
+                }
+                if settings.showsAuthor, let authorText {
                     Label(authorText, systemImage: "person")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                }
+                if showsCompactStarRating, let rating {
+                    GalleryRatingView(rating: rating)
+                        .font(.caption)
                 }
                 if let supplementalText {
                     Text(supplementalText)
@@ -385,7 +455,7 @@ struct GalleryCard: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                if showsTags {
+                if settings.showsOrdinaryTags {
                     Group {
                         if gallery.tags.isEmpty == false {
                             TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
@@ -400,10 +470,10 @@ struct GalleryCard: View {
                     .clipped()
                 }
                 HStack(spacing: 6) {
-                    if let category = gallery.category {
+                    if settings.showsCategoryBadge, let category = gallery.category {
                         CategoryBadge(name: category)
                     }
-                    if let language = gallery.simpleLanguage {
+                    if settings.showsLanguage, let language = gallery.simpleLanguage {
                         Text(language)
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
@@ -412,22 +482,26 @@ struct GalleryCard: View {
                             .background(.quaternary, in: Capsule())
                             .accessibilityLabel("语言 \(language)")
                     }
-                    if let pageCount = gallery.pageCount { Text("\(pageCount) 页") }
+                    if settings.showsPageCount, let pageCount = gallery.pageCount { Text("\(pageCount) 页") }
                     if let favoriteCategory = gallery.favoriteCategory, favoriteCategory != 0 {
                         Image(systemName: "heart.fill")
                             .foregroundStyle(.pink)
                             .accessibilityLabel("已收藏")
                     }
                     Spacer(minLength: 0)
-                    if let postedAt = gallery.postedAt {
-                        Text(postedAt, format: .relative(presentation: .named))
-                            .lineLimit(1)
+                    if settings.showsPostedAt, let postedAt = gallery.postedAt {
+                        dateText(postedAt)
                     }
-                    if let rating = gallery.rating {
-                        Text(String(format: "%.1f", rating))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
+                    if showsCompactStarRating == false, let rating {
+                        switch settings.ratingDisplayStyle {
+                        case .numeric:
+                            Text(String(format: "%.1f", rating))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        case .stars:
+                            GalleryRatingView(rating: rating)
                         }
+                    }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -449,6 +523,10 @@ struct GalleryCard: View {
         gallery.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
     }
 
+    private var effectiveDisplaySettings: GalleryCardDisplaySettings {
+        displaySettings.effectiveForDisplay(isCompactWidth: isCompactWidth)
+    }
+
     private var authorText: String? {
         let tags = gallery.preferredAuthorTags
         guard tags.isEmpty == false else { return nil }
@@ -456,23 +534,63 @@ struct GalleryCard: View {
     }
 
     private var accessibilityTitle: String {
+        let settings = effectiveDisplaySettings
         var details = [String]()
-        if let pageCount = gallery.pageCount {
+        if settings.showsPageCount, let pageCount = gallery.pageCount {
             details.append(String(localized: "\(pageCount) 页"))
-        } else {
+        } else if settings.showsPageCount {
             details.append(String(localized: "页数未知"))
         }
         if let supplementalText {
             details.append(supplementalText)
         }
-        if let authorText {
+        if settings.showsAuthor, let authorText {
             details.append(String(localized: "作者：\(authorText)"))
         }
-        if showsTags, gallery.tags.isEmpty == false {
+        if settings.showsOrdinaryTags, gallery.tags.isEmpty == false {
             let tags = gallery.tags.prefix(3).map(model.displayTag).joined(separator: "、")
             details.append(String(localized: "标签：\(tags)"))
         }
+        if settings.showsCategoryBadge, let category = gallery.category {
+            details.append(String(localized: "分类：\(category)"))
+        }
+        if settings.showsLanguage, let language = gallery.simpleLanguage {
+            details.append(String(localized: "语言：\(language)"))
+        }
+        if settings.showsPostedAt, let postedAt = gallery.postedAt {
+            details.append(String(localized: "上传日期：\(postedAt.accessibilityDescription(style: settings.dateDisplayStyle))"))
+        }
+        if settings.showsRating, let rating = gallery.rating {
+            details.append(String(localized: "评分 \(rating.formatted(.number.precision(.fractionLength(0...2))))，共 5 星"))
+        }
+        if let downloadStatus {
+            details.append(String(localized: "下载状态：\(downloadStatus.title)"))
+        }
         return "\(displayTitle)，" + details.joined(separator: "，")
+    }
+
+    @ViewBuilder
+    private func dateText(_ postedAt: Date) -> some View {
+        switch effectiveDisplaySettings.dateDisplayStyle {
+        case .relative:
+            Text(postedAt, format: .relative(presentation: .named))
+                .lineLimit(1)
+        case .absolute:
+            Text(postedAt, format: .iso8601.year().month().day().dateSeparator(.dash))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+}
+
+private extension Date {
+    func accessibilityDescription(style: GalleryDateDisplayStyle) -> String {
+        switch style {
+        case .relative:
+            formatted(.relative(presentation: .named))
+        case .absolute:
+            formatted(.iso8601.year().month().day().dateSeparator(.dash))
+        }
     }
 }
 

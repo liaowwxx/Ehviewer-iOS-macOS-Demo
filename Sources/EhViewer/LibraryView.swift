@@ -37,6 +37,9 @@ struct LibraryView: View {
     @State private var readingPages: [GalleryKey: Int] = [:]
     @State private var downloadedJobs: [GalleryKey: DownloadJob] = [:]
     @State private var downloadedJobsReady = false
+    @State private var libraryKeys: Set<GalleryKey> = []
+    @State private var favoriteDownloadProgress: FavoriteDownloadEnqueueProgress?
+    @State private var favoriteDownloadFailureCount = 0
 
     init(mode: Mode = .history) {
         _selectedMode = State(initialValue: mode)
@@ -89,6 +92,11 @@ struct LibraryView: View {
                     .disabled(selectedKeys.isEmpty)
                 }
             } else {
+                if selectedMode == .favorites {
+                    ToolbarItem(placement: .primaryAction) {
+                        favoriteDownloadToolbarButton
+                    }
+                }
 #if os(macOS)
                 ToolbarItem(placement: .navigation) {
                     selectionToolbarButton
@@ -128,16 +136,25 @@ struct LibraryView: View {
                 secondaryButton: .cancel(Text("取消"))
             )
         }
+        .alert("部分画廊未能加入下载", isPresented: favoriteDownloadFailureAlertPresented) {
+            Button("好") {
+                favoriteDownloadFailureCount = 0
+            }
+        } message: {
+            Text("有 \(favoriteDownloadFailureCount) 项无法加载下载所需的画廊信息，可稍后再次尝试。")
+        }
         .onChange(of: selectedMode) { _, _ in
             exitSelectionMode()
         }
         .task(id: selectedMode) {
             downloadedJobs = [:]
             downloadedJobsReady = false
+            libraryKeys = []
             await model.loadLibrary(mode: selectedMode)
             guard Task.isCancelled == false else { return }
 
             let libraryKeys = Set(items.map(\.key))
+            self.libraryKeys = libraryKeys
             let jobs = await model.downloads.snapshot()
             downloadedJobs = Dictionary(
                 uniqueKeysWithValues: jobs
@@ -157,6 +174,11 @@ struct LibraryView: View {
                 }
             }
             readingPages = loadedPages
+        }
+        .task {
+            for await event in await model.downloads.events() {
+                applyDownloadEvent(event)
+            }
         }
     }
 
@@ -186,17 +208,117 @@ struct LibraryView: View {
         .disabled(items.isEmpty)
     }
 
+    private var favoriteDownloadToolbarButton: some View {
+        Button {
+            downloadUndownloadedFavorites()
+        } label: {
+            if let favoriteDownloadProgress {
+                Label(
+                    "加入下载 \(favoriteDownloadProgress.completed)/\(favoriteDownloadProgress.total)",
+                    systemImage: "arrow.down.circle"
+                )
+            } else {
+                Label("下载全部未下载", systemImage: "arrow.down.circle")
+            }
+        }
+        .accessibilityIdentifier("download-all-undownloaded-favorites-action")
+        .accessibilityLabel("下载全部未下载")
+        .accessibilityValue(
+            favoriteDownloadProgress.map { "\($0.completed)/\($0.total)" } ?? ""
+        )
+        .disabled(
+            downloadedJobsReady == false
+                || undownloadedFavoriteCount == 0
+                || favoriteDownloadProgress != nil
+        )
+    }
+
+    private var undownloadedFavoriteCount: Int {
+        guard selectedMode == .favorites else { return 0 }
+        return items.reduce(into: 0) { count, gallery in
+            if downloadedJobs[gallery.key] == nil {
+                count += 1
+            }
+        }
+    }
+
+    private var favoriteDownloadFailureAlertPresented: Binding<Bool> {
+        Binding(
+            get: { favoriteDownloadFailureCount > 0 },
+            set: { isPresented in
+                if isPresented == false {
+                    favoriteDownloadFailureCount = 0
+                }
+            }
+        )
+    }
+
     private func libraryRow(for gallery: GallerySummary) -> LibraryGalleryRow {
         LibraryGalleryRow(
             gallery: gallery,
             supplementalText: selectedMode == .history ? progressText(for: gallery) : nil,
             localJob: downloadedJobs[gallery.key],
             localMediaResolved: downloadedJobsReady,
+            downloadStatus: downloadedJobsReady
+                ? GalleryCardDownloadStatus(job: downloadedJobs[gallery.key])
+                : nil,
+            displaySettings: model.readingSettings.galleryCard,
+            isCompactWidth: horizontalSizeClass == .compact,
             isSelectionMode: isSelectionMode,
             isSelected: selectedKeys.contains(gallery.key),
             select: { toggleSelection(gallery.key) },
             requestSelection: { enterSelectionMode(selecting: gallery.key) }
         )
+    }
+
+    private func downloadUndownloadedFavorites() {
+        guard selectedMode == .favorites,
+              favoriteDownloadProgress == nil,
+              downloadedJobsReady,
+              undownloadedFavoriteCount > 0 else {
+            return
+        }
+
+        let favorites = items
+        favoriteDownloadProgress = FavoriteDownloadEnqueueProgress(
+            completed: 0,
+            total: undownloadedFavoriteCount,
+            enqueued: 0,
+            failed: 0
+        )
+        Task { @MainActor in
+            let result = await model.enqueueUndownloadedFavorites(favorites) { progress in
+                favoriteDownloadProgress = progress
+            }
+            guard Task.isCancelled == false else { return }
+            favoriteDownloadProgress = nil
+            if result.failed > 0 {
+                favoriteDownloadFailureCount = result.failed
+            }
+        }
+    }
+
+    private func applyDownloadEvent(_ event: DownloadEvent) {
+        switch event {
+        case .reset(let jobs):
+            downloadedJobs = Dictionary(
+                uniqueKeysWithValues: jobs
+                    .filter { libraryKeys.contains($0.key) }
+                    .map { ($0.key, $0) }
+            )
+            downloadedJobsReady = true
+        case .changed(let job) where libraryKeys.contains(job.key):
+            downloadedJobs[job.key] = job
+            downloadedJobsReady = true
+        case .removed(let key) where libraryKeys.contains(key):
+            downloadedJobs.removeValue(forKey: key)
+        case .removedMany(let keys):
+            for key in keys where libraryKeys.contains(key) {
+                downloadedJobs.removeValue(forKey: key)
+            }
+        default:
+            break
+        }
     }
 
     private func progressText(for gallery: GallerySummary) -> String {
@@ -271,6 +393,9 @@ private struct LibraryGalleryRow: View, Equatable {
     let supplementalText: String?
     let localJob: DownloadJob?
     let localMediaResolved: Bool
+    let downloadStatus: GalleryCardDownloadStatus?
+    let displaySettings: GalleryCardDisplaySettings
+    let isCompactWidth: Bool
     let isSelectionMode: Bool
     let isSelected: Bool
     let select: () -> Void
@@ -281,6 +406,9 @@ private struct LibraryGalleryRow: View, Equatable {
             && lhs.supplementalText == rhs.supplementalText
             && lhs.localJob == rhs.localJob
             && lhs.localMediaResolved == rhs.localMediaResolved
+            && lhs.downloadStatus == rhs.downloadStatus
+            && lhs.displaySettings == rhs.displaySettings
+            && lhs.isCompactWidth == rhs.isCompactWidth
             && lhs.isSelectionMode == rhs.isSelectionMode
             && lhs.isSelected == rhs.isSelected
     }
@@ -320,11 +448,13 @@ private struct LibraryGalleryRow: View, Equatable {
     private var galleryCard: some View {
         GalleryCard(
             gallery: gallery,
+            displaySettings: displaySettings,
+            isCompactWidth: isCompactWidth,
             supplementalText: supplementalText,
-            showsTags: true,
             localJob: localJob,
             localMediaResolved: localMediaResolved,
-            prefersGalleryCache: true
+            prefersGalleryCache: true,
+            downloadStatus: downloadStatus
         )
         .frame(maxWidth: .infinity, alignment: .leading)
     }

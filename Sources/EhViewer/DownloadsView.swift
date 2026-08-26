@@ -165,7 +165,7 @@ struct DownloadsView: View {
     }
 
     private var needsDownloadGallerySummaries: Bool {
-        effectiveSortOrder == .rating
+        [.addedNewest, .addedOldest, .rating].contains(effectiveSortOrder)
             || model.downloadCategoryFilter != Set(GalleryCategory.allCases)
     }
 
@@ -1264,6 +1264,7 @@ struct LocalGalleryPrefetchWindow {
 
 private struct LocalDownloadsList: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let jobs: [DownloadJob]
     let revision: Int
     let isSelectionMode: Bool
@@ -1317,6 +1318,8 @@ private struct LocalDownloadsList: View {
         LocalDownloadCard(
             job: job,
             gallery: localGallerySummary(for: job),
+            displaySettings: model.readingSettings.galleryCard,
+            isCompactWidth: horizontalSizeClass == .compact,
             isSelectionMode: isSelectionMode,
             isSelected: selectedKeys.contains(job.key),
             select: { select(job.key) },
@@ -1452,8 +1455,8 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .addedNewest: String(localized: "添加时间（最新）")
-        case .addedOldest: String(localized: "添加时间（最早）")
+        case .addedNewest: String(localized: "上传时间（最新）")
+        case .addedOldest: String(localized: "上传时间（最早）")
         case .titleAscending: String(localized: "标题 A-Z")
         case .titleDescending: String(localized: "标题 Z-A")
         case .progress: String(localized: "完成度")
@@ -1476,11 +1479,9 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
     ) -> Bool {
         switch self {
         case .addedNewest:
-            if lhs.addedAt == rhs.addedAt { return titleAscending(lhs, rhs) }
-            return lhs.addedAt > rhs.addedAt
+            return orderedByPostedAt(lhs, rhs, summaries: summaries, newestFirst: true)
         case .addedOldest:
-            if lhs.addedAt == rhs.addedAt { return titleAscending(lhs, rhs) }
-            return lhs.addedAt < rhs.addedAt
+            return orderedByPostedAt(lhs, rhs, summaries: summaries, newestFirst: false)
         case .titleAscending:
             return titleAscending(lhs, rhs)
         case .titleDescending:
@@ -1501,6 +1502,28 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
 
     private func titleAscending(_ lhs: DownloadJob, _ rhs: DownloadJob) -> Bool {
         lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+    }
+
+    /// Local downloads are sorted by the gallery's real upload time, not by
+    /// the time the user happened to add the download job. Unknown metadata is
+    /// always last so refreshing one gallery cannot reorder unknown entries.
+    private func orderedByPostedAt(
+        _ lhs: DownloadJob,
+        _ rhs: DownloadJob,
+        summaries: [GalleryKey: GallerySummary],
+        newestFirst: Bool
+    ) -> Bool {
+        switch (summaries[lhs.key]?.postedAt, summaries[rhs.key]?.postedAt) {
+        case let (lhsDate?, rhsDate?):
+            if lhsDate == rhsDate { return titleAscending(lhs, rhs) }
+            return newestFirst ? lhsDate > rhsDate : lhsDate < rhsDate
+        case (.some, .none):
+            return true
+        case (.none, .some):
+            return false
+        case (.none, .none):
+            return titleAscending(lhs, rhs)
+        }
     }
 }
 
@@ -1529,6 +1552,8 @@ private struct LocalDownloadCard: View, Equatable {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
     let gallery: GallerySummary
+    let displaySettings: GalleryCardDisplaySettings
+    let isCompactWidth: Bool
     let isSelectionMode: Bool
     let isSelected: Bool
     let select: () -> Void
@@ -1540,6 +1565,8 @@ private struct LocalDownloadCard: View, Equatable {
     nonisolated static func == (lhs: LocalDownloadCard, rhs: LocalDownloadCard) -> Bool {
         lhs.job == rhs.job
             && lhs.gallery == rhs.gallery
+            && lhs.displaySettings == rhs.displaySettings
+            && lhs.isCompactWidth == rhs.isCompactWidth
             && lhs.isSelectionMode == rhs.isSelectionMode
             && lhs.isSelected == rhs.isSelected
     }
@@ -1614,7 +1641,8 @@ private struct LocalDownloadCard: View, Equatable {
     private func localGalleryCard(showsBackground: Bool) -> some View {
         GalleryCard(
             gallery: gallery,
-            showsTags: true,
+            displaySettings: displaySettings,
+            isCompactWidth: isCompactWidth,
             localJob: job,
             showsBackground: showsBackground
         )

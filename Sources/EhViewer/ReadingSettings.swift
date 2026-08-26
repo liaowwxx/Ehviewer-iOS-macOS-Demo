@@ -60,6 +60,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
     var fullscreen = false
     var showJapaneseTitle = false
     var showTagTranslations = true
+    var galleryCard = GalleryCardDisplaySettings.defaults
 
     static let defaults = ReadingSettings()
     private static let storageKey = "readingSettings"
@@ -74,6 +75,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
         case fullscreen
         case showJapaneseTitle
         case showTagTranslations
+        case galleryCard
     }
 
     init() {}
@@ -104,6 +106,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
         fullscreen = try container.decodeIfPresent(Bool.self, forKey: .fullscreen) ?? false
         showJapaneseTitle = try container.decodeIfPresent(Bool.self, forKey: .showJapaneseTitle) ?? false
         showTagTranslations = try container.decodeIfPresent(Bool.self, forKey: .showTagTranslations) ?? true
+        galleryCard = try container.decodeIfPresent(GalleryCardDisplaySettings.self, forKey: .galleryCard) ?? .defaults
     }
 
     func encode(to encoder: Encoder) throws {
@@ -117,6 +120,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
         try container.encode(fullscreen, forKey: .fullscreen)
         try container.encode(showJapaneseTitle, forKey: .showJapaneseTitle)
         try container.encode(showTagTranslations, forKey: .showTagTranslations)
+        try container.encode(galleryCard, forKey: .galleryCard)
     }
 
     static func load(from defaults: UserDefaults) -> ReadingSettings {

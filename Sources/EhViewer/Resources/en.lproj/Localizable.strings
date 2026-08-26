@@ -43,12 +43,16 @@
 "上传者 %@，点击查看其画廊" = "Uploader %@, tap to view their gallery";
 "上次阅读位置" = "Last Read Position";
 "下载中" = "Downloading";
+"下载全部未下载" = "Download All Undownloaded";
+"加入下载 %lld/%lld" = "Adding to Downloads %lld/%lld";
+"未下载" = "Not Downloaded";
 "下载中 %lld/%lld" = "Downloading %lld/%lld";
 "下载压缩包导出失败，请稍后重试。" = "Failed to export the download archive. Please try again later.";
 "下载压缩包已准备完成" = "Download archive is ready";
 "下载已取消" = "Download Cancelled";
 "下载已暂停 %lld/%lld" = "Download Paused %lld/%lld";
 "下载异常，可在下载页重试" = "Download error, retry from the downloads page.";
+"下载状态：%@" = "Download status: %@";
 "下载操作" = "Download Actions";
 "下载文件在导出过程中发生变化" = "Downloaded file changed during export";
 "下载标签" = "Download Label";
@@ -301,8 +305,8 @@
 "浏览" = "Browse";
 "浏览已删除的画廊" = "Browse Expunged Galleries";
 "添加" = "Add";
-"添加时间（最新）" = "Date Added (Newest)";
-"添加时间（最早）" = "Date Added (Oldest)";
+"上传时间（最新）" = "Upload Date (Newest)";
+"上传时间（最早）" = "Upload Date (Oldest)";
 "清除Cookie" = "Clear Cookie";
 "清除搜索" = "Clear Search";
 "游客模式" = "Guest Mode";
@@ -445,6 +449,8 @@
 "跳过重复项 %lld 项" = "Skipped %lld duplicate items";
 "跳过已有页面 %lld 页" = "Skipped %lld existing pages";
 "取消选择《%@》" = "Deselect %@";
+"部分画廊未能加入下载" = "Some Galleries Could Not Be Added to Downloads";
+"有 %lld 项无法加载下载所需的画廊信息，可稍后再次尝试。" = "%lld galleries could not load the information required for downloading. Please try again later.";
 "选择《%@》" = "Select %@";
 "正在恢复下载项…" = "Restoring downloads…";
 "没有可导出的下载内容。" = "There is no exportable download content.";

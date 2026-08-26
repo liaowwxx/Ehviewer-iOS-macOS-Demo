@@ -51,11 +51,11 @@ enum SettingsPage: Equatable {
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let page: SettingsPage
     @State private var showingCookieSheet = false
     @State private var showingWebLogin = false
     @State private var showingPasswordLogin = false
-    @State private var showingDeviceSync = false
     @State private var showingGallerySyncExporter = false
     @State private var gallerySyncExportDocument: GallerySyncExportDocument?
     @State private var gallerySyncExportFilename = "EhViewer-Galleries.ehgallery"
@@ -177,6 +177,7 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier("show-tag-translations-toggle")
             }
+            GalleryCardSettingsSection(isCompactWidth: horizontalSizeClass == .compact)
             FilterRulesSection()
         }
         .formStyle(.grouped)
@@ -216,6 +217,7 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier("show-tag-translations-toggle")
             }
+            GalleryCardSettingsSection(isCompactWidth: horizontalSizeClass == .compact)
         }
         .formStyle(.grouped)
         .navigationTitle("浏览")
@@ -360,8 +362,8 @@ struct SettingsView: View {
                 .disabled(model.isMigrating || model.isRestoringDownloads)
             }
             Section("设备间同步") {
-                Button("设备间同步", systemImage: "arrow.triangle.2.circlepath") {
-                    showingDeviceSync = true
+                NavigationLink(value: AppRoute.settingsDeviceSync) {
+                    SettingsNavigationLabel("设备间同步", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .accessibilityIdentifier("device-sync-link")
                 .disabled(model.isMigrating || model.isRestoringDownloads)
@@ -379,7 +381,6 @@ struct SettingsView: View {
             .sheet(isPresented: $showingCookieSheet) { CookieLoginSheet() }
         .sheet(isPresented: $showingWebLogin) { WebLoginSheet() }
         .sheet(isPresented: $showingPasswordLogin) { PasswordLoginSheet() }
-        .sheet(isPresented: $showingDeviceSync) { DeviceSyncView() }
 #if os(iOS)
         .sheet(item: $pendingShareFile, onDismiss: discardPendingSharedFileIfAny) { file in
             ShareSheet(items: [file.url])
