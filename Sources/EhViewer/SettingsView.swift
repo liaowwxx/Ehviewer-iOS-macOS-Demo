@@ -37,6 +37,10 @@ private enum FileImportKind {
 
 enum SettingsPage: Equatable {
     case overview
+    case siteAndLogin
+    case browsingAndFiltering
+    case storageManagement
+    case dataBackupAndSync
     case site
     case login
     case browsing
@@ -51,6 +55,7 @@ struct SettingsView: View {
     @State private var showingCookieSheet = false
     @State private var showingWebLogin = false
     @State private var showingPasswordLogin = false
+    @State private var showingDeviceSync = false
     @State private var showingGallerySyncExporter = false
     @State private var gallerySyncExportDocument: GallerySyncExportDocument?
     @State private var gallerySyncExportFilename = "EhViewer-Galleries.ehgallery"
@@ -73,58 +78,35 @@ struct SettingsView: View {
 
     private var settingsForm: some View {
         Form {
-            Section("站点&登录") {
-                NavigationLink(value: AppRoute.settingsSite) {
-                    SettingsNavigationLabel(
-                        "站点",
-                        systemImage: "globe",
-                        detail: model.site.displayName
-                    )
-                }
-                .accessibilityIdentifier("settings-site-link")
-
-                NavigationLink(value: AppRoute.settingsLogin) {
-                    SettingsNavigationLabel(
-                        "登录",
-                        systemImage: model.isGuestMode ? "person.crop.circle" : "person.crop.circle.badge.checkmark",
-                        detail: model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录")
-                    )
+            Section {
+                NavigationLink(value: AppRoute.settingsSiteAndLogin) {
+                    SettingsNavigationLabel("站点&登录", systemImage: "globe")
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("session-status")
-                .accessibilityLabel("会话状态")
+                .accessibilityLabel("站点与登录")
                 .accessibilityValue(model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录"))
             }
 
-            Section("浏览&过滤") {
-                NavigationLink(value: AppRoute.settingsBrowsing) {
-                    SettingsNavigationLabel("浏览", systemImage: "book.pages")
+            Section {
+                NavigationLink(value: AppRoute.settingsBrowsingAndFiltering) {
+                    SettingsNavigationLabel("浏览&过滤", systemImage: "book.pages")
                 }
                 .accessibilityIdentifier("settings-browsing-link")
-
-                NavigationLink(value: AppRoute.settingsFilters) {
-                    SettingsNavigationLabel("过滤", systemImage: "line.3.horizontal.decrease.circle")
-                }
-                .accessibilityIdentifier("settings-filter-rules-link")
             }
 
-            Section("存储管理") {
-                NavigationLink(value: AppRoute.settingsStorageAndProgress) {
-                    SettingsNavigationLabel("存储与进度", systemImage: "externaldrive")
+            Section {
+                NavigationLink(value: AppRoute.settingsStorageManagement) {
+                    SettingsNavigationLabel("存储管理", systemImage: "externaldrive")
                 }
                 .accessibilityIdentifier("settings-storage-and-progress-link")
             }
 
-            Section("数据备份&同步") {
-                NavigationLink(value: AppRoute.settingsDataAndBackup) {
-                    SettingsNavigationLabel("数据与备份", systemImage: "externaldrive.badge.icloud")
+            Section {
+                NavigationLink(value: AppRoute.settingsDataBackupAndSync) {
+                    SettingsNavigationLabel("数据备份&同步", systemImage: "externaldrive.badge.icloud")
                 }
                 .accessibilityIdentifier("settings-data-and-backup-link")
-
-                NavigationLink(value: AppRoute.settingsDeviceSync) {
-                    SettingsNavigationLabel("设备间同步", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .accessibilityIdentifier("device-sync-link")
             }
 
             Section("关于") {
@@ -141,6 +123,64 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .accessibilityIdentifier("settings-screen")
         .navigationTitle("settings_title")
+    }
+
+    private var siteAndLoginForm: some View {
+        @Bindable var model = model
+        return Form {
+            Section("站点") {
+                Picker("画廊站点", selection: $model.site) {
+                    ForEach(SiteMode.allCases, id: \.self) { site in
+                        Text(site.displayName)
+                            .tag(site)
+                            .disabled(model.isGuestMode && site == .exHentai)
+                    }
+                }
+                .onChange(of: model.site) { _, _ in model.persistSettings() }
+            }
+            Section("会话") {
+                LabeledContent {
+                    Text(model.isGuestMode ? String(localized: "公开内容") : String(localized: "账户会话"))
+                        .foregroundStyle(.secondary)
+                } label: {
+                    Label(
+                        model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录"),
+                        systemImage: model.isGuestMode ? "person" : "person.crop.circle.badge.checkmark"
+                    )
+                }
+            }
+            Section("登录") {
+                Button("用户名&密码登录", systemImage: "person.badge.key") { showingPasswordLogin = true }
+                Button("网页登录", systemImage: "safari") { showingWebLogin = true }
+                Button("Cookie登录", systemImage: "key") { showingCookieSheet = true }
+                Button("清除Cookie", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                    Task { await model.clearSession() }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("站点&登录")
+    }
+
+    private var browsingAndFilteringForm: some View {
+        @Bindable var model = model
+        return Form {
+            Section("浏览") {
+                Toggle("显示日文标题", isOn: $model.readingSettings.showJapaneseTitle)
+                    .onChange(of: model.readingSettings.showJapaneseTitle) { _, _ in
+                        model.persistReadingSettings()
+                    }
+                    .accessibilityIdentifier("show-japanese-title-toggle")
+                Toggle("显示标签翻译", isOn: $model.readingSettings.showTagTranslations)
+                    .onChange(of: model.readingSettings.showTagTranslations) { _, _ in
+                        model.persistReadingSettings()
+                    }
+                    .accessibilityIdentifier("show-tag-translations-toggle")
+            }
+            FilterRulesSection()
+        }
+        .formStyle(.grouped)
+        .navigationTitle("浏览&过滤")
     }
 
     private var siteForm: some View {
@@ -218,7 +258,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("存储与进度")
+        .navigationTitle("存储管理")
     }
 
     private var loginForm: some View {
@@ -257,7 +297,7 @@ struct SettingsView: View {
 
     private var dataAndBackupForm: some View {
         Form {
-            Section("维护") {
+            Section("数据与备份") {
                 Button("更新已下载画廊信息", systemImage: "arrow.triangle.2.circlepath") {
                     showingDownloadedMetadataRefreshDialog = true
                 }
@@ -319,9 +359,19 @@ struct SettingsView: View {
                 }
                 .disabled(model.isMigrating || model.isRestoringDownloads)
             }
+            Section("设备间同步") {
+                Button("设备间同步", systemImage: "arrow.triangle.2.circlepath") {
+                    showingDeviceSync = true
+                }
+                .accessibilityIdentifier("device-sync-link")
+                .disabled(model.isMigrating || model.isRestoringDownloads)
+                Text("在附近的 EhViewer 设备之间合并本地漫画、阅读进度和元数据。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .navigationTitle("数据与备份")
+        .navigationTitle("数据备份&同步")
     }
 
     var body: some View {
@@ -329,6 +379,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showingCookieSheet) { CookieLoginSheet() }
         .sheet(isPresented: $showingWebLogin) { WebLoginSheet() }
         .sheet(isPresented: $showingPasswordLogin) { PasswordLoginSheet() }
+        .sheet(isPresented: $showingDeviceSync) { DeviceSyncView() }
 #if os(iOS)
         .sheet(item: $pendingShareFile, onDismiss: discardPendingSharedFileIfAny) { file in
             ShareSheet(items: [file.url])
@@ -394,10 +445,10 @@ struct SettingsView: View {
         }
 #endif
         .task(id: page) {
-            if page == .storageAndProgress {
+            if page == .storageAndProgress || page == .storageManagement {
                 await model.refreshGalleryCacheUsage()
             }
-            if page == .filters {
+            if page == .filters || page == .browsingAndFiltering {
                 await model.loadFilterRules()
             }
         }
@@ -408,6 +459,14 @@ struct SettingsView: View {
         switch page {
         case .overview:
             settingsForm
+        case .siteAndLogin:
+            siteAndLoginForm
+        case .browsingAndFiltering:
+            browsingAndFilteringForm
+        case .storageManagement:
+            storageAndProgressForm
+        case .dataBackupAndSync:
+            dataAndBackupForm
         case .site:
             siteForm
         case .login:
@@ -671,33 +730,22 @@ private struct FilterTagChip: View {
 private struct SettingsNavigationLabel: View {
     let title: LocalizedStringKey
     let systemImage: String
-    let detail: String?
 
     init(
         _ title: LocalizedStringKey,
-        systemImage: String,
-        detail: String? = nil
+        systemImage: String
     ) {
         self.title = title
         self.systemImage = systemImage
-        self.detail = detail
     }
 
     var body: some View {
-        HStack {
-            Label {
-                Text(title)
-            } icon: {
-                Image(systemName: systemImage)
-                    .foregroundStyle(AppTheme.onAccent)
-                    .frame(width: 28, height: 28)
-                    .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 7))
-            }
-            Spacer()
-            if let detail {
-                Text(detail)
-                    .foregroundStyle(.secondary)
-            }
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(AppTheme.accent)
+                .frame(width: 24, alignment: .leading)
         }
     }
 }

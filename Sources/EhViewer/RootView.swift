@@ -262,8 +262,8 @@ private struct CompactRootView: View {
                 }
             } label: {
                 Label("settings_title", systemImage: "gearshape")
-                    .accessibilityIdentifier("settings-tab")
             }
+            .accessibilityIdentifier("settings-tab")
         }
         .onChange(of: selection) { _, route in
             model.selectedRoute = route
@@ -288,6 +288,10 @@ private struct CompactRootView: View {
             libraryMode = .favorites
             selection = .history
         case .settings,
+             .settingsSiteAndLogin,
+             .settingsBrowsingAndFiltering,
+             .settingsStorageManagement,
+             .settingsDataBackupAndSync,
              .settingsSite,
              .settingsLogin,
              .settingsBrowsing,
@@ -401,6 +405,14 @@ struct DestinationView: View {
             LibraryView(mode: .favorites)
         case .settings:
             SettingsView()
+        case .settingsSiteAndLogin:
+            SettingsView(page: .siteAndLogin)
+        case .settingsBrowsingAndFiltering:
+            SettingsView(page: .browsingAndFiltering)
+        case .settingsStorageManagement:
+            SettingsView(page: .storageManagement)
+        case .settingsDataBackupAndSync:
+            SettingsView(page: .dataBackupAndSync)
         case .settingsSite:
             SettingsView(page: .site)
         case .settingsLogin:

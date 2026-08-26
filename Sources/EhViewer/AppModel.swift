@@ -1079,6 +1079,21 @@ final class AppModel {
         }
     }
 
+    func removeLibraryItems(_ keys: Set<GalleryKey>, mode: LibraryView.Mode) async {
+        guard keys.isEmpty == false else { return }
+        do {
+            switch mode {
+            case .history:
+                try await persistence.removeFromHistory(for: keys)
+            case .favorites:
+                try await persistence.removeFromFavorites(for: keys)
+            }
+            await loadLibrary(mode: mode)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func loadFilterRules() async {
         filterRules = (try? await persistence.filterRules()) ?? []
     }

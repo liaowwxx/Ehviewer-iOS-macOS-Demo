@@ -958,6 +958,30 @@ public actor PersistenceStore {
         if didChange { try modelContext.save() }
     }
 
+    public func removeFromHistory(for keys: Set<GalleryKey>) throws {
+        guard keys.isEmpty == false else { return }
+        let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
+        var didChange = false
+        for record in records where keys.contains(record.key) {
+            guard record.lastReadAt != nil || record.lastReadPage != 0 else { continue }
+            record.lastReadPage = 0
+            record.lastReadAt = nil
+            didChange = true
+        }
+        if didChange { try modelContext.save() }
+    }
+
+    public func removeFromFavorites(for keys: Set<GalleryKey>) throws {
+        guard keys.isEmpty == false else { return }
+        let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
+        var didChange = false
+        for record in records where keys.contains(record.key) && record.isFavorite {
+            record.isFavorite = false
+            didChange = true
+        }
+        if didChange { try modelContext.save() }
+    }
+
     public func isFavorite(for key: GalleryKey) throws -> Bool? {
         var descriptor = FetchDescriptor<GalleryRecord>(predicate: #Predicate {
             $0.gid == key.gid && $0.token == key.token

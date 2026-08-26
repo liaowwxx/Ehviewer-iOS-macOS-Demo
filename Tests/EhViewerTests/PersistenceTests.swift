@@ -21,6 +21,36 @@ struct PersistenceTests {
         #expect(recent.first?.postedAt != nil)
     }
 
+    @Test("Batch library removal keeps the other library state")
+    func batchLibraryRemovalKeepsIndependentState() async throws {
+        let container = try ModelContainerFactory.make(inMemory: true)
+        let store = PersistenceStore(modelContainer: container)
+        let historyKey = GalleryKey(gid: 70, token: "history")
+        let favoriteKey = GalleryKey(gid: 71, token: "favorite")
+        let untouchedKey = GalleryKey(gid: 72, token: "untouched")
+
+        try await store.upsert([
+            GallerySummary(key: historyKey, title: "History"),
+            GallerySummary(key: favoriteKey, title: "Favorite"),
+            GallerySummary(key: untouchedKey, title: "Untouched")
+        ])
+        try await store.updateReadingProgress(for: historyKey, page: 4)
+        try await store.updateReadingProgress(for: favoriteKey, page: 2)
+        try await store.setFavorite(for: historyKey, isFavorite: true)
+        try await store.setFavorite(for: favoriteKey, isFavorite: true)
+        try await store.setFavorite(for: untouchedKey, isFavorite: true)
+
+        try await store.removeFromHistory(for: [historyKey])
+        #expect(try await store.recent().contains { $0.key == historyKey } == false)
+        #expect(try await store.readingPage(for: historyKey) == 0)
+        #expect(try await store.isFavorite(for: historyKey) == true)
+
+        try await store.removeFromFavorites(for: [favoriteKey])
+        #expect(try await store.favorites().contains { $0.key == favoriteKey } == false)
+        #expect(try await store.readingPage(for: favoriteKey) == 2)
+        #expect(try await store.favorites().contains { $0.key == untouchedKey })
+    }
+
     @Test("SwiftData persists resumable download pages and completion state")
     func downloadRoundTrip() async throws {
         let container = try ModelContainerFactory.make(inMemory: true)
