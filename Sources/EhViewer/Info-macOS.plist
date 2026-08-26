@@ -6,47 +6,6 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>EhViewer</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
-	<key>CFBundlePackageType</key>
-	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.entertainment</string>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>允许 EhViewer 将阅读器图片保存到照片</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>EhViewer 需要访问本地网络以在设备之间同步已下载的漫画。</string>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_ehviewer-sync._tcp</string>
-	</array>
-	<key>UILaunchScreen</key>
-	<dict/>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>CFBundleURLName</key>
-			<string>com.liao.ehviewer</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>ehviewer</string>
-			</array>
-		</dict>
-	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -74,18 +33,59 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.liao.ehviewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ehviewer</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.entertainment</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_ehviewer-sync._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>EhViewer 需要访问本地网络以在设备之间同步漫画。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>允许 EhViewer 将阅读器图片保存到照片</string>
+	<key>UILaunchScreen</key>
+	<dict/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.liao.ehviewer.gallerysync</string>
-			<key>UTTypeDescription</key>
-			<string>EhViewer Gallery Sync</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.zip-archive</string>
 				<string>public.content</string>
 			</array>
+			<key>UTTypeDescription</key>
+			<string>EhViewer Gallery Sync</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.liao.ehviewer.gallerysync</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
@@ -97,15 +97,15 @@
 			</dict>
 		</dict>
 		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.liao.ehviewer.downloadarchive</string>
-			<key>UTTypeDescription</key>
-			<string>EhViewer Download Archive</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.zip-archive</string>
 				<string>public.content</string>
 			</array>
+			<key>UTTypeDescription</key>
+			<string>EhViewer Download Archive</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.liao.ehviewer.downloadarchive</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

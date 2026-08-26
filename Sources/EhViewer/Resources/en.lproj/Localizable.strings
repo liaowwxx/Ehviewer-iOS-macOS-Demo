@@ -4,6 +4,11 @@
 "history_title" = "History";
 "favorites_title" = "Favorites";
 "settings_title" = "Settings";
+"站点&登录" = "Site & Login";
+"浏览&过滤" = "Browse & Filters";
+"存储管理" = "Storage Management";
+"数据备份&同步" = "Data Backup & Sync";
+"过滤" = "Filters";
 "home_title" = "Home";
 "subscriptions_title" = "Subscriptions";
 "popular_title" = "Popular";

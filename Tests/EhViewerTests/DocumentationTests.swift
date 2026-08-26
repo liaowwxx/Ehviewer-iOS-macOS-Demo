@@ -3,6 +3,11 @@ import Testing
 @testable import EhViewerPreview
 
 struct DocumentationTests {
+    @Test("Usage documentation opens the hosted guide")
+    func usageDocumentationURL() {
+        #expect(DocumentationWebsite.url?.absoluteString == "https://liaowwxx.github.io/Ehviewer-iOS-macOS-Demo/guide/")
+    }
+
     @Test("Markdown converts headings, lists, inline emphasis and links to HTML")
     func markdownRendersSafeHTML() {
         let renderer = MarkdownHTMLRenderer { destination in

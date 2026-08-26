@@ -33,7 +33,7 @@
 
 ## 使用说明
 
-- [在线使用说明](https://liaowwxx.github.io/Ehviewer-iOS-macOS-Demo/guide)
+- [在线使用说明](https://liaowwxx.github.io/Ehviewer-iOS-macOS-Demo/guide/)
 
 ## 许可
 

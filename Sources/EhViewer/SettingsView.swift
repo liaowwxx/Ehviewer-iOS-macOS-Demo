@@ -35,11 +35,13 @@ private enum FileImportKind {
     }
 }
 
-enum SettingsPage {
+enum SettingsPage: Equatable {
     case overview
-    case siteAndBrowsing
-    case account
+    case site
+    case login
+    case browsing
     case filters
+    case storageAndProgress
     case dataAndBackup
 }
 
@@ -71,19 +73,19 @@ struct SettingsView: View {
 
     private var settingsForm: some View {
         Form {
-            Section {
-                NavigationLink(value: AppRoute.settingsSiteAndBrowsing) {
+            Section("站点&登录") {
+                NavigationLink(value: AppRoute.settingsSite) {
                     SettingsNavigationLabel(
-                        "站点与浏览",
-                        systemImage: "slider.horizontal.3",
+                        "站点",
+                        systemImage: "globe",
                         detail: model.site.displayName
                     )
                 }
-                .accessibilityIdentifier("settings-site-and-browsing-link")
+                .accessibilityIdentifier("settings-site-link")
 
-                NavigationLink(value: AppRoute.settingsAccount) {
+                NavigationLink(value: AppRoute.settingsLogin) {
                     SettingsNavigationLabel(
-                        "账户与登录",
+                        "登录",
                         systemImage: model.isGuestMode ? "person.crop.circle" : "person.crop.circle.badge.checkmark",
                         detail: model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录")
                     )
@@ -92,14 +94,28 @@ struct SettingsView: View {
                 .accessibilityIdentifier("session-status")
                 .accessibilityLabel("会话状态")
                 .accessibilityValue(model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录"))
+            }
+
+            Section("浏览&过滤") {
+                NavigationLink(value: AppRoute.settingsBrowsing) {
+                    SettingsNavigationLabel("浏览", systemImage: "book.pages")
+                }
+                .accessibilityIdentifier("settings-browsing-link")
 
                 NavigationLink(value: AppRoute.settingsFilters) {
-                    SettingsNavigationLabel("过滤规则", systemImage: "line.3.horizontal.decrease.circle")
+                    SettingsNavigationLabel("过滤", systemImage: "line.3.horizontal.decrease.circle")
                 }
                 .accessibilityIdentifier("settings-filter-rules-link")
             }
 
-            Section("数据与设备") {
+            Section("存储管理") {
+                NavigationLink(value: AppRoute.settingsStorageAndProgress) {
+                    SettingsNavigationLabel("存储与进度", systemImage: "externaldrive")
+                }
+                .accessibilityIdentifier("settings-storage-and-progress-link")
+            }
+
+            Section("数据备份&同步") {
                 NavigationLink(value: AppRoute.settingsDataAndBackup) {
                     SettingsNavigationLabel("数据与备份", systemImage: "externaldrive.badge.icloud")
                 }
@@ -127,7 +143,7 @@ struct SettingsView: View {
         .navigationTitle("settings_title")
     }
 
-    private var siteAndBrowsingForm: some View {
+    private var siteForm: some View {
         @Bindable var model = model
         return Form {
             Section("站点") {
@@ -139,20 +155,15 @@ struct SettingsView: View {
                     }
                 }
                 .onChange(of: model.site) { _, _ in model.persistSettings() }
-                HStack {
-                    Label(
-                        model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录"),
-                        systemImage: model.isGuestMode ? "person" : "person.crop.circle.badge.checkmark"
-                    )
-                    Spacer()
-                    Text(model.isGuestMode ? String(localized: "公开内容") : String(localized: "账户会话"))
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("session-status")
-                .accessibilityLabel("会话状态")
-                .accessibilityValue(model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录"))
             }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("站点")
+    }
+
+    private var browsingForm: some View {
+        @Bindable var model = model
+        return Form {
             Section("浏览") {
                 Toggle("显示日文标题", isOn: $model.readingSettings.showJapaneseTitle)
                     .onChange(of: model.readingSettings.showJapaneseTitle) { _, _ in
@@ -165,6 +176,13 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier("show-tag-translations-toggle")
             }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("浏览")
+    }
+
+    private var storageAndProgressForm: some View {
+        Form {
             Section("存储与进度") {
                 Button("重置下载内容的阅读进度", systemImage: "arrow.counterclockwise", role: .destructive) {
                     showingDownloadReadingProgressResetConfirmation = true
@@ -200,10 +218,10 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("站点与浏览")
+        .navigationTitle("存储与进度")
     }
 
-    private var accountForm: some View {
+    private var loginForm: some View {
         Form {
             Section("会话") {
                 LabeledContent {
@@ -226,7 +244,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("账户与登录")
+        .navigationTitle("登录")
     }
 
     private var filterRulesForm: some View {
@@ -234,7 +252,7 @@ struct SettingsView: View {
             FilterRulesSection()
         }
         .formStyle(.grouped)
-        .navigationTitle("过滤规则")
+        .navigationTitle("过滤")
     }
 
     private var dataAndBackupForm: some View {
@@ -375,9 +393,13 @@ struct SettingsView: View {
             pendingArchiveSaveFile = nil
         }
 #endif
-        .task {
-            await model.refreshGalleryCacheUsage()
-            await model.loadFilterRules()
+        .task(id: page) {
+            if page == .storageAndProgress {
+                await model.refreshGalleryCacheUsage()
+            }
+            if page == .filters {
+                await model.loadFilterRules()
+            }
         }
     }
 
@@ -386,12 +408,16 @@ struct SettingsView: View {
         switch page {
         case .overview:
             settingsForm
-        case .siteAndBrowsing:
-            siteAndBrowsingForm
-        case .account:
-            accountForm
+        case .site:
+            siteForm
+        case .login:
+            loginForm
+        case .browsing:
+            browsingForm
         case .filters:
             filterRulesForm
+        case .storageAndProgress:
+            storageAndProgressForm
         case .dataAndBackup:
             dataAndBackupForm
         }

@@ -288,9 +288,11 @@ private struct CompactRootView: View {
             libraryMode = .favorites
             selection = .history
         case .settings,
-             .settingsSiteAndBrowsing,
-             .settingsAccount,
+             .settingsSite,
+             .settingsLogin,
+             .settingsBrowsing,
              .settingsFilters,
+             .settingsStorageAndProgress,
              .settingsDataAndBackup,
              .settingsDeviceSync:
             selection = .settings
@@ -399,12 +401,16 @@ struct DestinationView: View {
             LibraryView(mode: .favorites)
         case .settings:
             SettingsView()
-        case .settingsSiteAndBrowsing:
-            SettingsView(page: .siteAndBrowsing)
-        case .settingsAccount:
-            SettingsView(page: .account)
+        case .settingsSite:
+            SettingsView(page: .site)
+        case .settingsLogin:
+            SettingsView(page: .login)
+        case .settingsBrowsing:
+            SettingsView(page: .browsing)
         case .settingsFilters:
             SettingsView(page: .filters)
+        case .settingsStorageAndProgress:
+            SettingsView(page: .storageAndProgress)
         case .settingsDataAndBackup:
             SettingsView(page: .dataAndBackup)
         case .settingsDeviceSync:

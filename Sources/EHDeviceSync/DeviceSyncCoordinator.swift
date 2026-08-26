@@ -753,19 +753,12 @@ public final class DeviceSyncCoordinator {
         }
 
         publishProgress(phase: .verifying, force: true)
-        let (finalManifest, _) = try await verifyLocalTransferState()
-        publishProgress(phase: .comparingResults, force: true)
-        try await wire.send(.manifest, payload: try encodeControl(finalManifest))
-        let peerFinal: DeviceSyncManifest = try decodeControl(try await wire.receivePayload(expected: .manifest))
-        let finalPlan = DeviceSyncReconciler.plan(local: finalManifest, remote: peerFinal)
-        if finalPlan.receiveGalleries.isEmpty && finalPlan.sendGalleries.isEmpty
-            && finalPlan.receivePages.isEmpty && finalPlan.sendPages.isEmpty
-            && finalPlan.receiveMetadata.isEmpty && finalPlan.sendMetadata.isEmpty {
-            state = .completed(result(for: plan))
-        } else {
-            currentPlan = finalPlan
-            state = .awaitingSyncConfirmation(DeviceSyncPreview(plan: finalPlan))
-        }
+        // Each device validates its own files and download state locally. Do
+        // not exchange a second manifest here: the transport phase already
+        // exchanged per-gallery results, and waiting for a peer final manifest
+        // can leave both devices blocked when either side has already failed.
+        _ = try await verifyLocalTransferState()
+        state = .completed(result(for: plan))
     }
 
     private func sendPlannedData(plan: DeviceSyncPlan, wire: DeviceSyncWireConnection) async throws {
