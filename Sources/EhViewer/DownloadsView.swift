@@ -37,14 +37,86 @@ private enum DownloadDeletionConfirmation: Identifiable {
     }
 }
 
+private struct DownloadVisibleJobsCacheKey: Equatable {
+    let jobsRevision: Int
+    let summariesRevision: Int
+    let page: DownloadsPage
+    let searchText: String
+    let statusFilter: String
+    let categoryFilter: [String]
+    let sortOrder: String
+}
+
+/// Keeps selection changes from re-running the complete filtering and sorting
+/// pipeline for every body evaluation. Selection is intentionally not part of
+/// this key: it changes row affordances, not which jobs are visible.
+private final class DownloadVisibleJobsCache {
+    private var key: DownloadVisibleJobsCacheKey?
+    private var cachedJobs: [DownloadJob] = []
+    private(set) var revision = 0
+
+    func value(
+        jobs: [DownloadJob],
+        jobsRevision: Int,
+        summariesRevision: Int,
+        page: DownloadsPage,
+        searchText: String,
+        statusFilter: DownloadStatusFilter,
+        categoryFilter: Set<GalleryCategory>,
+        sortOrder: DownloadSortOrder,
+        downloadSummaries: [GalleryKey: GallerySummary],
+        localSearchSummaries: [GalleryKey: GallerySummary],
+        localizedTag: (String) -> String
+    ) -> [DownloadJob] {
+        let newKey = DownloadVisibleJobsCacheKey(
+            jobsRevision: jobsRevision,
+            summariesRevision: summariesRevision,
+            page: page,
+            searchText: searchText,
+            statusFilter: statusFilter.rawValue,
+            categoryFilter: categoryFilter.map(\.rawValue).sorted(),
+            sortOrder: sortOrder.rawValue
+        )
+        guard key != newKey else { return cachedJobs }
+
+        key = newKey
+        cachedJobs = jobs
+            .filter { page.contains($0) }
+            .filter { page == .local || statusFilter.matches($0.state) }
+            .filter { job in
+                guard categoryFilter != Set(GalleryCategory.allCases) else { return true }
+                guard let category = downloadSummaries[job.key]?.category,
+                      let galleryCategory = GalleryCategory(rawValue: category) else {
+                    return false
+                }
+                return categoryFilter.contains(galleryCategory)
+            }
+            .filter { job in
+                job.matchesSearch(
+                    query: searchText,
+                    summary: page == .local ? localSearchSummaries[job.key] : nil,
+                    localizedTag: localizedTag
+                )
+            }
+            .sorted {
+                sortOrder.areInIncreasingOrder($0, $1, summaries: downloadSummaries)
+            }
+        revision &+= 1
+        return cachedJobs
+    }
+}
+
 struct DownloadsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let page: DownloadsPage
     @State private var jobs: [DownloadJob] = []
     @State private var hasLoadedJobs = false
+    @State private var jobsRevision = 0
     @State private var localSearchSummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var downloadGallerySummariesByKey: [GalleryKey: GallerySummary] = [:]
+    @State private var summariesRevision = 0
+    @State private var visibleJobsCache = DownloadVisibleJobsCache()
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
     @State private var submittedSearchText = ""
@@ -77,39 +149,24 @@ struct DownloadsView: View {
     }
 
     private var visibleJobs: [DownloadJob] {
-        pageJobs
-            .filter { page == .local || model.downloadStatusFilter.matches($0.state) }
-            .filter(matchesDownloadFilters)
-            .filter(matchesSearch)
-            .sorted {
-                effectiveSortOrder.areInIncreasingOrder(
-                    $0,
-                    $1,
-                    summaries: downloadGallerySummariesByKey
-                )
-            }
+        visibleJobsCache.value(
+            jobs: jobs,
+            jobsRevision: jobsRevision,
+            summariesRevision: summariesRevision,
+            page: page,
+            searchText: submittedSearchText,
+            statusFilter: model.downloadStatusFilter,
+            categoryFilter: model.downloadCategoryFilter,
+            sortOrder: effectiveSortOrder,
+            downloadSummaries: downloadGallerySummariesByKey,
+            localSearchSummaries: localSearchSummariesByKey,
+            localizedTag: model.displayTag
+        )
     }
 
     private var needsDownloadGallerySummaries: Bool {
         effectiveSortOrder == .rating
             || model.downloadCategoryFilter != Set(GalleryCategory.allCases)
-    }
-
-    private func matchesDownloadFilters(_ job: DownloadJob) -> Bool {
-        guard model.downloadCategoryFilter != Set(GalleryCategory.allCases) else { return true }
-        guard let category = downloadGallerySummariesByKey[job.key]?.category,
-              let galleryCategory = GalleryCategory(rawValue: category) else {
-            return false
-        }
-        return model.downloadCategoryFilter.contains(galleryCategory)
-    }
-
-    private func matchesSearch(_ job: DownloadJob) -> Bool {
-        job.matchesSearch(
-            query: submittedSearchText,
-            summary: page == .local ? localSearchSummariesByKey[job.key] : nil,
-            localizedTag: model.displayTag
-        )
     }
 
     private var availableSortOrders: [DownloadSortOrder] {
@@ -335,6 +392,7 @@ struct DownloadsView: View {
         }
         .task(id: "\(model.isLoadingDownloads)-\(page.rawValue)") {
             jobs = await model.downloads.snapshot()
+            jobsRevision &+= 1
             hasLoadedJobs = true
         }
         .task(id: localSearchTaskID) {
@@ -478,29 +536,26 @@ struct DownloadsView: View {
               submittedSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return "local-search-disabled"
         }
-        return "revision=\(model.localLibraryRevision)|" + pageJobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
-            .sorted()
-            .joined(separator: "\u{1E}")
+        return "jobs=\(jobsRevision)|library=\(model.localLibraryRevision)|query=\(submittedSearchText)"
     }
 
     private var downloadGallerySummaryTaskID: String {
         guard needsDownloadGallerySummaries else { return "download-summary-disabled" }
-        return "revision=\(model.localLibraryRevision)|" + pageJobs.map { "\($0.key.id)|\($0.title)|\($0.tags.joined(separator: "\u{1F}"))" }
-            .sorted()
-            .joined(separator: "\u{1E}")
-            + "|sort=\(effectiveSortOrder.rawValue)|categories=\(model.downloadCategoryFilter.map(\.rawValue).sorted().joined(separator: ","))"
+        return "jobs=\(jobsRevision)|library=\(model.localLibraryRevision)|sort=\(effectiveSortOrder.rawValue)|categories=\(model.downloadCategoryFilter.map(\.rawValue).sorted().joined(separator: ","))"
     }
 
     private func loadLocalSearchSummaries() async {
         guard page == .local,
               submittedSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             localSearchSummariesByKey = [:]
+            summariesRevision &+= 1
             return
         }
 
         let keys = Set(pageJobs.map(\.key))
         guard keys.isEmpty == false else {
             localSearchSummariesByKey = [:]
+            summariesRevision &+= 1
             return
         }
 
@@ -510,16 +565,19 @@ struct DownloadsView: View {
             summaries.map { ($0.key, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        summariesRevision &+= 1
     }
 
     private func loadDownloadGallerySummaries() async {
         guard needsDownloadGallerySummaries else {
             downloadGallerySummariesByKey = [:]
+            summariesRevision &+= 1
             return
         }
         let keys = Set(pageJobs.map(\.key))
         guard keys.isEmpty == false else {
             downloadGallerySummariesByKey = [:]
+            summariesRevision &+= 1
             return
         }
         let summaries = await model.localGallerySummaries(for: keys)
@@ -528,30 +586,41 @@ struct DownloadsView: View {
             summaries.map { ($0.key, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        summariesRevision &+= 1
     }
 
     private func apply(_ event: DownloadEvent) {
+        var didChange = false
         switch event {
         case .reset(let restoredJobs):
             jobs = restoredJobs
             hasLoadedJobs = true
+            didChange = true
         case .changed(let changedJob):
             if page == .local, changedJob.state != .completed,
                let index = jobs.firstIndex(where: { $0.key == changedJob.key }) {
                 guard jobs[index].state == .completed else { return }
                 jobs[index] = changedJob
-                return
-            }
-            if let index = jobs.firstIndex(where: { $0.key == changedJob.key }) {
+                didChange = true
+            } else if let index = jobs.firstIndex(where: { $0.key == changedJob.key }) {
                 jobs[index] = changedJob
+                didChange = true
             } else {
                 jobs.append(changedJob)
+                didChange = true
             }
         case .removed(let key):
+            let oldCount = jobs.count
             jobs.removeAll { $0.key == key }
+            didChange = jobs.count != oldCount
         case .removedMany(let keys):
             let keySet = Set(keys)
+            let oldCount = jobs.count
             jobs.removeAll { keySet.contains($0.key) }
+            didChange = jobs.count != oldCount
+        }
+        if didChange {
+            jobsRevision &+= 1
         }
     }
 
@@ -576,15 +645,17 @@ struct DownloadsView: View {
     }
 
     private func toggleSelectAll() {
-        if selectedKeys.count == visibleJobs.count {
+        let jobs = visibleJobs
+        if selectedKeys.count == jobs.count {
             selectedKeys.removeAll()
         } else {
-            selectedKeys.formUnion(visibleJobs.map(\.key))
+            selectedKeys.formUnion(jobs.map(\.key))
         }
     }
 
     private var selectAllTitle: String {
-        selectedKeys.count == visibleJobs.count && visibleJobs.isEmpty == false
+        let jobs = visibleJobs
+        return selectedKeys.count == jobs.count && jobs.isEmpty == false
             ? String(localized: "取消全选")
             : String(localized: "全选")
     }
@@ -701,9 +772,10 @@ struct DownloadsView: View {
     @ViewBuilder
     private var downloadsList: some View {
         if page == .local {
+            let localJobs = visibleJobs
             LocalDownloadsList(
-                jobs: visibleJobs,
-                revision: model.localLibraryRevision,
+                jobs: localJobs,
+                revision: visibleJobsCache.revision,
                 isSelectionMode: isSelectionMode,
                 selectedKeys: selectedKeys,
                 bulkRemovalInProgress: bulkRemovalProgress != nil,
@@ -721,9 +793,10 @@ struct DownloadsView: View {
             )
         } else {
 #if os(macOS)
+            let jobs = visibleJobs
             ScrollView {
                 LazyVStack(spacing: 6) {
-                    ForEach(visibleJobs) { job in
+                    ForEach(jobs) { job in
                         listCard(for: job)
                     }
                 }
@@ -732,7 +805,8 @@ struct DownloadsView: View {
             }
             .background(.secondary.opacity(0.08))
 #else
-            List(visibleJobs) { job in
+            let jobs = visibleJobs
+            List(jobs) { job in
                 listCard(for: job)
                     .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                     .listRowSeparator(.hidden)
@@ -797,6 +871,7 @@ struct DownloadsView: View {
                         labelInput = job.label ?? ""
                         editingJob = job
                     }
+                    .equatable()
                 }
             }
             .padding(gridSpacing)
@@ -1209,9 +1284,7 @@ private struct LocalDownloadsList: View {
             }
     }
 
-    private var localJobsTaskID: String {
-        "\(revision)-" + jobs.map { $0.key.id }.sorted().joined(separator: "|")
-    }
+    private var localJobsTaskID: Int { revision }
 
     @ViewBuilder
     private var scrollContent: some View {
@@ -1252,6 +1325,7 @@ private struct LocalDownloadsList: View {
             remove: { remove(job) },
             removeImmediately: { removeImmediately(job) }
         )
+        .equatable()
     }
 
     private func loadLocalSummaries() async {
@@ -1451,7 +1525,7 @@ enum DownloadsLayoutMode: String, CaseIterable, Identifiable {
     }
 }
 
-private struct LocalDownloadCard: View {
+private struct LocalDownloadCard: View, Equatable {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
     let gallery: GallerySummary
@@ -1462,6 +1536,13 @@ private struct LocalDownloadCard: View {
     let openReader: () -> Void
     let remove: () -> Void
     let removeImmediately: () -> Void
+
+    nonisolated static func == (lhs: LocalDownloadCard, rhs: LocalDownloadCard) -> Bool {
+        lhs.job == rhs.job
+            && lhs.gallery == rhs.gallery
+            && lhs.isSelectionMode == rhs.isSelectionMode
+            && lhs.isSelected == rhs.isSelected
+    }
 
     var body: some View {
         Group {
@@ -1853,7 +1934,7 @@ private struct DownloadCard: View {
     }
 }
 
-private struct DownloadGridCard: View {
+private struct DownloadGridCard: View, Equatable {
     @Environment(AppModel.self) private var model
     let job: DownloadJob
     let isSelectionMode: Bool
@@ -1864,6 +1945,12 @@ private struct DownloadGridCard: View {
     let redownload: () -> Void
     let remove: () -> Void
     let label: () -> Void
+
+    nonisolated static func == (lhs: DownloadGridCard, rhs: DownloadGridCard) -> Bool {
+        lhs.job == rhs.job
+            && lhs.isSelectionMode == rhs.isSelectionMode
+            && lhs.isSelected == rhs.isSelected
+    }
 
     var body: some View {
         Group {
