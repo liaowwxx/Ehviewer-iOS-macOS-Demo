@@ -47,10 +47,7 @@ struct DownloadsView: View {
     @State private var downloadGallerySummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
-    @State private var searchText = ""
     @State private var submittedSearchText = ""
-    @State private var suppressNextSearchSubmission = false
-    @State private var suppressSearchSuggestions = false
     @State private var showingDownloadManagementSheet = false
     @State private var showingDownloadCategoryFilter = false
     @State private var deletionConfirmation: DownloadDeletionConfirmation?
@@ -130,7 +127,11 @@ struct DownloadsView: View {
 
     var body: some View {
         @Bindable var model = model
-        content
+        DownloadSearchContainer(
+            submittedSearchText: $submittedSearchText
+        ) {
+            content
+        }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let progress = bulkRemovalProgress {
                     bulkRemovalProgressView(progress)
@@ -236,13 +237,6 @@ struct DownloadsView: View {
     private var content: some View {
         @Bindable var model = model
         return VStack(spacing: 0) {
-            if searchText.isEmpty == false {
-                SearchTagChipBar(query: searchText) { updatedQuery in
-                    searchText = updatedQuery
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-            }
             Group {
                 if hasLoadedJobs == false || model.isLoadingDownloads {
                     ProgressView("正在加载下载内容…")
@@ -263,37 +257,11 @@ struct DownloadsView: View {
                 }
             }
         }
-        .overlay(alignment: .topTrailing) {
-            GeometryReader { proxy in
-                DownloadSearchSuggestionOverlay(
-                    query: searchText,
-                    isSuppressed: suppressSearchSuggestions,
-                    onSelectTag: selectTagSuggestion
-                )
-                .frame(width: min(560, max(0, proxy.size.width - 24)))
-                .padding(.top, 8)
-                .padding(.trailing, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            }
-            .zIndex(100)
-        }
         .navigationTitle(page == .downloading ? "downloads_title" : "本地")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
         .tint(AppTheme.accent)
-        .searchable(text: $searchText, placement: .toolbar, prompt: "搜索下载标题或标签")
-        .onSubmit(of: .search, submitSearch)
-        .onChange(of: searchText) { _, newValue in
-            let normalized = SearchQueryComposer.normalized(newValue)
-            if normalized.isEmpty {
-                submittedSearchText = ""
-                suppressNextSearchSubmission = false
-                suppressSearchSuggestions = false
-            } else if normalized != submittedSearchText {
-                suppressSearchSuggestions = false
-            }
-        }
         .toolbar {
             if isSelectionMode {
 #if os(macOS)
@@ -560,26 +528,6 @@ struct DownloadsView: View {
             summaries.map { ($0.key, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-    }
-
-    private func selectTagSuggestion(_ tag: String) {
-        suppressNextSearchSubmission = true
-        suppressSearchSuggestions = false
-        searchText = SearchQueryComposer.completing(tag: tag, in: searchText)
-        Task { @MainActor in
-            await Task.yield()
-            suppressNextSearchSubmission = false
-        }
-    }
-
-    private func submitSearch() {
-        guard suppressNextSearchSubmission == false else {
-            suppressNextSearchSubmission = false
-            return
-        }
-        suppressSearchSuggestions = true
-        submittedSearchText = SearchQueryComposer.normalized(searchText)
-        searchText = submittedSearchText
     }
 
     private func apply(_ event: DownloadEvent) {
@@ -1077,6 +1025,73 @@ private struct DownloadCategoryFilterView: View {
     }
 }
 
+private struct DownloadSearchContainer<Content: View>: View {
+    @Binding var submittedSearchText: String
+    @ViewBuilder let content: Content
+    @State private var searchText = ""
+    @State private var suppressNextSearchSubmission = false
+    @State private var suppressSearchSuggestions = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if searchText.isEmpty == false {
+                SearchTagChipBar(query: searchText) { updatedQuery in
+                    searchText = updatedQuery
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            content
+        }
+        .overlay(alignment: .topTrailing) {
+            GeometryReader { proxy in
+                DownloadSearchSuggestionOverlay(
+                    query: searchText,
+                    isSuppressed: suppressSearchSuggestions,
+                    onSelectTag: selectTagSuggestion
+                )
+                .frame(width: min(560, max(0, proxy.size.width - 24)))
+                .padding(.top, 8)
+                .padding(.trailing, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
+            .zIndex(100)
+        }
+        .searchable(text: $searchText, placement: .toolbar, prompt: "搜索下载标题或标签")
+        .onSubmit(of: .search, submitSearch)
+        .onChange(of: searchText) { _, newValue in
+            let normalized = SearchQueryComposer.normalized(newValue)
+            if normalized.isEmpty {
+                submittedSearchText = ""
+                suppressNextSearchSubmission = false
+                suppressSearchSuggestions = false
+            } else if normalized != submittedSearchText {
+                suppressSearchSuggestions = false
+            }
+        }
+    }
+
+    private func selectTagSuggestion(_ tag: String) {
+        suppressNextSearchSubmission = true
+        suppressSearchSuggestions = false
+        searchText = SearchQueryComposer.completing(tag: tag, in: searchText)
+        Task { @MainActor in
+            await Task.yield()
+            suppressNextSearchSubmission = false
+        }
+    }
+
+    private func submitSearch() {
+        guard suppressNextSearchSubmission == false else {
+            suppressNextSearchSubmission = false
+            return
+        }
+        suppressSearchSuggestions = true
+        submittedSearchText = SearchQueryComposer.normalized(searchText)
+        searchText = submittedSearchText
+    }
+}
+
 private struct DownloadSearchSuggestionOverlay: View {
     @Environment(\.isSearching) private var isSearching
     let query: String
@@ -1140,7 +1155,7 @@ private struct DownloadSearchSuggestionPanel: View {
         }
 
         do {
-            try await Task.sleep(for: .milliseconds(120))
+            await Task.yield()
             try Task.checkCancellation()
             let loadedTags = await model.filterTagSuggestions(for: fragment, limit: 20)
             try Task.checkCancellation()
