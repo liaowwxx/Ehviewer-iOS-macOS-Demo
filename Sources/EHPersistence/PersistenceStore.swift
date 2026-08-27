@@ -1368,16 +1368,17 @@ public actor PersistenceStore {
             .sorted { $0.key.id < $1.key.id }
     }
 
-    /// Reads only the requested local gallery records. The local scrolling
-    /// page calls this with its visible window, so it must not scan and
-    /// materialize the entire gallery cache like the transfer-oriented query
-    /// above does.
+    /// Reads only requested entries from the separate downloaded-metadata
+    /// table. Fetching that bounded table once avoids one SwiftData query per
+    /// local-gallery card without touching the ordinary gallery cache.
     public func localGallerySummaries(for keys: Set<GalleryKey>) throws -> [GallerySummary] {
         guard keys.isEmpty == false else { return [] }
-        return try keys.sorted { $0.id < $1.id }.compactMap { key in
-            guard let record = try downloadedMetadataRecord(for: key) else { return nil }
-            return try downloadedSummary(from: record)
-        }
+        return try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>())
+            .compactMap { record in
+                guard keys.contains(record.key) else { return nil }
+                return try downloadedSummary(from: record)
+            }
+            .sorted { $0.key.id < $1.key.id }
     }
 
     public func downloadedGallerySummary(for key: GalleryKey) throws -> GallerySummary? {

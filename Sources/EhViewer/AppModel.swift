@@ -831,8 +831,8 @@ final class AppModel {
         }
     }
 
-    /// Decodes a completed local page without reading or writing the browsing
-    /// thumbnail cache. Missing local media remains missing in the local UI.
+    /// Loads a completed local page through the persistent thumbnail cache.
+    /// Missing local media remains missing in the local UI.
     func coverImage(
         for job: DownloadJob,
         maxPixelSize: Int
@@ -841,7 +841,7 @@ final class AppModel {
             job.completedPageIndexes.contains($0.index)
         })?.index else { return nil }
         let url = await downloadFiles.finalURL(for: job.key, pageIndex: pageIndex)
-        return await GalleryCoverLoader.shared.transientImage(
+        return await GalleryCoverLoader.shared.localImage(
             fileURL: url,
             maxPixelSize: maxPixelSize
         )
@@ -855,7 +855,7 @@ final class AppModel {
     ) async throws -> CGImage? {
         if let localPage {
             let url = await downloadFiles.finalURL(for: key, pageIndex: localPage.index)
-            return await GalleryCoverLoader.shared.transientImage(
+            return await GalleryCoverLoader.shared.localImage(
                 fileURL: url,
                 maxPixelSize: maxPixelSize
             )

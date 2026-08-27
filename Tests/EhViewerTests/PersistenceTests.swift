@@ -270,4 +270,26 @@ struct PersistenceTests {
         #expect(try await store.localGallerySummaries(for: [key]).isEmpty)
         #expect(try await store.stableSnapshot(for: key)?.title == "在线缓存标题")
     }
+
+    @Test("Local gallery summary batch returns only requested downloaded metadata")
+    func localGallerySummaryBatchFiltersRequestedKeys() async throws {
+        let store = PersistenceStore(modelContainer: try ModelContainerFactory.make(inMemory: true))
+        let requested = GalleryKey(gid: 94, token: "requested")
+        let unrequested = GalleryKey(gid: 95, token: "unrequested")
+        try await store.promoteToDownloadedGallery(stable: StableGalleryMetadataSnapshot(
+            key: requested,
+            sourceSite: .eHentai,
+            title: "Requested local gallery"
+        ))
+        try await store.promoteToDownloadedGallery(stable: StableGalleryMetadataSnapshot(
+            key: unrequested,
+            sourceSite: .eHentai,
+            title: "Unrequested local gallery"
+        ))
+
+        let summaries = try await store.localGallerySummaries(for: [requested])
+
+        #expect(summaries.map(\.key) == [requested])
+        #expect(summaries.first?.title == "Requested local gallery")
+    }
 }

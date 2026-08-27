@@ -113,7 +113,7 @@ struct DownloadsView: View {
     @State private var jobs: [DownloadJob] = []
     @State private var hasLoadedJobs = false
     @State private var jobsRevision = 0
-    @State private var localSearchSummariesByKey: [GalleryKey: GallerySummary] = [:]
+    @State private var localGallerySummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var downloadGallerySummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var summariesRevision = 0
     @State private var visibleJobsCache = DownloadVisibleJobsCache()
@@ -158,8 +158,10 @@ struct DownloadsView: View {
             statusFilter: model.downloadStatusFilter,
             categoryFilter: model.downloadCategoryFilter,
             sortOrder: effectiveSortOrder,
-            downloadSummaries: downloadGallerySummariesByKey,
-            localSearchSummaries: localSearchSummariesByKey,
+            downloadSummaries: page == .local
+                ? localGallerySummariesByKey
+                : downloadGallerySummariesByKey,
+            localSearchSummaries: localGallerySummariesByKey,
             localizedTag: model.displayTag
         )
     }
@@ -390,13 +392,17 @@ struct DownloadsView: View {
 #endif
             }
         }
-        .task(id: "\(model.isLoadingDownloads)-\(page.rawValue)") {
+        .task(id: "\(model.isLoadingDownloads)-\(page.rawValue)", priority: .utility) {
+            guard hasLoadedJobs == false || model.isLoadingDownloads else { return }
+            await Task.yield()
+            guard Task.isCancelled == false else { return }
             jobs = await model.downloads.snapshot()
+            guard Task.isCancelled == false else { return }
             jobsRevision &+= 1
             hasLoadedJobs = true
         }
-        .task(id: localSearchTaskID) {
-            await loadLocalSearchSummaries()
+        .task(id: localGallerySummaryTaskID, priority: .utility) {
+            await loadLocalGallerySummaries()
         }
         .task(id: downloadGallerySummaryTaskID) {
             await loadDownloadGallerySummaries()
@@ -531,37 +537,30 @@ struct DownloadsView: View {
         )
     }
 
-    private var localSearchTaskID: String {
-        guard page == .local,
-              submittedSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            return "local-search-disabled"
-        }
-        return "jobs=\(jobsRevision)|library=\(model.localLibraryRevision)|query=\(submittedSearchText)"
+    private var localGallerySummaryTaskID: String {
+        guard page == .local else { return "local-summary-disabled" }
+        return "jobs=\(jobsRevision)|library=\(model.localLibraryRevision)"
     }
 
     private var downloadGallerySummaryTaskID: String {
-        guard needsDownloadGallerySummaries else { return "download-summary-disabled" }
+        guard page != .local, needsDownloadGallerySummaries else { return "download-summary-disabled" }
         return "jobs=\(jobsRevision)|library=\(model.localLibraryRevision)|sort=\(effectiveSortOrder.rawValue)|categories=\(model.downloadCategoryFilter.map(\.rawValue).sorted().joined(separator: ","))"
     }
 
-    private func loadLocalSearchSummaries() async {
-        guard page == .local,
-              submittedSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            localSearchSummariesByKey = [:]
-            summariesRevision &+= 1
-            return
-        }
-
+    private func loadLocalGallerySummaries() async {
+        guard page == .local else { return }
+        await Task.yield()
+        guard Task.isCancelled == false else { return }
         let keys = Set(pageJobs.map(\.key))
         guard keys.isEmpty == false else {
-            localSearchSummariesByKey = [:]
+            localGallerySummariesByKey = [:]
             summariesRevision &+= 1
             return
         }
 
         let summaries = await model.localGallerySummaries(for: keys)
         guard Task.isCancelled == false else { return }
-        localSearchSummariesByKey = Dictionary(
+        localGallerySummariesByKey = Dictionary(
             summaries.map { ($0.key, $0) },
             uniquingKeysWith: { first, _ in first }
         )
@@ -569,7 +568,7 @@ struct DownloadsView: View {
     }
 
     private func loadDownloadGallerySummaries() async {
-        guard needsDownloadGallerySummaries else {
+        guard page != .local, needsDownloadGallerySummaries else {
             downloadGallerySummariesByKey = [:]
             summariesRevision &+= 1
             return
@@ -775,7 +774,7 @@ struct DownloadsView: View {
             let localJobs = visibleJobs
             LocalDownloadsList(
                 jobs: localJobs,
-                revision: visibleJobsCache.revision,
+                gallerySummariesByKey: localGallerySummariesByKey,
                 isSelectionMode: isSelectionMode,
                 selectedKeys: selectedKeys,
                 bulkRemovalInProgress: bulkRemovalProgress != nil,
@@ -1266,7 +1265,7 @@ private struct LocalDownloadsList: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let jobs: [DownloadJob]
-    let revision: Int
+    let gallerySummariesByKey: [GalleryKey: GallerySummary]
     let isSelectionMode: Bool
     let selectedKeys: Set<GalleryKey>
     let bulkRemovalInProgress: Bool
@@ -1276,16 +1275,9 @@ private struct LocalDownloadsList: View {
     let remove: (DownloadJob) -> Void
     let removeImmediately: (DownloadJob) -> Void
 
-    @State private var localSummariesByKey: [GalleryKey: GallerySummary] = [:]
-
     var body: some View {
         scrollContent
-            .task(id: localJobsTaskID) {
-                await loadLocalSummaries()
-            }
     }
-
-    private var localJobsTaskID: Int { revision }
 
     @ViewBuilder
     private var scrollContent: some View {
@@ -1331,19 +1323,8 @@ private struct LocalDownloadsList: View {
         .equatable()
     }
 
-    private func loadLocalSummaries() async {
-        let keys = Set(jobs.map(\.key))
-        guard keys.isEmpty == false else { return }
-        let summaries = await model.localGallerySummaries(for: keys)
-        guard Task.isCancelled == false else { return }
-        localSummariesByKey = Dictionary(
-            summaries.map { ($0.key, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-    }
-
     private func localGallerySummary(for job: DownloadJob) -> GallerySummary {
-        guard var summary = localSummariesByKey[job.key] else {
+        guard var summary = gallerySummariesByKey[job.key] else {
             return GallerySummary(
                 key: job.key,
                 title: job.title,
