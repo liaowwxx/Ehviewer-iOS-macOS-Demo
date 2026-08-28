@@ -30,7 +30,7 @@ struct LibraryView: View {
 
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var selectedMode: Mode
+    private let mode: Mode
     @State private var isSelectionMode = false
     @State private var selectedKeys: Set<GalleryKey> = []
     @State private var deletionConfirmation: LibraryDeletionConfirmation?
@@ -42,14 +42,14 @@ struct LibraryView: View {
     @State private var bulkDownloadFailureCount = 0
 
     init(mode: Mode = .history) {
-        _selectedMode = State(initialValue: mode)
+        self.mode = mode
     }
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 4) {
                 HStack {
-                    Text(selectedMode == .history ? "最近阅读" : "本地收藏")
+                    Text(mode == .history ? "最近阅读" : "本地收藏")
                         .font(.headline)
                     Spacer(minLength: 0)
                 }
@@ -65,7 +65,7 @@ struct LibraryView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
         }
-        .navigationTitle(selectedMode == .history ? "history_title" : "favorites_title")
+        .navigationTitle(mode == .history ? "history_title" : "favorites_title")
         .toolbar {
             if isSelectionMode {
 #if os(macOS)
@@ -103,7 +103,7 @@ struct LibraryView: View {
                     )
                     Button(role: .destructive) {
                         deletionConfirmation = LibraryDeletionConfirmation(
-                            mode: selectedMode,
+                            mode: mode,
                             count: selectedKeys.count
                         )
                     } label: {
@@ -112,7 +112,7 @@ struct LibraryView: View {
                     .disabled(selectedKeys.isEmpty)
                 }
             } else {
-                if selectedMode == .favorites {
+                if mode == .favorites {
                     ToolbarItem(placement: .primaryAction) {
                         favoriteDownloadToolbarButton
                     }
@@ -130,10 +130,6 @@ struct LibraryView: View {
                     ToolbarItem(placement: .primaryAction) {
                         selectionToolbarButton
                     }
-
-                    ToolbarItem(placement: .automatic) {
-                        libraryModePicker
-                    }
                 }
 #endif
             }
@@ -142,7 +138,7 @@ struct LibraryView: View {
             if items.isEmpty {
                 ContentUnavailableView(
                     "暂无记录",
-                    systemImage: selectedMode == .history ? "clock" : "heart"
+                    systemImage: mode == .history ? "clock" : "heart"
                 )
             }
         }
@@ -163,14 +159,11 @@ struct LibraryView: View {
         } message: {
             Text("有 \(bulkDownloadFailureCount) 项无法加载下载所需的画廊信息，可稍后再次尝试。")
         }
-        .onChange(of: selectedMode) { _, _ in
-            exitSelectionMode()
-        }
-        .task(id: selectedMode) {
+        .task(id: mode) {
             downloadedJobs = [:]
             downloadedJobsReady = false
             libraryKeys = []
-            await model.loadLibrary(mode: selectedMode)
+            await model.loadLibrary(mode: mode)
             guard Task.isCancelled == false else { return }
 
             let libraryKeys = Set(items.map(\.key))
@@ -183,7 +176,7 @@ struct LibraryView: View {
             )
             downloadedJobsReady = true
 
-            guard selectedMode == .history else {
+            guard mode == .history else {
                 readingPages = [:]
                 return
             }
@@ -203,20 +196,11 @@ struct LibraryView: View {
     }
 
     private var items: [GallerySummary] {
-        selectedMode == .history ? model.historyGalleries : model.favoriteGalleries
+        mode == .history ? model.historyGalleries : model.favoriteGalleries
     }
 
     private var selectAllTitle: String {
         selectedKeys.count == items.count && items.isEmpty == false ? "取消全选" : "全选"
-    }
-
-    private var libraryModePicker: some View {
-        Picker("资料库", selection: $selectedMode) {
-            Text("history_title").tag(Mode.history)
-            Text("favorites_title").tag(Mode.favorites)
-        }
-        .pickerStyle(.segmented)
-        .frame(minWidth: 220, maxWidth: .infinity)
     }
 
     private var selectionToolbarButton: some View {
@@ -254,7 +238,7 @@ struct LibraryView: View {
     }
 
     private var undownloadedFavoriteCount: Int {
-        guard selectedMode == .favorites else { return 0 }
+        guard mode == .favorites else { return 0 }
         return undownloadedCount(in: items)
     }
 
@@ -280,7 +264,7 @@ struct LibraryView: View {
     private func libraryRow(for gallery: GallerySummary) -> LibraryGalleryRow {
         LibraryGalleryRow(
             gallery: gallery,
-            supplementalText: selectedMode == .history ? progressText(for: gallery) : nil,
+            supplementalText: mode == .history ? progressText(for: gallery) : nil,
             localJob: downloadedJobs[gallery.key],
             localMediaResolved: downloadedJobsReady,
             downloadStatus: downloadedJobsReady
@@ -296,7 +280,7 @@ struct LibraryView: View {
     }
 
     private func downloadUndownloadedFavorites() {
-        guard selectedMode == .favorites,
+        guard mode == .favorites,
               bulkDownloadProgress == nil,
               downloadedJobsReady,
               undownloadedFavoriteCount > 0 else {

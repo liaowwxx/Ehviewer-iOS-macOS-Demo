@@ -22,8 +22,12 @@ struct DeviceSyncView: View {
             .onAppear { model.deviceSync.start() }
             .onDisappear { model.deviceSync.stop() }
             .onChange(of: model.deviceSync.state) { _, state in
-                guard case .completed(_) = state else { return }
-                Task { await model.refreshDownloadsAfterDeviceSync() }
+                switch state {
+                case .completed(_), .cancelled(_), .interrupted(_):
+                    Task { await model.refreshDownloadsAfterDeviceSync() }
+                default:
+                    break
+                }
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background {
@@ -307,7 +311,9 @@ struct DeviceSyncView: View {
         } description: {
             VStack(spacing: 8) {
                 Text(interruption.reason)
-                Text("已保留 \(interruption.completedGalleryCount) 本；已回滚当前画廊 \(interruption.rolledBackGalleryCount) 本。重新连接后会重新比对，只补传缺失内容。")
+                Text("计划：发送 \(interruption.result.plannedSentGalleryCount) 本，接收 \(interruption.result.plannedReceivedGalleryCount) 本。")
+                Text("实际完整提交：发送 \(interruption.result.sentGalleryCount) 本 / \(interruption.result.sentPageCount) 页，接收 \(interruption.result.receivedGalleryCount) 本 / \(interruption.result.receivedPageCount) 页。")
+                Text("已完整处理 \(interruption.completedGalleryCount) 本；已回滚当前画廊 \(interruption.rolledBackGalleryCount) 本。重新连接后会重新比对，只补传缺失内容。")
             }
         } actions: {
             Button("重新搜索设备") { model.deviceSync.start() }
@@ -325,7 +331,8 @@ struct DeviceSyncView: View {
         } description: {
             VStack(spacing: 8) {
                 Text(description)
-                Text("发送 \(result.sentGalleryCount) 本 / \(result.sentPageCount) 页，接收 \(result.receivedGalleryCount) 本 / \(result.receivedPageCount) 页。")
+                Text("计划：发送 \(result.plannedSentGalleryCount) 本，接收 \(result.plannedReceivedGalleryCount) 本。")
+                Text("实际完整提交：发送 \(result.sentGalleryCount) 本 / \(result.sentPageCount) 页，接收 \(result.receivedGalleryCount) 本 / \(result.receivedPageCount) 页。")
             }
         }
     }

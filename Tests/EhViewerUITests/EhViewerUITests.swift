@@ -20,6 +20,19 @@ final class EhViewerUITests: XCTestCase {
         )
     }
 
+    func testCompactDockSeparatesLibraryTabsAndKeepsDownloadsUnderLocal() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestUseGuestMode", "YES"]
+        app.launch()
+
+        XCTAssertTrue(app.otherElements["ehviewer-root"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["history-tab"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["favorites-tab"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["settings-tab"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.tabBars.buttons.count, 5)
+        XCTAssertTrue(app.buttons["local-downloads-link"].waitForExistence(timeout: 5))
+    }
+
     func testSettingsExposesGuestState() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestUseGuestMode", "YES"]
@@ -31,7 +44,7 @@ final class EhViewerUITests: XCTestCase {
         } else if app.buttons["settings-sidebar"].waitForExistence(timeout: 5) {
             app.buttons["settings-sidebar"].tap()
         } else if app.tabBars.firstMatch.exists {
-            app.tabBars.buttons.element(boundBy: min(3, app.tabBars.buttons.count - 1)).tap()
+            app.tabBars.buttons.element(boundBy: app.tabBars.buttons.count - 1).tap()
         }
 
         let settingsScreen = app.descendants(matching: .any)["settings-screen"]
@@ -66,7 +79,7 @@ final class EhViewerUITests: XCTestCase {
         } else if app.buttons["settings-sidebar"].waitForExistence(timeout: 5) {
             app.buttons["settings-sidebar"].tap()
         } else if app.tabBars.firstMatch.exists {
-            app.tabBars.buttons.element(boundBy: min(3, app.tabBars.buttons.count - 1)).tap()
+            app.tabBars.buttons.element(boundBy: app.tabBars.buttons.count - 1).tap()
         }
 
         let browsing = app.buttons["settings-browsing-link"]

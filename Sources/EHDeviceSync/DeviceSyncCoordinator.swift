@@ -147,11 +147,14 @@ public struct DeviceSyncProgress: Hashable, Sendable {
 
 public struct DeviceSyncInterruption: Hashable, Sendable {
     public let reason: String
+    public let result: DeviceSyncResult
     public let completedGalleryCount: Int
     public let rolledBackGalleryCount: Int
 }
 
 public struct DeviceSyncResult: Hashable, Sendable {
+    public let plannedSentGalleryCount: Int
+    public let plannedReceivedGalleryCount: Int
     public let sentGalleryCount: Int
     public let receivedGalleryCount: Int
     public let sentPageCount: Int
@@ -188,6 +191,11 @@ public enum DeviceSyncState: Sendable, Equatable {
 @MainActor
 @Observable
 public final class DeviceSyncCoordinator {
+    private enum TransferTermination: Sendable {
+        case cancelled
+        case interrupted
+    }
+
     nonisolated public static let serviceType = "_ehviewer-sync._tcp"
     nonisolated public static let protocolVersion = 3
     nonisolated public static let maximumControlFrameBytes = 4 * 1024 * 1024
@@ -240,6 +248,8 @@ public final class DeviceSyncCoordinator {
     private var progressSpeed: Double?
     private var progressCompletedGalleries = 0
     private var progressRolledBackGalleries = 0
+    private var progressSentGalleries = 0
+    private var progressReceivedGalleries = 0
     private var progressSentPages = 0
     private var progressReceivedPages = 0
     private var progressSentBytes: Int64 = 0
@@ -330,6 +340,7 @@ public final class DeviceSyncCoordinator {
     /// Starts Bonjour browser/listener only while the sync screen is active.
     public func start() {
         stop()
+        guard interruptionFinalizationTask == nil else { return }
         state = .discovering
         do {
             try installListener(using: makeListenerParameters(code: nil))
@@ -359,16 +370,28 @@ public final class DeviceSyncCoordinator {
     }
 
     public func stop() {
-        sessionTask?.cancel()
-        sessionTask = nil
-        interruptionFinalizationTask?.cancel()
-        interruptionFinalizationTask = nil
-#if os(iOS)
-        if backgroundTaskIdentifier != .invalid {
-            UIApplication.shared.endBackgroundTask(backgroundTaskIdentifier)
-            backgroundTaskIdentifier = .invalid
+        if interruptionFinalizationTask != nil {
+            cancelTransport()
+            return
         }
-#endif
+        if progressPlan != nil {
+            let taskToDrain = cancelTransport()
+            finalizeInterruption(
+                reason: String(localized: "设备同步已取消。"),
+                termination: .cancelled,
+                draining: taskToDrain
+            )
+            return
+        }
+        _ = cancelTransport()
+        resetSessionState()
+    }
+
+    @discardableResult
+    private func cancelTransport() -> Task<Void, Never>? {
+        let task = sessionTask
+        task?.cancel()
+        sessionTask = nil
         pairingExpiryTask?.cancel()
         pairingExpiryTask = nil
         browser?.cancel()
@@ -379,6 +402,17 @@ public final class DeviceSyncCoordinator {
         listener = nil
         pendingIncoming = nil
         wire = nil
+        resumeLocalSyncConfirmationWaiter()
+        return task
+    }
+
+    private func resetSessionState() {
+#if os(iOS)
+        if backgroundTaskIdentifier != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskIdentifier)
+            backgroundTaskIdentifier = .invalid
+        }
+#endif
         endpoints.removeAll()
         peers.removeAll()
         secureListenerActive = false
@@ -390,7 +424,6 @@ public final class DeviceSyncCoordinator {
         localSyncRequested = false
         localSyncStartSent = false
         peerSyncRequested = false
-        resumeLocalSyncConfirmationWaiter()
         localManifest = nil
         localRecords.removeAll()
         remoteManifest = nil
@@ -403,6 +436,8 @@ public final class DeviceSyncCoordinator {
         progressSpeed = nil
         progressCompletedGalleries = 0
         progressRolledBackGalleries = 0
+        progressSentGalleries = 0
+        progressReceivedGalleries = 0
         progressSentPages = 0
         progressReceivedPages = 0
         progressSentBytes = 0
@@ -429,7 +464,7 @@ public final class DeviceSyncCoordinator {
             do {
                 try await self?.runInitiatorConnection(to: endpoint, code: code)
             } catch is CancellationError {
-                return
+                self?.fail(CancellationError())
             } catch {
                 self?.fail(error)
             }
@@ -482,7 +517,7 @@ public final class DeviceSyncCoordinator {
                 try await wire.send(.approval, payload: Data())
                 try await self?.runReceiverSession(wire: wire)
             } catch is CancellationError {
-                return
+                self?.fail(CancellationError())
             } catch {
                 self?.fail(error)
             }
@@ -507,19 +542,18 @@ public final class DeviceSyncCoordinator {
     }
 
     public func cancelSync() {
-        let cancellationResult = currentPlan.map(result(for:)) ?? DeviceSyncResult(
-            sentGalleryCount: 0,
-            receivedGalleryCount: 0,
-            sentPageCount: 0,
-            receivedPageCount: 0,
-            sentBytes: 0,
-            receivedBytes: 0
-        )
         try? wire?.sendSynchronously(.cancel, payload: Data())
-        stop()
-        state = .cancelled(cancellationResult)
-        Task { @MainActor [weak self] in
-            _ = await self?.rollbackActiveTransaction()
+        if progressPlan != nil {
+            let taskToDrain = cancelTransport()
+            finalizeInterruption(
+                reason: String(localized: "本机取消了设备同步。"),
+                termination: .cancelled,
+                draining: taskToDrain
+            )
+        } else {
+            let cancellationResult = currentPlan.map(result(for:)) ?? emptyResult
+            stop()
+            state = .cancelled(cancellationResult)
         }
     }
 
@@ -529,19 +563,13 @@ public final class DeviceSyncCoordinator {
         if backgroundTaskIdentifier == .invalid {
             backgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(withName: "EhViewer.DeviceSync.Cleanup")
         }
-        #endif
+#endif
         try? wire?.sendSynchronously(.cancel, payload: Data())
-        sessionTask?.cancel()
-        wire?.cancel()
-        pendingIncoming?.cancel()
-        browser?.cancel()
-        listener?.cancel()
-        sessionTask = nil
-        wire = nil
-        pendingIncoming = nil
-        browser = nil
-        listener = nil
-        finalizeInterruption(reason: DeviceSyncError.appEnteredBackground.localizedDescription)
+        let taskToDrain = cancelTransport()
+        finalizeInterruption(
+            reason: DeviceSyncError.appEnteredBackground.localizedDescription,
+            draining: taskToDrain
+        )
     }
 
     private func handleIncoming(_ connection: NWConnection) {
@@ -571,7 +599,7 @@ public final class DeviceSyncCoordinator {
                     // The receiver must explicitly call confirmConnection before
                     // any manifest is exchanged.
                 } catch is CancellationError {
-                    return
+                    self?.fail(CancellationError())
                 } catch {
                     self?.fail(error)
                 }
@@ -759,6 +787,7 @@ public final class DeviceSyncCoordinator {
         // can leave both devices blocked when either side has already failed.
         _ = try await verifyLocalTransferState()
         state = .completed(result(for: plan))
+        progressPlan = nil
     }
 
     private func sendPlannedData(plan: DeviceSyncPlan, wire: DeviceSyncWireConnection) async throws {
@@ -809,6 +838,7 @@ public final class DeviceSyncCoordinator {
                 }
                 addCompletedPages(pages.count, direction: .sending)
                 progressCompletedGalleries += 1
+                progressSentGalleries += 1
                 publishProgress(phase: .sending, direction: .sending, galleryTitle: title, force: true)
             }
         }
@@ -1004,6 +1034,7 @@ public final class DeviceSyncCoordinator {
                             ?? record
                         localRecords[begin.key] = mergedRecord
                         progressCompletedGalleries += 1
+                        progressReceivedGalleries += 1
                         addCompletedPages(validatedPages.count, direction: .receiving)
                     } catch {
                         galleryFailed = true
@@ -1164,6 +1195,8 @@ public final class DeviceSyncCoordinator {
         progressSpeed = nil
         progressCompletedGalleries = 0
         progressRolledBackGalleries = 0
+        progressSentGalleries = 0
+        progressReceivedGalleries = 0
         progressSentPages = 0
         progressReceivedPages = 0
         progressSentBytes = 0
@@ -1263,12 +1296,27 @@ public final class DeviceSyncCoordinator {
 
     private func result(for plan: DeviceSyncPlan) -> DeviceSyncResult {
         DeviceSyncResult(
-            sentGalleryCount: Set(plan.sendMetadata).union(plan.sendPages.map(\.key)).count,
-            receivedGalleryCount: Set(plan.receiveMetadata).union(plan.receivePages.map(\.key)).count,
+            plannedSentGalleryCount: Set(plan.sendMetadata).union(plan.sendPages.map(\.key)).count,
+            plannedReceivedGalleryCount: Set(plan.receiveMetadata).union(plan.receivePages.map(\.key)).count,
+            sentGalleryCount: progressSentGalleries,
+            receivedGalleryCount: progressReceivedGalleries,
             sentPageCount: progressSentPages,
             receivedPageCount: progressReceivedPages,
             sentBytes: progressSentBytes,
             receivedBytes: progressReceivedBytes
+        )
+    }
+
+    private var emptyResult: DeviceSyncResult {
+        DeviceSyncResult(
+            plannedSentGalleryCount: 0,
+            plannedReceivedGalleryCount: 0,
+            sentGalleryCount: 0,
+            receivedGalleryCount: 0,
+            sentPageCount: 0,
+            receivedPageCount: 0,
+            sentBytes: 0,
+            receivedBytes: 0
         )
     }
 
@@ -1423,17 +1471,23 @@ public final class DeviceSyncCoordinator {
     }
 
     private func fail(_ error: Error) {
-        if error is CancellationError { return }
+        if error is CancellationError {
+            guard progressPlan != nil else { return }
+            finalizeInterruption(reason: String(localized: "设备同步已取消。"), draining: sessionTask)
+            return
+        }
         resumeLocalSyncConfirmationWaiter()
+        let taskToDrain = sessionTask
         sessionTask?.cancel()
         sessionTask = nil
         let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         wire?.cancel()
         if progressPlan != nil {
-            finalizeInterruption(reason: message)
+            finalizeInterruption(reason: message, draining: taskToDrain)
         } else if error as? DeviceSyncError == .peerCancelled {
             state = .interrupted(DeviceSyncInterruption(
                 reason: message,
+                result: emptyResult,
                 completedGalleryCount: progressCompletedGalleries,
                 rolledBackGalleryCount: progressRolledBackGalleries
             ))
@@ -1442,11 +1496,18 @@ public final class DeviceSyncCoordinator {
         }
     }
 
-    private func finalizeInterruption(reason: String) {
-        interruptionFinalizationTask?.cancel()
+    private func finalizeInterruption(
+        reason: String,
+        termination: TransferTermination = .interrupted,
+        draining sessionTaskToDrain: Task<Void, Never>? = nil
+    ) {
+        guard interruptionFinalizationTask == nil else { return }
         publishProgress(phase: .verifying, force: true)
         interruptionFinalizationTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            if let sessionTaskToDrain {
+                await sessionTaskToDrain.value
+            }
             if await self.rollbackActiveTransaction() {
                 self.progressRolledBackGalleries += 1
             }
@@ -1460,11 +1521,19 @@ public final class DeviceSyncCoordinator {
                 finalReason += String(localized: " 中断后的本地校验未能完成：\(error.localizedDescription)")
             }
             guard Task.isCancelled == false else { return }
-            self.state = .interrupted(DeviceSyncInterruption(
-                reason: finalReason,
-                completedGalleryCount: self.progressCompletedGalleries,
-                rolledBackGalleryCount: self.progressRolledBackGalleries
-            ))
+            switch termination {
+            case .cancelled:
+                self.state = .cancelled(self.currentPlan.map(self.result(for:)) ?? self.emptyResult)
+            case .interrupted:
+                let result = self.currentPlan.map(self.result(for:)) ?? self.emptyResult
+                self.state = .interrupted(DeviceSyncInterruption(
+                    reason: finalReason,
+                    result: result,
+                    completedGalleryCount: self.progressCompletedGalleries,
+                    rolledBackGalleryCount: self.progressRolledBackGalleries
+                ))
+            }
+            self.progressPlan = nil
             self.interruptionFinalizationTask = nil
             #if os(iOS)
             if self.backgroundTaskIdentifier != .invalid {

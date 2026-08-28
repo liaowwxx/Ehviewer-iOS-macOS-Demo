@@ -25,11 +25,10 @@ struct RootView: View {
     @State private var presentedRootAlert: RootAlert?
     @State private var compactSelection: AppRoute = .local
     @State private var compactBrowsePath: [AppRoute] = []
-    @State private var compactDownloadsPath: [AppRoute] = []
     @State private var compactLocalPath: [AppRoute] = []
     @State private var compactHistoryPath: [AppRoute] = []
+    @State private var compactFavoritesPath: [AppRoute] = []
     @State private var compactSettingsPath: [AppRoute] = []
-    @State private var compactLibraryMode: LibraryView.Mode = .history
     @State private var splitSelection: AppRoute? = .local
     @State private var splitDetailPath: [AppRoute] = []
 
@@ -39,11 +38,10 @@ struct RootView: View {
                 CompactRootView(
                     selection: $compactSelection,
                     browsePath: $compactBrowsePath,
-                    downloadsPath: $compactDownloadsPath,
                     localPath: $compactLocalPath,
                     historyPath: $compactHistoryPath,
-                    settingsPath: $compactSettingsPath,
-                    libraryMode: $compactLibraryMode
+                    favoritesPath: $compactFavoritesPath,
+                    settingsPath: $compactSettingsPath
                 )
             } else {
                 SplitRootView(selection: $splitSelection, detailPath: $splitDetailPath)
@@ -216,11 +214,10 @@ private struct CompactRootView: View {
     @Environment(AppModel.self) private var model
     @Binding var selection: AppRoute
     @Binding var browsePath: [AppRoute]
-    @Binding var downloadsPath: [AppRoute]
     @Binding var localPath: [AppRoute]
     @Binding var historyPath: [AppRoute]
+    @Binding var favoritesPath: [AppRoute]
     @Binding var settingsPath: [AppRoute]
-    @Binding var libraryMode: LibraryView.Mode
 
     var body: some View {
         TabView(selection: $selection) {
@@ -230,14 +227,6 @@ private struct CompactRootView: View {
                 }
             } label: {
                 Label("browse_title", systemImage: "list.bullet.rectangle")
-            }
-
-            Tab(value: AppRoute.downloads) {
-                RootNavigationStack(path: $downloadsPath) { _ in
-                    DownloadsView()
-                }
-            } label: {
-                Label("downloads_title", systemImage: "arrow.down.circle")
             }
 
             Tab(value: AppRoute.local) {
@@ -250,11 +239,21 @@ private struct CompactRootView: View {
 
             Tab(value: AppRoute.history) {
                 RootNavigationStack(path: $historyPath) { _ in
-                    LibraryView(mode: libraryMode)
+                    LibraryView(mode: .history)
                 }
             } label: {
                 Label("history_title", systemImage: "clock")
             }
+            .accessibilityIdentifier("history-tab")
+
+            Tab(value: AppRoute.favorites) {
+                RootNavigationStack(path: $favoritesPath) { _ in
+                    LibraryView(mode: .favorites)
+                }
+            } label: {
+                Label("favorites_title", systemImage: "heart")
+            }
+            .accessibilityIdentifier("favorites-tab")
 
             Tab(value: AppRoute.settings) {
                 RootNavigationStack(path: $settingsPath) { _ in
@@ -278,15 +277,14 @@ private struct CompactRootView: View {
         guard let route else { return }
         switch route {
         case .downloads:
-            selection = .downloads
+            localPath = [.downloads]
+            selection = .local
         case .local:
             selection = .local
         case .history:
-            libraryMode = .history
             selection = .history
         case .favorites:
-            libraryMode = .favorites
-            selection = .history
+            selection = .favorites
         case .settings,
              .settingsSiteAndLogin,
              .settingsBrowsingAndFiltering,

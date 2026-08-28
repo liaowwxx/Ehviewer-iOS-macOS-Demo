@@ -362,6 +362,14 @@ struct DownloadsView: View {
                     .disabled(selectedKeys.isEmpty || bulkRemovalProgress != nil)
                 }
             } else {
+                if page == .local, horizontalSizeClass == .compact {
+                    ToolbarItem(placement: .primaryAction) {
+                        NavigationLink(value: AppRoute.downloads) {
+                            Label("downloads_title", systemImage: "arrow.down.circle")
+                        }
+                        .accessibilityIdentifier("local-downloads-link")
+                    }
+                }
 #if os(macOS)
                 ToolbarItem(placement: .navigation) {
                     selectionToolbarButton
