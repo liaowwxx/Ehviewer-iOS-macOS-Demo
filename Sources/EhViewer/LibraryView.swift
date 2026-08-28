@@ -38,8 +38,8 @@ struct LibraryView: View {
     @State private var downloadedJobs: [GalleryKey: DownloadJob] = [:]
     @State private var downloadedJobsReady = false
     @State private var libraryKeys: Set<GalleryKey> = []
-    @State private var favoriteDownloadProgress: FavoriteDownloadEnqueueProgress?
-    @State private var favoriteDownloadFailureCount = 0
+    @State private var bulkDownloadProgress: GalleryDownloadEnqueueProgress?
+    @State private var bulkDownloadFailureCount = 0
 
     init(mode: Mode = .history) {
         _selectedMode = State(initialValue: mode)
@@ -81,6 +81,26 @@ struct LibraryView: View {
                     Button(selectAllTitle) {
                         toggleSelectAll()
                     }
+                    Button(action: downloadSelectedItems) {
+                        if let bulkDownloadProgress {
+                            Label(
+                                "加入下载 \(bulkDownloadProgress.completed)/\(bulkDownloadProgress.total)",
+                                systemImage: "arrow.down.circle"
+                            )
+                        } else {
+                            Label("下载(\(undownloadedSelectedCount))", systemImage: "arrow.down.circle")
+                        }
+                    }
+                    .disabled(
+                        downloadedJobsReady == false
+                            || undownloadedSelectedCount == 0
+                            || bulkDownloadProgress != nil
+                    )
+                    .accessibilityIdentifier("download-selected-library-items-action")
+                    .accessibilityLabel("下载选中的未下载漫画")
+                    .accessibilityValue(
+                        bulkDownloadProgress.map { "\($0.completed)/\($0.total)" } ?? ""
+                    )
                     Button(role: .destructive) {
                         deletionConfirmation = LibraryDeletionConfirmation(
                             mode: selectedMode,
@@ -136,12 +156,12 @@ struct LibraryView: View {
                 secondaryButton: .cancel(Text("取消"))
             )
         }
-        .alert("部分画廊未能加入下载", isPresented: favoriteDownloadFailureAlertPresented) {
+        .alert("部分画廊未能加入下载", isPresented: bulkDownloadFailureAlertPresented) {
             Button("好") {
-                favoriteDownloadFailureCount = 0
+                bulkDownloadFailureCount = 0
             }
         } message: {
-            Text("有 \(favoriteDownloadFailureCount) 项无法加载下载所需的画廊信息，可稍后再次尝试。")
+            Text("有 \(bulkDownloadFailureCount) 项无法加载下载所需的画廊信息，可稍后再次尝试。")
         }
         .onChange(of: selectedMode) { _, _ in
             exitSelectionMode()
@@ -212,9 +232,9 @@ struct LibraryView: View {
         Button {
             downloadUndownloadedFavorites()
         } label: {
-            if let favoriteDownloadProgress {
+            if let bulkDownloadProgress {
                 Label(
-                    "加入下载 \(favoriteDownloadProgress.completed)/\(favoriteDownloadProgress.total)",
+                    "加入下载 \(bulkDownloadProgress.completed)/\(bulkDownloadProgress.total)",
                     systemImage: "arrow.down.circle"
                 )
             } else {
@@ -224,30 +244,34 @@ struct LibraryView: View {
         .accessibilityIdentifier("download-all-undownloaded-favorites-action")
         .accessibilityLabel("下载全部未下载")
         .accessibilityValue(
-            favoriteDownloadProgress.map { "\($0.completed)/\($0.total)" } ?? ""
+            bulkDownloadProgress.map { "\($0.completed)/\($0.total)" } ?? ""
         )
         .disabled(
             downloadedJobsReady == false
                 || undownloadedFavoriteCount == 0
-                || favoriteDownloadProgress != nil
+                || bulkDownloadProgress != nil
         )
     }
 
     private var undownloadedFavoriteCount: Int {
         guard selectedMode == .favorites else { return 0 }
-        return items.reduce(into: 0) { count, gallery in
-            if downloadedJobs[gallery.key] == nil {
-                count += 1
-            }
-        }
+        return undownloadedCount(in: items)
     }
 
-    private var favoriteDownloadFailureAlertPresented: Binding<Bool> {
+    private var selectedItems: [GallerySummary] {
+        items.filter { selectedKeys.contains($0.key) }
+    }
+
+    private var undownloadedSelectedCount: Int {
+        undownloadedCount(in: selectedItems)
+    }
+
+    private var bulkDownloadFailureAlertPresented: Binding<Bool> {
         Binding(
-            get: { favoriteDownloadFailureCount > 0 },
+            get: { bulkDownloadFailureCount > 0 },
             set: { isPresented in
                 if isPresented == false {
-                    favoriteDownloadFailureCount = 0
+                    bulkDownloadFailureCount = 0
                 }
             }
         )
@@ -273,27 +297,50 @@ struct LibraryView: View {
 
     private func downloadUndownloadedFavorites() {
         guard selectedMode == .favorites,
-              favoriteDownloadProgress == nil,
+              bulkDownloadProgress == nil,
               downloadedJobsReady,
               undownloadedFavoriteCount > 0 else {
             return
         }
 
-        let favorites = items
-        favoriteDownloadProgress = FavoriteDownloadEnqueueProgress(
+        downloadUndownloadedItems(items)
+    }
+
+    private func downloadSelectedItems() {
+        guard selectedItems.isEmpty == false else { return }
+        downloadUndownloadedItems(selectedItems)
+    }
+
+    private func downloadUndownloadedItems(_ galleries: [GallerySummary]) {
+        let total = undownloadedCount(in: galleries)
+        guard bulkDownloadProgress == nil,
+              downloadedJobsReady,
+              total > 0 else {
+            return
+        }
+
+        bulkDownloadProgress = GalleryDownloadEnqueueProgress(
             completed: 0,
-            total: undownloadedFavoriteCount,
+            total: total,
             enqueued: 0,
             failed: 0
         )
         Task { @MainActor in
-            let result = await model.enqueueUndownloadedFavorites(favorites) { progress in
-                favoriteDownloadProgress = progress
+            let result = await model.enqueueUndownloadedGalleries(galleries) { progress in
+                bulkDownloadProgress = progress
             }
             guard Task.isCancelled == false else { return }
-            favoriteDownloadProgress = nil
+            bulkDownloadProgress = nil
             if result.failed > 0 {
-                favoriteDownloadFailureCount = result.failed
+                bulkDownloadFailureCount = result.failed
+            }
+        }
+    }
+
+    private func undownloadedCount(in galleries: [GallerySummary]) -> Int {
+        galleries.reduce(into: 0) { count, gallery in
+            if downloadedJobs[gallery.key] == nil {
+                count += 1
             }
         }
     }

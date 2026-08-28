@@ -16,6 +16,45 @@ struct GalleryCardDisplaySettingsTests {
         #expect(decoded.readingDirection == .rightToLeft)
     }
 
+    @Test("旧漫画卡片配置缺少添加时间时保留既有选项")
+    func legacyGalleryCardSettingsKeepExistingValues() throws {
+        let data = Data(#"{"showsAuthor":false,"showsPostedAt":false,"dateDisplayStyle":"absolute"}"#.utf8)
+
+        let decoded = try JSONDecoder().decode(GalleryCardDisplaySettings.self, from: data)
+
+        #expect(decoded.showsAuthor == false)
+        #expect(decoded.showsPostedAt == false)
+        #expect(decoded.showsAddedAt == false)
+        #expect(decoded.dateDisplayStyle == .absolute)
+        #expect(decoded.showsRating)
+    }
+
+    @Test("添加时间与上传日期互斥，后开启的选项优先")
+    func dateDisplayOptionsAreMutuallyExclusive() {
+        var showingUploadDate = GalleryCardDisplaySettings()
+        var showingAddedTime = showingUploadDate
+        showingAddedTime.showsAddedAt = true
+
+        let addedTimeResolved = GalleryCardDisplaySettings.resolving(
+            previous: showingUploadDate,
+            updated: showingAddedTime,
+            isCompactWidth: false
+        )
+        #expect(addedTimeResolved.showsPostedAt == false)
+        #expect(addedTimeResolved.showsAddedAt)
+
+        showingUploadDate = addedTimeResolved
+        showingAddedTime = addedTimeResolved
+        showingAddedTime.showsPostedAt = true
+        let uploadDateResolved = GalleryCardDisplaySettings.resolving(
+            previous: showingUploadDate,
+            updated: showingAddedTime,
+            isCompactWidth: false
+        )
+        #expect(uploadDateResolved.showsPostedAt)
+        #expect(uploadDateResolved.showsAddedAt == false)
+    }
+
     @Test("regular 宽度允许普通标签与五星评分并存")
     func regularWidthKeepsTagsAndStars() {
         let previous = GalleryCardDisplaySettings()

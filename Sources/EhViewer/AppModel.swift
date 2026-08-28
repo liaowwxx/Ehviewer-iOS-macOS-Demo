@@ -191,14 +191,14 @@ private struct SearchPageKey: Hashable {
     let advancedSearch: GalleryAdvancedSearch?
 }
 
-struct FavoriteDownloadEnqueueProgress: Equatable, Sendable {
+struct GalleryDownloadEnqueueProgress: Equatable, Sendable {
     let completed: Int
     let total: Int
     let enqueued: Int
     let failed: Int
 }
 
-struct FavoriteDownloadEnqueueResult: Equatable, Sendable {
+struct GalleryDownloadEnqueueResult: Equatable, Sendable {
     let requested: Int
     let enqueued: Int
     let failed: Int
@@ -1227,14 +1227,17 @@ final class AppModel {
         )
     }
 
-    /// Resolves and queues favorites one at a time so bulk actions do not
+    /// Resolves and queues selected galleries one at a time so bulk actions do not
     /// create an unbounded burst of detail requests for large local libraries.
-    func enqueueUndownloadedFavorites(
-        _ favorites: [GallerySummary],
-        updateProgress: (FavoriteDownloadEnqueueProgress) -> Void
-    ) async -> FavoriteDownloadEnqueueResult {
+    func enqueueUndownloadedGalleries(
+        _ galleries: [GallerySummary],
+        updateProgress: (GalleryDownloadEnqueueProgress) -> Void
+    ) async -> GalleryDownloadEnqueueResult {
         let existingDownloadKeys = Set(await downloads.snapshot().map(\.key))
-        let targets = favorites.filter { existingDownloadKeys.contains($0.key) == false }
+        let targets = Self.undownloadedDownloadTargets(
+            from: galleries,
+            existingDownloadKeys: existingDownloadKeys
+        )
         let total = targets.count
         var completed = 0
         var enqueued = 0
@@ -1242,7 +1245,7 @@ final class AppModel {
 
         for gallery in targets {
             guard Task.isCancelled == false else {
-                return FavoriteDownloadEnqueueResult(
+                return GalleryDownloadEnqueueResult(
                     requested: total,
                     enqueued: enqueued,
                     failed: failed,
@@ -1253,7 +1256,7 @@ final class AppModel {
             do {
                 let detail = try await detail(for: gallery.key)
                 guard Task.isCancelled == false else {
-                    return FavoriteDownloadEnqueueResult(
+                    return GalleryDownloadEnqueueResult(
                         requested: total,
                         enqueued: enqueued,
                         failed: failed,
@@ -1263,7 +1266,7 @@ final class AppModel {
                 await enqueue(detail)
                 enqueued += 1
             } catch is CancellationError {
-                return FavoriteDownloadEnqueueResult(
+                return GalleryDownloadEnqueueResult(
                     requested: total,
                     enqueued: enqueued,
                     failed: failed,
@@ -1275,7 +1278,7 @@ final class AppModel {
 
             completed += 1
             updateProgress(
-                FavoriteDownloadEnqueueProgress(
+                GalleryDownloadEnqueueProgress(
                     completed: completed,
                     total: total,
                     enqueued: enqueued,
@@ -1284,12 +1287,19 @@ final class AppModel {
             )
         }
 
-        return FavoriteDownloadEnqueueResult(
+        return GalleryDownloadEnqueueResult(
             requested: total,
             enqueued: enqueued,
             failed: failed,
             cancelled: false
         )
+    }
+
+    static func undownloadedDownloadTargets(
+        from galleries: [GallerySummary],
+        existingDownloadKeys: Set<GalleryKey>
+    ) -> [GallerySummary] {
+        galleries.filter { existingDownloadKeys.contains($0.key) == false }
     }
 
     /// A synced gallery initially has no page descriptors. Resolve those only

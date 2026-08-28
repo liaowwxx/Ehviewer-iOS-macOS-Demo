@@ -489,8 +489,8 @@ struct GalleryCard: View {
                             .accessibilityLabel("已收藏")
                     }
                     Spacer(minLength: 0)
-                    if settings.showsPostedAt, let postedAt = gallery.postedAt {
-                        dateText(postedAt)
+                    if let displayedDate {
+                        dateText(displayedDate.date)
                     }
                     if showsCompactStarRating == false, let rating {
                         switch settings.ratingDisplayStyle {
@@ -557,8 +557,12 @@ struct GalleryCard: View {
         if settings.showsLanguage, let language = gallery.simpleLanguage {
             details.append(String(localized: "语言：\(language)"))
         }
-        if settings.showsPostedAt, let postedAt = gallery.postedAt {
-            details.append(String(localized: "上传日期：\(postedAt.accessibilityDescription(style: settings.dateDisplayStyle))"))
+        if let displayedDate {
+            details.append(
+                String(
+                    localized: "\(displayedDate.title)：\(displayedDate.date.accessibilityDescription(style: settings.dateDisplayStyle))"
+                )
+            )
         }
         if settings.showsRating, let rating = gallery.rating {
             details.append(String(localized: "评分 \(rating.formatted(.number.precision(.fractionLength(0...2))))，共 5 星"))
@@ -580,6 +584,17 @@ struct GalleryCard: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
+    }
+
+    private var displayedDate: (title: String, date: Date)? {
+        let settings = effectiveDisplaySettings
+        if settings.showsPostedAt, let postedAt = gallery.postedAt {
+            return (String(localized: "上传日期"), postedAt)
+        }
+        if settings.showsAddedAt, let addedAt = localJob?.addedAt {
+            return (String(localized: "添加时间"), addedAt)
+        }
+        return nil
     }
 }
 

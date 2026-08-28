@@ -27,14 +27,19 @@ struct GalleryCardSettingsSection: View {
                 .accessibilityIdentifier("gallery-card-show-language-toggle")
             Toggle("页数", isOn: $model.readingSettings.galleryCard.showsPageCount)
                 .accessibilityIdentifier("gallery-card-show-page-count-toggle")
-            Toggle("日期", isOn: $model.readingSettings.galleryCard.showsPostedAt)
+            Toggle("上传日期", isOn: $model.readingSettings.galleryCard.showsPostedAt)
                 .accessibilityIdentifier("gallery-card-show-posted-at-toggle")
+            Toggle("添加时间", isOn: $model.readingSettings.galleryCard.showsAddedAt)
+                .accessibilityIdentifier("gallery-card-show-added-at-toggle")
             Picker("日期显示方式", selection: $model.readingSettings.galleryCard.dateDisplayStyle) {
                 ForEach(GalleryDateDisplayStyle.allCases) { style in
                     Text(style.title).tag(style)
                 }
             }
-            .disabled(model.readingSettings.galleryCard.showsPostedAt == false)
+            .disabled(
+                model.readingSettings.galleryCard.showsPostedAt == false
+                    && model.readingSettings.galleryCard.showsAddedAt == false
+            )
             .accessibilityIdentifier("gallery-card-date-display-style-picker")
             Toggle("评分", isOn: $model.readingSettings.galleryCard.showsRating)
                 .accessibilityIdentifier("gallery-card-show-rating-toggle")

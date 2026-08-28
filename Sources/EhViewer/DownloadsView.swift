@@ -173,7 +173,16 @@ struct DownloadsView: View {
 
     private var availableSortOrders: [DownloadSortOrder] {
         if page == .local {
-            return [.addedNewest, .addedOldest, .titleAscending, .titleDescending, .progress, .rating]
+            return [
+                .addedNewest,
+                .addedOldest,
+                .downloadAddedNewest,
+                .downloadAddedOldest,
+                .titleAscending,
+                .titleDescending,
+                .progress,
+                .rating
+            ]
         }
         return Array(DownloadSortOrder.allCases)
     }
@@ -909,7 +918,16 @@ private struct DownloadManagementSheet: View {
 
     private var availableSortOrders: [DownloadSortOrder] {
         page == .local
-            ? [.addedNewest, .addedOldest, .titleAscending, .titleDescending, .progress, .rating]
+            ? [
+                .addedNewest,
+                .addedOldest,
+                .downloadAddedNewest,
+                .downloadAddedOldest,
+                .titleAscending,
+                .titleDescending,
+                .progress,
+                .rating
+            ]
             : Array(DownloadSortOrder.allCases)
     }
 
@@ -1426,6 +1444,8 @@ enum DownloadStatusFilter: String, CaseIterable, Identifiable {
 enum DownloadSortOrder: String, CaseIterable, Identifiable {
     case addedNewest
     case addedOldest
+    case downloadAddedNewest
+    case downloadAddedOldest
     case titleAscending
     case titleDescending
     case progress
@@ -1438,6 +1458,8 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
         switch self {
         case .addedNewest: String(localized: "上传时间（最新）")
         case .addedOldest: String(localized: "上传时间（最早）")
+        case .downloadAddedNewest: String(localized: "添加时间（最新）")
+        case .downloadAddedOldest: String(localized: "添加时间（最早）")
         case .titleAscending: String(localized: "标题 A-Z")
         case .titleDescending: String(localized: "标题 Z-A")
         case .progress: String(localized: "完成度")
@@ -1463,6 +1485,10 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
             return orderedByPostedAt(lhs, rhs, summaries: summaries, newestFirst: true)
         case .addedOldest:
             return orderedByPostedAt(lhs, rhs, summaries: summaries, newestFirst: false)
+        case .downloadAddedNewest:
+            return orderedByAddedAt(lhs, rhs, newestFirst: true)
+        case .downloadAddedOldest:
+            return orderedByAddedAt(lhs, rhs, newestFirst: false)
         case .titleAscending:
             return titleAscending(lhs, rhs)
         case .titleDescending:
@@ -1505,6 +1531,15 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
         case (.none, .none):
             return titleAscending(lhs, rhs)
         }
+    }
+
+    private func orderedByAddedAt(
+        _ lhs: DownloadJob,
+        _ rhs: DownloadJob,
+        newestFirst: Bool
+    ) -> Bool {
+        if lhs.addedAt == rhs.addedAt { return titleAscending(lhs, rhs) }
+        return newestFirst ? lhs.addedAt > rhs.addedAt : lhs.addedAt < rhs.addedAt
     }
 }
 

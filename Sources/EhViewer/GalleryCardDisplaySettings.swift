@@ -45,11 +45,55 @@ struct GalleryCardDisplaySettings: Codable, Hashable, Sendable {
     var showsLanguage = true
     var showsPageCount = true
     var showsPostedAt = true
+    var showsAddedAt = false
     var dateDisplayStyle: GalleryDateDisplayStyle = .relative
     var showsRating = true
     var ratingDisplayStyle: GalleryRatingDisplayStyle = .numeric
 
     static let defaults = GalleryCardDisplaySettings()
+
+    private enum CodingKeys: String, CodingKey {
+        case showsAuthor
+        case showsOrdinaryTags
+        case showsCategoryBadge
+        case showsLanguage
+        case showsPageCount
+        case showsPostedAt
+        case showsAddedAt
+        case dateDisplayStyle
+        case showsRating
+        case ratingDisplayStyle
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        showsAuthor = try container.decodeIfPresent(Bool.self, forKey: .showsAuthor) ?? true
+        showsOrdinaryTags = try container.decodeIfPresent(Bool.self, forKey: .showsOrdinaryTags) ?? true
+        showsCategoryBadge = try container.decodeIfPresent(Bool.self, forKey: .showsCategoryBadge) ?? true
+        showsLanguage = try container.decodeIfPresent(Bool.self, forKey: .showsLanguage) ?? true
+        showsPageCount = try container.decodeIfPresent(Bool.self, forKey: .showsPageCount) ?? true
+        showsPostedAt = try container.decodeIfPresent(Bool.self, forKey: .showsPostedAt) ?? true
+        showsAddedAt = try container.decodeIfPresent(Bool.self, forKey: .showsAddedAt) ?? false
+        dateDisplayStyle = try container.decodeIfPresent(GalleryDateDisplayStyle.self, forKey: .dateDisplayStyle) ?? .relative
+        showsRating = try container.decodeIfPresent(Bool.self, forKey: .showsRating) ?? true
+        ratingDisplayStyle = try container.decodeIfPresent(GalleryRatingDisplayStyle.self, forKey: .ratingDisplayStyle) ?? .numeric
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(showsAuthor, forKey: .showsAuthor)
+        try container.encode(showsOrdinaryTags, forKey: .showsOrdinaryTags)
+        try container.encode(showsCategoryBadge, forKey: .showsCategoryBadge)
+        try container.encode(showsLanguage, forKey: .showsLanguage)
+        try container.encode(showsPageCount, forKey: .showsPageCount)
+        try container.encode(showsPostedAt, forKey: .showsPostedAt)
+        try container.encode(showsAddedAt, forKey: .showsAddedAt)
+        try container.encode(dateDisplayStyle, forKey: .dateDisplayStyle)
+        try container.encode(showsRating, forKey: .showsRating)
+        try container.encode(ratingDisplayStyle, forKey: .ratingDisplayStyle)
+    }
 
     /// Resolves the compact-width collision between tag chips and the visual
     /// star row. This deliberately receives both values so it remains pure and
@@ -59,10 +103,21 @@ struct GalleryCardDisplaySettings: Codable, Hashable, Sendable {
         updated: Self,
         isCompactWidth: Bool
     ) -> Self {
-        guard isCompactWidth else { return updated }
-        guard updated.showsRating, updated.ratingDisplayStyle == .stars else { return updated }
-
         var resolved = updated
+        if resolved.showsPostedAt, resolved.showsAddedAt {
+            if previous.showsPostedAt == false, updated.showsPostedAt {
+                resolved.showsAddedAt = false
+            } else if previous.showsAddedAt == false, updated.showsAddedAt {
+                resolved.showsPostedAt = false
+            } else {
+                // A legacy or programmatic conflict has no user interaction
+                // to disambiguate it, so keep the established upload date.
+                resolved.showsAddedAt = false
+            }
+        }
+
+        guard isCompactWidth else { return resolved }
+        guard resolved.showsRating, resolved.ratingDisplayStyle == .stars else { return resolved }
         if previous.showsOrdinaryTags == false, updated.showsOrdinaryTags {
             // Re-enabling tags deliberately changes only the presentation of
             // rating. The rating itself stays available and enabled.

@@ -443,6 +443,33 @@ struct DownloadTests {
         )
     }
 
+    @Test("本地画廊可按加入下载队列的时间排序")
+    func sortsByTimeAddedToDownloads() {
+        let firstAdded = DownloadJob(
+            key: GalleryKey(gid: 18, token: "first-added"),
+            title: "First",
+            pages: [],
+            addedAt: Date(timeIntervalSince1970: 1)
+        )
+        let lastAdded = DownloadJob(
+            key: GalleryKey(gid: 19, token: "last-added"),
+            title: "Last",
+            pages: [],
+            addedAt: Date(timeIntervalSince1970: 2)
+        )
+
+        #expect(
+            [firstAdded, lastAdded]
+                .sorted { DownloadSortOrder.downloadAddedNewest.areInIncreasingOrder($0, $1) }
+                .map(\.key) == [lastAdded.key, firstAdded.key]
+        )
+        #expect(
+            [firstAdded, lastAdded]
+                .sorted { DownloadSortOrder.downloadAddedOldest.areInIncreasingOrder($0, $1) }
+                .map(\.key) == [firstAdded.key, lastAdded.key]
+        )
+    }
+
     @Test("A failed download removal keeps the job visible with an actionable error")
     func failedRemovalKeepsJobVisible() async throws {
         let key = GalleryKey(gid: 13, token: "remove")

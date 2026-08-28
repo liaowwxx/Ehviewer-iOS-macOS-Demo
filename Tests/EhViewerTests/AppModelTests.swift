@@ -8,6 +8,20 @@ import EHDownloads
 
 @MainActor
 struct AppModelTests {
+    @Test("批量下载仅保留没有下载任务的画廊")
+    func bulkDownloadTargetsSkipExistingJobs() {
+        let downloaded = GallerySummary(key: GalleryKey(gid: 301, token: "downloaded"), title: "Downloaded")
+        let downloading = GallerySummary(key: GalleryKey(gid: 302, token: "downloading"), title: "Downloading")
+        let undownloaded = GallerySummary(key: GalleryKey(gid: 303, token: "undownloaded"), title: "Undownloaded")
+
+        let targets = AppModel.undownloadedDownloadTargets(
+            from: [downloaded, downloading, undownloaded],
+            existingDownloadKeys: [downloaded.key, downloading.key]
+        )
+
+        #expect(targets.map(\.key) == [undownloaded.key])
+    }
+
     @Test("Preview reveal state adds 20 items and collapses to the initial window")
     func previewRevealState() {
         var state = GalleryPreviewRevealState()
