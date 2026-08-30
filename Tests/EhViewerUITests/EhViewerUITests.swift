@@ -94,22 +94,31 @@ final class EhViewerUITests: XCTestCase {
         XCTAssertNotEqual(wasOn, isOn)
     }
 
-    func testSettingsShowsUsageDocumentationLink() throws {
+    func testSettingsOpensLocalUsageDocumentation() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestUseGuestMode", "YES"]
         app.launch()
 
-        let settings = app.buttons["settings-tab"]
+        let settings = app.descendants(matching: .any)["settings-tab"]
         if settings.waitForExistence(timeout: 5) {
             settings.tap()
-        } else if app.buttons["settings-sidebar"].waitForExistence(timeout: 5) {
-            app.buttons["settings-sidebar"].tap()
-        } else if app.tabBars.firstMatch.exists {
-            app.tabBars.buttons.element(boundBy: min(3, app.tabBars.buttons.count - 1)).tap()
+        } else if app.descendants(matching: .any)["settings-sidebar"].waitForExistence(timeout: 5) {
+            app.descendants(matching: .any)["settings-sidebar"].tap()
+        } else {
+            XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5))
+            let tabButtons = app.tabBars.buttons
+            XCTAssertGreaterThan(tabButtons.count, 0)
+            tabButtons.element(boundBy: tabButtons.count - 1).tap()
         }
 
+        XCTAssertTrue(app.descendants(matching: .any)["settings-screen"].waitForExistence(timeout: 5))
         let documentationLink = app.descendants(matching: .any)["usage-documentation-link"]
         XCTAssertTrue(documentationLink.waitForExistence(timeout: 5))
+        documentationLink.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["documentation-screen"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["使用说明"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["documentation-menu"].waitForExistence(timeout: 5))
     }
 
     func testGalleryDeepLinkPushesDetailOnIPhone() throws {

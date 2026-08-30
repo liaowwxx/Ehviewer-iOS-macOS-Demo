@@ -24,7 +24,7 @@ permalink: /en/
         </a>
       </div>
       <ul class="hero-meta">
-        <li>iOS / iPadOS / macOS 26+</li>
+        <li>iOS / iPadOS 18+ · macOS 15+</li>
       </ul>
     </div>
 

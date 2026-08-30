@@ -3,9 +3,11 @@ import Testing
 @testable import EhViewerPreview
 
 struct DocumentationTests {
-    @Test("Usage documentation opens the hosted guide")
-    func usageDocumentationURL() {
-        #expect(DocumentationWebsite.url?.absoluteString == "https://liaowwxx.github.io/Ehviewer-iOS-macOS-Demo/guide/")
+    @Test("Usage documentation uses the bundled help resource")
+    func usageDocumentationResource() {
+        #expect(DocumentationDocument.help.resourceName == "HELP")
+        #expect(DocumentationDocument.help.localURL?.absoluteString == "ehviewer-doc://help")
+        #expect(DocumentationContent.resourceSubdirectory == "Documentation")
     }
 
     @Test("Markdown converts headings, lists, inline emphasis and links to HTML")
@@ -43,5 +45,21 @@ struct DocumentationTests {
         #expect(privacy == .privacy)
         #expect(DocumentationDocument.fromLinkDestination("#快速开始") == nil)
         #expect(DocumentationDocument.fromLinkDestination("https://example.com/page.md") == nil)
+    }
+
+    @Test("Documentation HTML matches the website visual language and adapts to width")
+    func documentationHTMLUsesResponsiveTheme() {
+        let html = DocumentationHTML.document(content: "<h1>使用说明</h1>")
+
+        #expect(html.contains("viewport-fit=cover"))
+        #expect(html.contains("--accent: #429488"))
+        #expect(html.contains("grid-template-columns: minmax(164px, 220px) minmax(0, 880px)"))
+        #expect(html.contains("<aside class=\"toc\""))
+        #expect(html.contains("id=\"toc\""))
+        #expect(html.contains("IntersectionObserver"))
+        #expect(html.contains("overflow-wrap: anywhere"))
+        #expect(html.contains("@media (max-width: 560px)"))
+        #expect(html.contains("@media (max-width: 980px)"))
+        #expect(html.contains("prefers-color-scheme: dark"))
     }
 }

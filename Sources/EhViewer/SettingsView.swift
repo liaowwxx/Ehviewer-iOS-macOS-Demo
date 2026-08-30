@@ -110,13 +110,11 @@ struct SettingsView: View {
             }
 
             Section("关于") {
-                if let documentationURL = DocumentationWebsite.url {
-                    Link(destination: documentationURL) {
-                        Label("使用说明", systemImage: "book.closed")
-                            .foregroundStyle(AppTheme.accent)
-                    }
-                    .accessibilityIdentifier("usage-documentation-link")
+                NavigationLink(value: AppRoute.documentation) {
+                    Label("使用说明", systemImage: "book.closed")
+                        .foregroundStyle(AppTheme.accent)
                 }
+                .accessibilityIdentifier("usage-documentation-link")
                 LabeledContent("版本", value: appVersion)
             }
         }

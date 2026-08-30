@@ -58,7 +58,7 @@ An **E-Hentai / ExHentai** gallery browser for iOS / iPadOS / macOS, natively bu
 
 ## System Requirements
 
-- iOS / iPadOS 26.0 or later; macOS 26.0 or later.
+- iOS / iPadOS 18.0 or later; macOS 15.0 or later.
 
 ## Documentation
 

@@ -29,7 +29,7 @@
 
 ## 系统要求
 
-- iOS / iPadOS 26.0 及以上；macOS 26.0 及以上。
+- iOS / iPadOS 18.0 及以上；macOS 15.0 及以上。
 
 ## 使用说明
 

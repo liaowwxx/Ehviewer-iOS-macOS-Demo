@@ -36,8 +36,14 @@ enum DocumentationDocument: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum DocumentationContent {
+    static let resourceSubdirectory = "Documentation"
+
     static func markdown(for document: DocumentationDocument, bundle: Bundle = .main) -> String {
-        guard let url = bundle.url(forResource: document.resourceName, withExtension: "md"),
+        guard let url = bundle.url(
+            forResource: document.resourceName,
+            withExtension: "md",
+            subdirectory: resourceSubdirectory
+        ),
               let markdown = try? String(contentsOf: url, encoding: .utf8) else {
             return "# \(document.title)\n\n文档暂时无法加载。"
         }

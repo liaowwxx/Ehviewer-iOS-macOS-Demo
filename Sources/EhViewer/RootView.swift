@@ -290,6 +290,7 @@ private struct CompactRootView: View {
              .settingsBrowsingAndFiltering,
              .settingsStorageManagement,
              .settingsDataBackupAndSync,
+             .documentation,
              .settingsSite,
              .settingsLogin,
              .settingsBrowsing,
@@ -403,6 +404,8 @@ struct DestinationView: View {
             LibraryView(mode: .favorites)
         case .settings:
             SettingsView()
+        case .documentation:
+            DocumentationView()
         case .settingsSiteAndLogin:
             SettingsView(page: .siteAndLogin)
         case .settingsBrowsingAndFiltering:

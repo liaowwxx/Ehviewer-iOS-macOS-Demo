@@ -82,6 +82,8 @@
 		EHB0000000000000000005D /* GalleryCardSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005D /* GalleryCardSettingsSection.swift */; };
 		EHB0000000000000000005E /* GalleryRatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005E /* GalleryRatingView.swift */; };
 		EHB0000000000000000005F /* GalleryCardDownloadStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */; };
+		EHB00000000000000000060 /* DocumentationHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000060 /* DocumentationHTML.swift */; };
+		EHB00000000000000000062 /* Documentation in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -191,6 +193,8 @@
 		EHF0000000000000000005D /* GalleryCardSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardSettingsSection.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005E /* GalleryRatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryRatingView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardDownloadStatus.swift; sourceTree = "<group>"; };
+		EHF00000000000000000060 /* DocumentationHTML.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationHTML.swift; sourceTree = "<group>"; };
+		EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Sources/EhViewer/Resources/Documentation; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -231,6 +235,7 @@
 				EHF00000000000000000054 /* PRIVACY.md */,
 				EHF00000000000000000055 /* CHANGELOG.md */,
 				EHF00000000000000000056 /* README.md */,
+				EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */,
 				EHG00000000000000000002 /* Sources/EhViewer */,
 				EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */,
 				EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */,
@@ -302,6 +307,7 @@
 				EHF00000000000000000051 /* DocumentationWebView.swift */,
 				EHF00000000000000000052 /* DocumentationView.swift */,
 				EHF00000000000000000057 /* DocumentationWebsite.swift */,
+				EHF00000000000000000060 /* DocumentationHTML.swift */,
 				EHF00000000000000000047 /* ShareSheet.swift */,
 				EHF00000000000000000048 /* Info.plist */,
 				EHF00000000000000000049 /* Info-macOS.plist */,
@@ -467,10 +473,7 @@
 				EHB00000000000000000013 /* Sources/EhViewer/Resources/fr.lproj/Localizable.strings in Resources */,
 				EHB00000000000000000014 /* Sources/EhViewer/Resources/de.lproj/Localizable.strings in Resources */,
 				EHB00000000000000000015 /* Sources/EhViewer/Resources/th.lproj/Localizable.strings in Resources */,
-				EHB00000000000000000053 /* HELP.md in Resources */,
-				EHB00000000000000000054 /* PRIVACY.md in Resources */,
-				EHB00000000000000000055 /* CHANGELOG.md in Resources */,
-				EHB00000000000000000056 /* README.md in Resources */,
+				EHB00000000000000000062 /* Documentation in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -534,6 +537,7 @@
 				EHB00000000000000000051 /* DocumentationWebView.swift in Sources */,
 				EHB00000000000000000052 /* DocumentationView.swift in Sources */,
 				EHB00000000000000000057 /* DocumentationWebsite.swift in Sources */,
+				EHB00000000000000000060 /* DocumentationHTML.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -610,8 +614,8 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "允许 EhViewer 将阅读器图片保存到照片";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -640,8 +644,8 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "允许 EhViewer 将阅读器图片保存到照片";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -658,7 +662,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -674,7 +678,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -694,7 +698,7 @@
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -714,7 +718,7 @@
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";

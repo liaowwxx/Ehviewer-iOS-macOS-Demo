@@ -6,8 +6,8 @@ let package = Package(
     name: "EhViewer",
     defaultLocalization: "zh-Hans",
     platforms: [
-        .iOS(.v26),
-        .macOS(.v26)
+        .iOS(.v18),
+        .macOS(.v15)
     ],
     products: [
         .library(name: "EHDomain", targets: ["EHDomain"]),
