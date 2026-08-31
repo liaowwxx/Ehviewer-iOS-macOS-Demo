@@ -285,8 +285,12 @@ public enum ModelContainerFactory {
         public static let stages: [MigrationStage] = []
     }
 
-    public static func make(inMemory: Bool = false) throws -> ModelContainer {
-        let configuration = ModelConfiguration(isStoredInMemoryOnly: inMemory)
+    public static func make(storeURL: URL? = nil, inMemory: Bool = false) throws -> ModelContainer {
+        let configuration = if let storeURL {
+            ModelConfiguration(url: storeURL)
+        } else {
+            ModelConfiguration(isStoredInMemoryOnly: inMemory)
+        }
         return try ModelContainer(
             for: Schema(SchemaV4.models),
             migrationPlan: MigrationPlan.self,

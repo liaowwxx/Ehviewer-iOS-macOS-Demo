@@ -220,6 +220,7 @@ public final class DeviceSyncCoordinator {
     /// Opaque per-coordinator identifier used only to filter this process's
     /// own Bonjour advertisement from browser results. It is not user data.
     private let serviceInstanceID = UUID().uuidString
+    private let transactionRoot: URL
     private var browser: NWBrowser?
     private var listener: NWListener?
     private var endpoints: [String: NWEndpoint] = [:]
@@ -272,11 +273,13 @@ public final class DeviceSyncCoordinator {
     public init(
         persistence: PersistenceStore,
         files: DownloadFileStore,
-        index: DeviceSyncIndexStore = DeviceSyncIndexStore()
+        index: DeviceSyncIndexStore = DeviceSyncIndexStore(),
+        transactionRoot: URL? = nil
     ) {
         self.persistence = persistence
         self.files = files
         self.index = index
+        self.transactionRoot = transactionRoot ?? Self.defaultTransactionRootURL
         self.localDeviceName = Self.makeDeviceName()
     }
 
@@ -289,7 +292,7 @@ public final class DeviceSyncCoordinator {
     /// an earlier gallery is rolled back using the hashes of this round's
     /// newly-created pages.
     public func recoverInterruptedTransfers() async -> DeviceSyncRecoveryResult {
-        let root = Self.transactionRootURL
+        let root = transactionRoot
         let fileManager = FileManager.default
         guard let urls = try? fileManager.contentsOfDirectory(
             at: root,
@@ -1387,7 +1390,7 @@ public final class DeviceSyncCoordinator {
 
     private func beginTransaction(for key: GalleryKey, record: GalleryTransferRecord?) throws {
         let fileManager = FileManager.default
-        var root = Self.transactionRootURL
+        var root = transactionRoot
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
@@ -1519,7 +1522,7 @@ public final class DeviceSyncCoordinator {
         return DeviceSyncTransactionJournal(key: key, record: record, pages: pages, phase: phase)
     }
 
-    nonisolated private static var transactionRootURL: URL {
+    nonisolated private static var defaultTransactionRootURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent("EhViewer/DeviceSync/Transactions", isDirectory: true)

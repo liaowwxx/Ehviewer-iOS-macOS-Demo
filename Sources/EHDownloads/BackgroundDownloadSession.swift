@@ -149,6 +149,23 @@ public actor BackgroundDownloadSession {
         }
     }
 
+    /// Cancels every task owned by this runtime and resumes any suspended
+    /// callers. Profile switching uses a distinct session identifier, so this
+    /// never reaches another profile's downloads.
+    public func cancelAll() async {
+        let continuations = self.continuations
+        self.continuations.removeAll()
+        requestURLs.removeAll()
+        finishedData.removeAll()
+        await withCheckedContinuation { continuation in
+            session.getAllTasks { tasks in
+                tasks.forEach { $0.cancel() }
+                continuation.resume()
+            }
+        }
+        continuations.values.forEach { $0.resume(throwing: CancellationError()) }
+    }
+
     private func cancel(url: URL?) {
         let identifiers = requestURLs.compactMap { identifier, requestURL in
             url == requestURL ? identifier : nil

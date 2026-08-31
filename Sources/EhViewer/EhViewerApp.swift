@@ -43,60 +43,28 @@ struct EhViewerApp: App {
 #if os(iOS)
     @UIApplicationDelegateAdaptor(EhViewerAppDelegate.self) private var appDelegate
 #endif
-    @State private var modelContainer: ModelContainer?
-    @State private var model: AppModel?
-    @State private var startupError: String?
-    @State private var isResettingStore = false
-    @State private var resetError: String?
+    @State private var profileSession: ProfileSession
 
     init() {
-        let container: ModelContainer?
-        let appModel: AppModel?
-        let errorMessage: String?
-        do {
-            let createdContainer = try ModelContainerFactory.make()
-            container = createdContainer
-            appModel = AppModel(container: createdContainer)
-            errorMessage = nil
-        } catch {
-            container = nil
-            appModel = nil
-            errorMessage = error.localizedDescription
-        }
-        _modelContainer = State(initialValue: container)
-        _model = State(initialValue: appModel)
-        _startupError = State(initialValue: errorMessage)
+        _profileSession = State(initialValue: ProfileSession())
     }
 
     var body: some Scene {
         WindowGroup {
-            if let model, let modelContainer {
-                RootView()
-                    .environment(model)
-                    .modelContainer(modelContainer)
-                    .tint(AppTheme.accent)
-                    .onOpenURL { url in model.handleIncomingURL(url) }
-            } else {
-                PersistenceRecoveryView(
-                    errorMessage: startupError ?? String(localized: "未知的本地数据存储错误。"),
-                    retry: retryStore,
-                    reset: resetStore,
-                    isResetting: isResettingStore,
-                    resetError: resetError
-                )
-            }
+            ProfileHostView(session: profileSession)
         }
         #if os(macOS)
         .defaultSize(width: 700, height: 700)
         #endif
         #if os(macOS)
-        WindowGroup("阅读器", for: AppRoute.self) { route in
-            if let model, let modelContainer,
+        WindowGroup("阅读器", for: ProfileReaderRoute.self) { route in
+            if let runtime = profileSession.runtime,
                let route = route.wrappedValue,
-               case let .reader(key, page) = route {
-                ReaderView(key: key, initialPage: page)
-                    .environment(model)
-                    .modelContainer(modelContainer)
+               route.profileID == runtime.descriptor.id {
+                ReaderView(key: route.key, initialPage: route.page)
+                    .environment(runtime.model)
+                    .environment(profileSession)
+                    .modelContainer(runtime.container)
                     .tint(AppTheme.accent)
             } else {
                 ContentUnavailableView("没有打开的阅读器", systemImage: "book")
@@ -105,44 +73,18 @@ struct EhViewerApp: App {
         .commands {
             CommandGroup(after: .newItem) {
                 Button("刷新列表") {
-                    model?.requestBrowseRefresh()
+                    profileSession.runtime?.model.requestBrowseRefresh()
                 }
                 .keyboardShortcut("r", modifiers: [.command])
             }
             CommandMenu("EhViewer") {
-                Button("回到浏览") { model?.selectedRoute = .browse }
+                Button("回到浏览") { profileSession.runtime?.model.selectedRoute = .browse }
                     .keyboardShortcut("1", modifiers: [.command])
             }
         }
         #endif
     }
 
-    private func retryStore() {
-        do {
-            let container = try ModelContainerFactory.make()
-            modelContainer = container
-            model = AppModel(container: container)
-            startupError = nil
-            resetError = nil
-        } catch {
-            startupError = error.localizedDescription
-        }
-    }
-
-    private func resetStore() {
-        guard isResettingStore == false else { return }
-        isResettingStore = true
-        resetError = nil
-        Task {
-            do {
-                try await AppDataResetter.removeAll()
-                retryStore()
-            } catch {
-                resetError = error.localizedDescription
-            }
-            isResettingStore = false
-        }
-    }
 }
 
 private struct PersistenceRecoveryView: View {

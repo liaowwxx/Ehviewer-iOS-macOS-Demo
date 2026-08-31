@@ -215,6 +215,7 @@ final class AppModel {
     let downloads: DownloadCoordinator
     let sessionVault: SessionVault
     let imagePipeline: ImagePipeline
+    let galleryCoverLoader: GalleryCoverLoader
     let backgroundSession: BackgroundDownloadSession
     let downloadFiles: DownloadFileStore
     let deviceSync: DeviceSyncCoordinator
@@ -286,7 +287,13 @@ final class AppModel {
         defaults: UserDefaults = .standard,
         downloadFiles: DownloadFileStore? = nil,
         galleryCache: GalleryCacheStore? = nil,
-        tagSuggestionProvider: TagSuggestionProvider = TagSuggestionProvider()
+        tagSuggestionProvider: TagSuggestionProvider = TagSuggestionProvider(),
+        imagePipeline: ImagePipeline? = nil,
+        galleryCoverLoader: GalleryCoverLoader? = nil,
+        deviceSyncIndex: DeviceSyncIndexStore? = nil,
+        deviceSyncTransactionRoot: URL? = nil,
+        backgroundDownloadIdentifier: String = "com.liao.ehviewer.background-downloads",
+        profileID: UUID? = nil
     ) {
         let arguments = ProcessInfo.processInfo.arguments
         let forceGuestModeForUITest = arguments.contains("-UITestUseGuestMode")
@@ -314,23 +321,35 @@ final class AppModel {
         self.tagSuggestionProvider = tagSuggestionProvider
         let client: any EHAPI = api ?? EHClient(sessionVault: sessionVault)
         self.api = client
-        let index = DeviceSyncIndexStore()
+        let index = deviceSyncIndex ?? DeviceSyncIndexStore()
         let store = PersistenceStore(modelContainer: container)
         persistence = store
-        imagePipeline = ImagePipeline()
+        self.imagePipeline = imagePipeline ?? ImagePipeline()
         let fileStore = downloadFiles ?? DownloadFileStore()
         self.downloadFiles = fileStore
         self.deviceSyncIndex = index
-        self.deviceSync = DeviceSyncCoordinator(persistence: store, files: fileStore, index: index)
+        self.deviceSync = DeviceSyncCoordinator(
+            persistence: store,
+            files: fileStore,
+            index: index,
+            transactionRoot: deviceSyncTransactionRoot
+        )
         self.galleryCache = galleryCache ?? GalleryCacheStore()
+        self.galleryCoverLoader = galleryCoverLoader ?? GalleryCoverLoader()
+        let expectedProfileID = profileID?.uuidString
         let backgroundSession = BackgroundDownloadSession(
+            identifier: backgroundDownloadIdentifier,
             taskObserver: { description, identifier in
-                guard let (key, pageIndex) = parseDownloadTaskDescription(description) else { return }
+                guard let parsed = parseDownloadTaskDescription(description),
+                      parsed.profileID == expectedProfileID else { return }
+                let (key, pageIndex) = (parsed.key, parsed.pageIndex)
                 try? await store.setBackgroundTaskIdentifier(identifier, for: key, pageIndex: pageIndex)
             },
             orphanCompletion: { description, data, statusCode in
                 guard (200..<300).contains(statusCode),
-                      let (key, pageIndex) = parseDownloadTaskDescription(description) else { return }
+                      let parsed = parseDownloadTaskDescription(description),
+                      parsed.profileID == expectedProfileID else { return }
+                let (key, pageIndex) = (parsed.key, parsed.pageIndex)
                 do {
                     _ = try await fileStore.write(data, for: key, pageIndex: pageIndex)
                     try await store.markDownloadPageCompleted(for: key, pageIndex: pageIndex, bytes: Int64(data.count))
@@ -371,7 +390,11 @@ final class AppModel {
 
                     let data = try await backgroundSession.data(
                         for: request,
-                        taskDescription: "\(descriptor.galleryKey.gid)|\(descriptor.galleryKey.token)|\(descriptor.index)"
+                        taskDescription: makeDownloadTaskDescription(
+                            profileID: expectedProfileID,
+                            key: descriptor.galleryKey,
+                            pageIndex: descriptor.index
+                        )
                     )
                     do {
                         try DownloadMediaValidator.validate(data)
@@ -413,7 +436,7 @@ final class AppModel {
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.migrateLegacyGalleryCache()
-            await GalleryCoverLoader.shared.removeLegacyLocalEntries()
+            await self.galleryCoverLoader.removeLegacyLocalEntries()
             await self.refreshGalleryCacheUsage()
             await self.refreshLocalDownloadUsage()
             if self.forceGuestMode == false {
@@ -464,6 +487,29 @@ final class AppModel {
                 }
             }
         }
+    }
+
+    /// Releases work that belongs to this runtime before another profile is
+    /// installed. Every asynchronous callback is invalidated before the
+    /// runtime's container can be discarded.
+    func shutdown() async {
+        activeListRequestID = UUID()
+        incomingStagingGeneration &+= 1
+        fileOperationGeneration &+= 1
+        incomingStagingTask?.cancel()
+        incomingStagingTask = nil
+        currentFileOperationTask?.cancel()
+        currentFileOperationTask = nil
+        tagTranslationLoadTask?.cancel()
+        tagTranslationLoadTask = nil
+        tagTranslationImportTask?.cancel()
+        tagTranslationImportTask = nil
+        downloadRevisionTask?.cancel()
+        downloadRevisionTask = nil
+        await downloads.stopAll()
+        await backgroundSession.cancelAll()
+        deviceSync.stop()
+        await galleryCoverLoader.removeAll()
     }
 
     func load(query: GalleryListQuery? = nil) async {
@@ -856,7 +902,7 @@ final class AppModel {
         maxPixelSize: Int
     ) async throws -> CGImage? {
         let cacheKey = "remote|\(key.id)|\(previewURL.absoluteString)|\(prefersGalleryCache)|\(maxPixelSize)"
-        return try await GalleryCoverLoader.shared.image(
+        return try await galleryCoverLoader.image(
             for: cacheKey,
             maxPixelSize: maxPixelSize
         ) { [self] in
@@ -878,7 +924,7 @@ final class AppModel {
             job.completedPageIndexes.contains($0.index)
         })?.index else { return nil }
         let url = await downloadFiles.finalURL(for: job.key, pageIndex: pageIndex)
-        return await GalleryCoverLoader.shared.localImage(
+        return await galleryCoverLoader.localImage(
             fileURL: url,
             maxPixelSize: maxPixelSize
         )
@@ -892,7 +938,7 @@ final class AppModel {
     ) async throws -> CGImage? {
         if let localPage {
             let url = await downloadFiles.finalURL(for: key, pageIndex: localPage.index)
-            return await GalleryCoverLoader.shared.localImage(
+            return await galleryCoverLoader.localImage(
                 fileURL: url,
                 maxPixelSize: maxPixelSize
             )
@@ -3569,11 +3615,39 @@ private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
-private func parseDownloadTaskDescription(_ description: String) -> (GalleryKey, Int)? {
+private struct BackgroundDownloadTaskDescription: Sendable {
+    let profileID: String?
+    let key: GalleryKey
+    let pageIndex: Int
+}
+
+private func makeDownloadTaskDescription(profileID: String?, key: GalleryKey, pageIndex: Int) -> String {
+    if let profileID {
+        return "\(profileID)|\(key.gid)|\(key.token)|\(pageIndex)"
+    }
+    return "\(key.gid)|\(key.token)|\(pageIndex)"
+}
+
+private func parseDownloadTaskDescription(_ description: String) -> BackgroundDownloadTaskDescription? {
     let pieces = description.split(separator: "|", omittingEmptySubsequences: false)
-    guard pieces.count == 3,
-          let gid = Int64(pieces[0]),
-          let pageIndex = Int(pieces[2]),
-          pieces[1].isEmpty == false else { return nil }
-    return (GalleryKey(gid: gid, token: String(pieces[1])), pageIndex)
+    let offset: Int
+    let profileID: String?
+    switch pieces.count {
+    case 3:
+        offset = 0
+        profileID = nil
+    case 4:
+        offset = 1
+        profileID = String(pieces[0])
+    default:
+        return nil
+    }
+    guard let gid = Int64(pieces[offset]),
+          let pageIndex = Int(pieces[offset + 2]),
+          pieces[offset + 1].isEmpty == false else { return nil }
+    return BackgroundDownloadTaskDescription(
+        profileID: profileID,
+        key: GalleryKey(gid: gid, token: String(pieces[offset + 1])),
+        pageIndex: pageIndex
+    )
 }

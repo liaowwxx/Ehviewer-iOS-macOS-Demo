@@ -24,6 +24,7 @@ import EHDownloads
 
 struct GalleryDetailView: View {
     @Environment(AppModel.self) private var model
+    @Environment(ProfileSession.self) private var profileSession
     @Environment(\.openURL) private var openURL
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
@@ -189,7 +190,12 @@ struct GalleryDetailView: View {
                 .accessibilityIdentifier("start-reading-action")
                 #if os(macOS)
                 Button {
-                    openWindow(value: AppRoute.reader(key, page: readerStartPage))
+                    guard let profileID = profileSession.runtime?.descriptor.id else { return }
+                    openWindow(value: ProfileReaderRoute(
+                        profileID: profileID,
+                        key: key,
+                        page: readerStartPage
+                    ))
                 } label: {
                     Label("新窗口阅读", systemImage: "rectangle.split.2x1")
                         .frame(maxWidth: .infinity, minHeight: 44)

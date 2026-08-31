@@ -52,6 +52,7 @@ enum SettingsPage: Equatable {
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(ProfileSession.self) private var profileSession
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let page: SettingsPage
     @State private var showingCookieSheet = false
@@ -72,6 +73,8 @@ struct SettingsView: View {
     @State private var showingGalleryCacheClearConfirmation = false
     @State private var showingAllLocalMangaDeletionConfirmation = false
     @State private var showingDownloadedMetadataRefreshDialog = false
+    @State private var profileNameEditor: ProfileNameEditorRequest?
+    @State private var profilePendingDeletion: ProfileDescriptor?
 
     init(page: SettingsPage = .overview) {
         self.page = page
@@ -79,6 +82,11 @@ struct SettingsView: View {
 
     private var settingsForm: some View {
         Form {
+            ProfileManagementSection(
+                nameEditor: $profileNameEditor,
+                profilePendingDeletion: $profilePendingDeletion
+            )
+
             Section {
                 NavigationLink(value: AppRoute.settingsSiteAndLogin) {
                     SettingsNavigationLabel("站点&登录", systemImage: "globe")
@@ -436,6 +444,34 @@ struct SettingsView: View {
             .sheet(isPresented: $showingCookieSheet) { CookieLoginSheet() }
         .sheet(isPresented: $showingWebLogin) { WebLoginSheet() }
         .sheet(isPresented: $showingPasswordLogin) { PasswordLoginSheet() }
+        .sheet(item: $profileNameEditor) { request in
+            ProfileNameEditor(request: request) { name in
+                switch request.action {
+                case .create:
+                    Task { await profileSession.createProfile(named: name) }
+                case let .rename(id):
+                    profileSession.renameProfile(id: id, to: name)
+                }
+            }
+        }
+        .confirmationDialog(
+            "删除 \(profilePendingDeletion?.name ?? "Profile")？",
+            isPresented: Binding(
+                get: { profilePendingDeletion != nil },
+                set: { if $0 == false { profilePendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("删除下载、数据库、缓存、会话和偏好设置", role: .destructive) {
+                if let profile = profilePendingDeletion {
+                    profilePendingDeletion = nil
+                    Task { await profileSession.deleteProfile(id: profile.id) }
+                }
+            }
+            Button("取消", role: .cancel) { profilePendingDeletion = nil }
+        } message: {
+            Text("删除前将再次请求系统认证。此操作仅清理该 Profile 在应用沙盒中的下载、SwiftData、缓存、同步索引、会话和偏好设置；不会影响导出的备份或照片图库。")
+        }
 #if os(iOS)
         .sheet(item: $pendingShareFile, onDismiss: discardPendingSharedFileIfAny) { file in
             ShareSheet(items: [file.url])

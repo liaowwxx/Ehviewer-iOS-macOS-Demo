@@ -26,6 +26,8 @@
 	<false/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>允许 EhViewer 将阅读器图片保存到照片</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>EhViewer 使用 Face ID 解锁你选择的 Profile。</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>EhViewer 需要访问本地网络以在设备之间同步已下载的漫画。</string>
 	<key>NSBonjourServices</key>

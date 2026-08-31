@@ -8,6 +8,38 @@ import EHDownloads
 
 @MainActor
 struct AppModelTests {
+
+    @MainActor
+    private struct DecliningProfileAuthenticator: ProfileAuthenticating {
+        func authenticate(reason: String) async throws -> Bool { false }
+    }
+
+    @Test("Profile registry creates and persists isolated descriptors")
+    func profileRegistryCreatesAndRenamesProfiles() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EhViewerProfileTests-\(UUID().uuidString)", isDirectory: true)
+        let session = ProfileSession(
+            profilesRoot: root,
+            authenticator: DecliningProfileAuthenticator()
+        )
+
+        session.prepare()
+        #expect(session.profiles.count == 1)
+        #expect(session.profiles[0].name == "个人")
+
+        await session.createProfile(named: " 工作 ")
+        #expect(session.profiles.count == 2)
+        let work = try #require(session.profiles.first { $0.name == "工作" })
+        session.renameProfile(id: work.id, to: "阅读")
+        #expect(session.profiles.first { $0.id == work.id }?.name == "阅读")
+
+        let restored = ProfileSession(
+            profilesRoot: root,
+            authenticator: DecliningProfileAuthenticator()
+        )
+        restored.prepare()
+        #expect(restored.profiles.map(\.name).sorted() == ["个人", "阅读"])
+    }
     @Test("批量下载仅保留没有下载任务的画廊")
     func bulkDownloadTargetsSkipExistingJobs() {
         let downloaded = GallerySummary(key: GalleryKey(gid: 301, token: "downloaded"), title: "Downloaded")
