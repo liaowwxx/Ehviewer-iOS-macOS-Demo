@@ -41,6 +41,40 @@ struct NetworkingTests {
         #expect(suggestions == [SearchTagSuggestion(english: "group:blue archive", localizedText: "蓝色档案", rawKey: "g:blue archive")])
     }
 
+    @Test("Bundled tag data remains active until an explicitly checked update is installed")
+    func bundledTagDatabaseUpdateIsExplicitAndValidated() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-bundled-tags-\(UUID().uuidString)")
+        let bundledURL = root.appendingPathComponent("bundled")
+        let installedURL = root.appendingPathComponent("installed")
+
+        func database(_ key: String, _ text: String) -> Data {
+            let payload = Data("\(key)\r\(Data(text.utf8).base64EncodedString())\n".utf8)
+            var result = withUnsafeBytes(of: UInt32(payload.count).bigEndian) { Data($0) }
+            result.append(payload)
+            return result
+        }
+
+        let bundledData = database("g:blue archive", "内置翻译")
+        let updatedData = database("g:blue archive", "更新翻译")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try bundledData.write(to: bundledURL, options: .atomic)
+
+        let provider = TagSuggestionProvider(
+            sourceURLs: [URL(string: "https://example.invalid/tags")!],
+            cacheURL: installedURL,
+            bundledDatabaseURL: bundledURL,
+            remoteDataLoader: { _ in updatedData }
+        )
+
+        #expect(try await provider.suggestions(for: "blue").first?.localizedText == "内置翻译")
+        #expect(FileManager.default.fileExists(atPath: installedURL.path) == false)
+        #expect(try await provider.checkForUpdate() == .updateAvailable)
+        #expect(FileManager.default.fileExists(atPath: installedURL.path) == false)
+        #expect(try await provider.installAvailableUpdate() == .latest)
+        #expect(try await provider.suggestions(for: "blue").first?.localizedText == "更新翻译")
+    }
+
     @Test("HTML list parser extracts gallery keys and cursor")
     func listParser() throws {
         let fixtureURL = try #require(Bundle.module.url(forResource: "list", withExtension: "html"))

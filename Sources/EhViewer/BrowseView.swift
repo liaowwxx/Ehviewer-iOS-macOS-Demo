@@ -150,7 +150,15 @@ struct BrowseView: View {
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
+#if os(iOS)
+        .searchable(
+            text: $pageModel.searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "搜索画廊或标签"
+        )
+#else
         .searchable(text: $pageModel.searchText, placement: .toolbar, prompt: "搜索画廊或标签")
+#endif
         .onSubmit(of: .search, submitSearch)
         .onChange(of: pageModel.searchText) { _, newValue in
             let normalized = SearchQueryComposer.normalized(newValue)

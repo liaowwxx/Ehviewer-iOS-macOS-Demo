@@ -39,6 +39,7 @@ enum SettingsPage: Equatable {
     case overview
     case siteAndLogin
     case browsingAndFiltering
+    case reading
     case storageManagement
     case dataBackupAndSync
     case site
@@ -69,7 +70,7 @@ struct SettingsView: View {
     @State private var showingDownloadRestoreResult = false
     @State private var downloadRestoreMessage = ""
     @State private var showingGalleryCacheClearConfirmation = false
-    @State private var showingDownloadReadingProgressResetConfirmation = false
+    @State private var showingAllLocalMangaDeletionConfirmation = false
     @State private var showingDownloadedMetadataRefreshDialog = false
 
     init(page: SettingsPage = .overview) {
@@ -93,6 +94,13 @@ struct SettingsView: View {
                     SettingsNavigationLabel("浏览&过滤", systemImage: "book.pages")
                 }
                 .accessibilityIdentifier("settings-browsing-link")
+            }
+
+            Section {
+                NavigationLink(value: AppRoute.settingsReading) {
+                    SettingsNavigationLabel("阅读设置", systemImage: "book")
+                }
+                .accessibilityIdentifier("settings-reading-link")
             }
 
             Section {
@@ -148,12 +156,16 @@ struct SettingsView: View {
                 }
             }
             Section("登录") {
-                Button("用户名&密码登录", systemImage: "person.badge.key") { showingPasswordLogin = true }
-                Button("网页登录", systemImage: "safari") { showingWebLogin = true }
-                Button("Cookie登录", systemImage: "key") { showingCookieSheet = true }
-                Button("清除Cookie", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                Button("用户名&密码登录") { showingPasswordLogin = true }
+                    .foregroundStyle(.primary)
+                Button("网页登录") { showingWebLogin = true }
+                    .foregroundStyle(.primary)
+                Button("Cookie登录") { showingCookieSheet = true }
+                    .foregroundStyle(.primary)
+                Button("清除Cookie") {
                     Task { await model.clearSession() }
                 }
+                .foregroundStyle(.primary)
             }
         }
         .formStyle(.grouped)
@@ -176,6 +188,7 @@ struct SettingsView: View {
                     .accessibilityIdentifier("show-tag-translations-toggle")
             }
             GalleryCardSettingsSection(isCompactWidth: horizontalSizeClass == .compact)
+            TagDatabaseSettingsSection()
             FilterRulesSection()
         }
         .formStyle(.grouped)
@@ -216,6 +229,7 @@ struct SettingsView: View {
                     .accessibilityIdentifier("show-tag-translations-toggle")
             }
             GalleryCardSettingsSection(isCompactWidth: horizontalSizeClass == .compact)
+            TagDatabaseSettingsSection()
         }
         .formStyle(.grouped)
         .navigationTitle("浏览")
@@ -223,25 +237,52 @@ struct SettingsView: View {
 
     private var storageAndProgressForm: some View {
         Form {
-            Section("存储与进度") {
-                Button("重置下载内容的阅读进度", systemImage: "arrow.counterclockwise", role: .destructive) {
-                    showingDownloadReadingProgressResetConfirmation = true
+            Section("本地漫画") {
+                LabeledContent("本数", value: "\(model.localDownloadGalleryCount) 本")
+                LabeledContent("空间占用", value: localDownloadSize)
+                if let progress = model.localMangaDeletionProgress {
+                    VStack(alignment: .leading) {
+                        ProgressView(value: progress.fraction) {
+                            Text("正在删除本地漫画")
+                        } currentValueLabel: {
+                            Text("已处理 \(progress.completed)/\(progress.total) 本")
+                        }
+                        if progress.failed > 0 {
+                            Text("已有 \(progress.failed) 本删除失败")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("delete-all-local-manga-progress")
                 }
-                .accessibilityIdentifier("reset-download-reading-progress-action")
+                Button("删除所有本地漫画", role: .destructive) {
+                    showingAllLocalMangaDeletionConfirmation = true
+                }
+                .foregroundStyle(.red)
+                .disabled(model.localDownloadGalleryCount == 0 || model.isDeletingAllLocalManga)
+                .accessibilityIdentifier("delete-all-local-manga-action")
                 .confirmationDialog(
-                    "重置所有下载内容的阅读进度？",
-                    isPresented: $showingDownloadReadingProgressResetConfirmation,
+                    "删除所有本地漫画？",
+                    isPresented: $showingAllLocalMangaDeletionConfirmation,
                     titleVisibility: .visible
                 ) {
-                    Button("重置进度", role: .destructive) {
-                        Task { await model.resetAllDownloadReadingProgress() }
+                    Button("删除全部漫画", role: .destructive) {
+                        Task {
+                            await model.deleteAllLocalManga()
+                        }
                     }
                     Button("取消", role: .cancel) {}
+                } message: {
+                    Text("将删除所有本地漫画文件，并从下载列表中移除对应任务。此操作无法撤销。")
                 }
+            }
+
+            Section("缓存") {
                 LabeledContent("缓存占用", value: galleryCacheSize)
-                Button("清除缓存", systemImage: "trash", role: .destructive) {
+                Button("清除缓存", role: .destructive) {
                     showingGalleryCacheClearConfirmation = true
                 }
+                .foregroundStyle(.red)
                 .accessibilityIdentifier("clear-gallery-cache-action")
                 .confirmationDialog(
                     "清除缓存？",
@@ -275,12 +316,16 @@ struct SettingsView: View {
                 }
             }
             Section("登录") {
-                Button("用户名&密码登录", systemImage: "person.badge.key") { showingPasswordLogin = true }
-                Button("网页登录", systemImage: "safari") { showingWebLogin = true }
-                Button("Cookie登录", systemImage: "key") { showingCookieSheet = true }
-                Button("清除Cookie", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                Button("用户名&密码登录") { showingPasswordLogin = true }
+                    .foregroundStyle(.primary)
+                Button("网页登录") { showingWebLogin = true }
+                    .foregroundStyle(.primary)
+                Button("Cookie登录") { showingCookieSheet = true }
+                    .foregroundStyle(.primary)
+                Button("清除Cookie") {
                     Task { await model.clearSession() }
                 }
+                .foregroundStyle(.primary)
             }
         }
         .formStyle(.grouped)
@@ -298,9 +343,10 @@ struct SettingsView: View {
     private var dataAndBackupForm: some View {
         Form {
             Section("数据与备份") {
-                Button("更新已下载画廊信息", systemImage: "arrow.triangle.2.circlepath") {
+                Button("更新已下载画廊信息") {
                     showingDownloadedMetadataRefreshDialog = true
                 }
+                .foregroundStyle(.primary)
                 .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
                 .accessibilityIdentifier("refresh-downloaded-gallery-metadata-action")
                 .confirmationDialog(
@@ -324,17 +370,19 @@ struct SettingsView: View {
                 }
             }
             Section("导入") {
-                Button("导入元数据(.ehgallery)", systemImage: "square.and.arrow.down") {
+                Button("导入元数据(.ehgallery)") {
                     startFileImport(.gallerySync)
                 }
+                .foregroundStyle(.primary)
                 .disabled(model.isMigrating || model.isRestoringDownloads)
-                Button("导入归档(.eharchive)", systemImage: "arrow.counterclockwise.circle") {
+                Button("导入归档(.eharchive)") {
                     startFileImport(.downloadArchive)
                 }
+                .foregroundStyle(.primary)
                 .disabled(model.isMigrating || model.isRestoringDownloads)
             }
             Section("导出") {
-                Button("导出元数据(.ehgallery)", systemImage: "square.and.arrow.up") {
+                Button("导出元数据(.ehgallery)") {
                     model.runFileOperation {
                         guard let url = await model.exportGallerySync() else { return }
 #if os(iOS)
@@ -346,8 +394,9 @@ struct SettingsView: View {
 #endif
                     }
                 }
+                .foregroundStyle(.primary)
                 .disabled(model.isMigrating || model.isRestoringDownloads)
-                Button("导出归档(.eharchive)", systemImage: "square.and.arrow.up") {
+                Button("导出归档(.eharchive)") {
                     model.runFileOperation {
                         guard let url = await model.exportDownloadArchive() else { return }
 #if os(iOS)
@@ -357,9 +406,17 @@ struct SettingsView: View {
 #endif
                     }
                 }
+                .foregroundStyle(.primary)
                 .disabled(model.isMigrating || model.isRestoringDownloads)
             }
             Section("设备间同步") {
+                Button("重建设备同步索引") {
+                    model.runFileOperation {
+                        await model.buildDeviceSyncIndex()
+                    }
+                }
+                .foregroundStyle(.primary)
+                .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
                 NavigationLink(value: AppRoute.settingsDeviceSync) {
                     SettingsNavigationLabel("设备间同步", systemImage: "arrow.triangle.2.circlepath")
                 }
@@ -446,6 +503,7 @@ struct SettingsView: View {
         .task(id: page) {
             if page == .storageAndProgress || page == .storageManagement {
                 await model.refreshGalleryCacheUsage()
+                await model.refreshLocalDownloadUsage()
             }
             if page == .filters || page == .browsingAndFiltering {
                 await model.loadFilterRules()
@@ -462,6 +520,8 @@ struct SettingsView: View {
             siteAndLoginForm
         case .browsingAndFiltering:
             browsingAndFilteringForm
+        case .reading:
+            ReadingSettingsForm()
         case .storageManagement:
             storageAndProgressForm
         case .dataBackupAndSync:
@@ -514,6 +574,72 @@ struct SettingsView: View {
 
     private var galleryCacheSize: String {
         ByteCountFormatter.string(fromByteCount: model.galleryCacheByteCount, countStyle: .file)
+    }
+
+    private var localDownloadSize: String {
+        ByteCountFormatter.string(fromByteCount: model.localDownloadByteCount, countStyle: .file)
+    }
+}
+
+private struct TagDatabaseSettingsSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Section {
+            LabeledContent("更新状态") {
+                HStack(spacing: 6) {
+                    if model.isCheckingTagDatabaseUpdate || model.isUpdatingTagDatabase {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(statusTitle)
+                        .foregroundStyle(statusColor)
+                }
+            }
+            if let error = model.tagDatabaseUpdateError {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            Button(actionTitle, action: performPrimaryAction)
+                .foregroundStyle(.primary)
+                .disabled(model.isCheckingTagDatabaseUpdate || model.isUpdatingTagDatabase)
+                .accessibilityIdentifier("tag-database-update-action")
+        } header: {
+            Text("标签数据库")
+        } footer: {
+            Text("标签翻译和标签联想已随应用内置。不会在启动时联网；检查更新会下载并校验候选文件，安装失败时会保留并恢复原有数据库。")
+        }
+    }
+
+    private var statusTitle: String {
+        if model.isCheckingTagDatabaseUpdate { return "正在检查更新…" }
+        if model.isUpdatingTagDatabase { return "正在更新…" }
+        switch model.tagDatabaseUpdateStatus {
+        case .latest: return "已是最新"
+        case .updateAvailable: return "有更新可用"
+        case .unknown: return model.tagDatabaseUpdateError == nil ? "未知（尚未检查）" : "检查失败"
+        }
+    }
+
+    private var statusColor: Color {
+        model.tagDatabaseUpdateStatus == .updateAvailable ? AppTheme.accent : .secondary
+    }
+
+    private var actionTitle: String {
+        if model.isUpdatingTagDatabase { return "正在更新" }
+        if model.isCheckingTagDatabaseUpdate { return "正在检查" }
+        return model.tagDatabaseUpdateStatus == .updateAvailable ? "更新标签数据库" : "检查更新"
+    }
+
+    private func performPrimaryAction() {
+        Task {
+            if model.tagDatabaseUpdateStatus == .updateAvailable {
+                await model.updateTagDatabase()
+            } else {
+                await model.checkTagDatabaseForUpdate()
+            }
+        }
     }
 }
 

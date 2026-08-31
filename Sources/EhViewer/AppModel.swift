@@ -218,6 +218,7 @@ final class AppModel {
     let backgroundSession: BackgroundDownloadSession
     let downloadFiles: DownloadFileStore
     let deviceSync: DeviceSyncCoordinator
+    let deviceSyncIndex: DeviceSyncIndexStore
     let galleryCache: GalleryCacheStore
     let tagSuggestionProvider: TagSuggestionProvider
 
@@ -228,11 +229,19 @@ final class AppModel {
     var downloadLayoutMode: DownloadsLayoutMode
     var downloadCategoryFilter: Set<GalleryCategory>
     private(set) var galleryCacheByteCount: Int64 = 0
+    private(set) var localDownloadGalleryCount = 0
+    private(set) var localDownloadByteCount: Int64 = 0
+    private(set) var isDeletingAllLocalManga = false
+    private(set) var localMangaDeletionProgress: DownloadRemovalProgress?
     var galleries: [GallerySummary] = []
     var historyGalleries: [GallerySummary] = []
     var favoriteGalleries: [GallerySummary] = []
     var filterRules: [FilterRuleSnapshot] = []
     var tagTranslations: [String: String] = [:]
+    var tagDatabaseUpdateStatus: TagDatabaseUpdateStatus = .unknown
+    private(set) var tagDatabaseUpdateError: String?
+    private(set) var isCheckingTagDatabaseUpdate = false
+    private(set) var isUpdatingTagDatabase = false
     var quickSearches: [String] = []
     var searchHistorySuggestions: [String] = []
     var tagSearchSuggestions: [SearchTagSuggestion] = []
@@ -256,6 +265,7 @@ final class AppModel {
     private(set) var isMigrating = false
     private(set) var migrationProgress: MigrationProgress?
     private(set) var isLoadingDownloads = true
+    var isDeviceSyncIndexSetupRequired = false
     private(set) var nextPageURL: URL?
     var hasMorePage: Bool { nextPageURL != nil }
     private var activeQuery = GalleryListQuery()
@@ -304,12 +314,14 @@ final class AppModel {
         self.tagSuggestionProvider = tagSuggestionProvider
         let client: any EHAPI = api ?? EHClient(sessionVault: sessionVault)
         self.api = client
+        let index = DeviceSyncIndexStore()
         let store = PersistenceStore(modelContainer: container)
         persistence = store
         imagePipeline = ImagePipeline()
         let fileStore = downloadFiles ?? DownloadFileStore()
         self.downloadFiles = fileStore
-        self.deviceSync = DeviceSyncCoordinator(persistence: store, files: fileStore)
+        self.deviceSyncIndex = index
+        self.deviceSync = DeviceSyncCoordinator(persistence: store, files: fileStore, index: index)
         self.galleryCache = galleryCache ?? GalleryCacheStore()
         let backgroundSession = BackgroundDownloadSession(
             taskObserver: { description, identifier in
@@ -403,6 +415,7 @@ final class AppModel {
             await self.migrateLegacyGalleryCache()
             await GalleryCoverLoader.shared.removeLegacyLocalEntries()
             await self.refreshGalleryCacheUsage()
+            await self.refreshLocalDownloadUsage()
             if self.forceGuestMode == false {
                 await self.refreshSessionStatus()
             }
@@ -410,6 +423,9 @@ final class AppModel {
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
+            await store.configureDeviceSyncIndex(index)
+            await fileStore.configureDeviceSyncIndex(index)
+            self.isDeviceSyncIndexSetupRequired = await index.status() != .ready
             _ = await self.downloadFiles.sweepTemporaryFiles()
             let recovery = await self.deviceSync.recoverInterruptedTransfers()
             if recovery.recoveredAnything {
@@ -518,6 +534,26 @@ final class AppModel {
         incomingStagingTask?.cancel()
         incomingStagingTask = nil
         migrationProgress = nil
+    }
+
+    func buildDeviceSyncIndex() async {
+        guard beginMigration(status: String(localized: "正在建立设备同步索引…")) else { return }
+        defer { finishMigration() }
+        do {
+            try await deviceSync.rebuildIndex { [weak self] completed, total in
+                self?.setMigrationProgress(
+                    status: String(localized: "正在建立设备同步索引…"),
+                    completed: completed,
+                    total: total
+                )
+            }
+            isDeviceSyncIndexSetupRequired = false
+        } catch is CancellationError {
+            // Keep synchronization blocked, but do not reopen the startup
+            // prompt after the user explicitly cancelled the rebuild.
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     /// List pages only carry a few summary tags. Fetch the full tag list for
@@ -752,6 +788,7 @@ final class AppModel {
 
     func prepareTagTranslations() async {
         await tagTranslationLoadTask?.value
+        await tagTranslationImportTask?.value
     }
 
     func cachedDetail(for key: GalleryKey) async -> GalleryDetail? {
@@ -880,6 +917,44 @@ final class AppModel {
         historyGalleries = []
         favoriteGalleries = []
         await refreshGalleryCacheUsage()
+    }
+
+    func refreshLocalDownloadUsage() async {
+        let keys = await downloads.snapshot().map(\.key)
+        let usage = await downloadFiles.localLibraryUsage(for: keys)
+        localDownloadGalleryCount = usage.galleryCount
+        localDownloadByteCount = usage.byteCount
+    }
+
+    func deleteAllLocalManga() async {
+        guard isDeletingAllLocalManga == false else { return }
+        let keys = await downloads.snapshot().map(\.key)
+        let usage = await downloadFiles.localLibraryUsage(for: keys)
+        guard usage.galleryKeys.isEmpty == false else {
+            await refreshLocalDownloadUsage()
+            return
+        }
+
+        isDeletingAllLocalManga = true
+        localMangaDeletionProgress = DownloadRemovalProgress(completed: 0, total: usage.galleryCount)
+        defer {
+            isDeletingAllLocalManga = false
+            localMangaDeletionProgress = nil
+        }
+
+        let result = await downloads.remove(usage.galleryKeys) { [weak self] progress in
+            await MainActor.run {
+                self?.localMangaDeletionProgress = progress
+            }
+        }
+        await refreshLocalDownloadUsage()
+        // The coordinator also emits removal events, but this operation may be
+        // started outside DownloadsView. Publish an authoritative completion
+        // revision so an already visible local library reloads immediately.
+        publishLocalLibraryChange()
+        if result.failures.isEmpty == false {
+            errorMessage = String(localized: "删除本地漫画时有 \(result.failures.count) 项失败。")
+        }
     }
 
     func downloadedPageData(
@@ -1140,6 +1215,60 @@ final class AppModel {
         } catch {
             return
         }
+        defaults.set(Self.tagTranslationLocale, forKey: "tagTranslationImportLocale")
+        await loadTagTranslations()
+    }
+
+    func checkTagDatabaseForUpdate() async {
+        guard isCheckingTagDatabaseUpdate == false, isUpdatingTagDatabase == false else { return }
+        isCheckingTagDatabaseUpdate = true
+        tagDatabaseUpdateError = nil
+        defer { isCheckingTagDatabaseUpdate = false }
+
+        do {
+            tagDatabaseUpdateStatus = try await tagSuggestionProvider.checkForUpdate()
+        } catch is CancellationError {
+            return
+        } catch {
+            tagDatabaseUpdateStatus = .unknown
+            tagDatabaseUpdateError = error.localizedDescription
+        }
+    }
+
+    func updateTagDatabase() async {
+        guard isCheckingTagDatabaseUpdate == false, isUpdatingTagDatabase == false else { return }
+        isUpdatingTagDatabase = true
+        tagDatabaseUpdateError = nil
+        defer { isUpdatingTagDatabase = false }
+
+        do {
+            let status = try await tagSuggestionProvider.installAvailableUpdate()
+            guard status == .latest else {
+                tagDatabaseUpdateStatus = status
+                return
+            }
+            try await replaceTagTranslationsFromDatabase()
+            tagDatabaseUpdateStatus = .latest
+        } catch is CancellationError {
+            return
+        } catch {
+            // Keep the available-update state so the button remains a direct
+            // retry of the already validated candidate.
+            tagDatabaseUpdateStatus = .updateAvailable
+            tagDatabaseUpdateError = error.localizedDescription
+        }
+    }
+
+    private func replaceTagTranslationsFromDatabase() async throws {
+        let entries = try await tagSuggestionProvider.allEntries()
+        let pairs = entries.compactMap { entry -> (tag: String, localizedText: String)? in
+            guard let text = entry.localizedText, text.isEmpty == false else { return nil }
+            return (entry.rawKey ?? entry.english, text)
+        }
+        guard pairs.isEmpty == false else {
+            throw EHError.parsingFailed(String(localized: "标签数据库不包含可用翻译"))
+        }
+        try await persistence.replaceTagTranslations(pairs, locale: Self.tagTranslationLocale)
         defaults.set(Self.tagTranslationLocale, forKey: "tagTranslationImportLocale")
         await loadTagTranslations()
     }
@@ -1840,6 +1969,11 @@ final class AppModel {
     /// background network download.
     func refreshDownloadsAfterDeviceSync() async {
         await restoreDownloads(resolveMissingPages: false, startQueued: false)
+        await refreshLocalDownloadUsage()
+        // Device sync mutates files and persisted download metadata outside a
+        // local-list interaction. Signal visible local lists after the reload
+        // has reconciled those changes into the coordinator.
+        publishLocalLibraryChange()
     }
 
     private func restoreDownloads(

@@ -19,6 +19,12 @@
 import Foundation
 import EHDomain
 
+public enum TagDatabaseUpdateStatus: Equatable, Sendable {
+    case latest
+    case updateAvailable
+    case unknown
+}
+
 public actor TagSuggestionProvider {
     private struct SuggestionCacheKey: Hashable {
         let keyword: String
@@ -36,7 +42,9 @@ public actor TagSuggestionProvider {
 
     private let sourceURLs: [URL]
     private let cacheURL: URL
+    private let bundledDatabaseURL: URL?
     private let session: URLSession
+    private let remoteDataLoader: (@Sendable (URL) async throws -> Data)?
     private var entries: [SearchTagSuggestion]?
     private var loadingTask: Task<[SearchTagSuggestion], Error>?
     private var suggestionCache: [SuggestionCacheKey: [SearchTagSuggestion]] = [:]
@@ -44,11 +52,16 @@ public actor TagSuggestionProvider {
     public init(
         sourceURLs: [URL] = TagSuggestionProvider.referenceSourceURLs,
         cacheURL: URL? = nil,
-        session: URLSession? = nil
+        bundledDatabaseURL: URL? = nil,
+        session: URLSession? = nil,
+        remoteDataLoader: (@Sendable (URL) async throws -> Data)? = nil
     ) {
         self.sourceURLs = sourceURLs
-        self.cacheURL = cacheURL ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appending(path: "EhViewer/TagSuggestions/tag-translations-zh-rCN")
+        self.cacheURL = cacheURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "EhViewer/TagDatabase/tag-translations-zh-rCN")
+        self.bundledDatabaseURL = bundledDatabaseURL
+            ?? Bundle.module.url(forResource: "tag-translations-zh-rCN", withExtension: nil)
+        self.remoteDataLoader = remoteDataLoader
         if let session {
             self.session = session
         } else {
@@ -87,8 +100,8 @@ public actor TagSuggestionProvider {
         return matches
     }
 
-    /// Loads the same tag database used by the original client so the first
-    /// search keystroke does not have to wait for the download to begin.
+    /// Loads the bundled database or a verified user-installed update. It never
+    /// starts a network request, so initial use remains fully offline-capable.
     public func preload() async {
         _ = try? await loadEntries()
     }
@@ -96,6 +109,36 @@ public actor TagSuggestionProvider {
     /// The complete decoded tag database, for bulk import into persistence.
     public func allEntries() async throws -> [SearchTagSuggestion] {
         try await loadEntries()
+    }
+
+    /// Downloads and validates a candidate database without changing the active
+    /// database. The caller can then present an explicit update action.
+    public func checkForUpdate() async throws -> TagDatabaseUpdateStatus {
+        let current = try await activeDatabaseData()
+        let candidate = try await downloadLatestDatabase()
+        guard candidate != current else { return .latest }
+        try Self.write(candidate, to: candidateURL)
+        return .updateAvailable
+    }
+
+    /// Installs the previously checked candidate (or fetches one if necessary).
+    /// The replacement is staged and the previous file is retained as a backup;
+    /// if verification fails after replacement, the backup is restored.
+    public func installAvailableUpdate() async throws -> TagDatabaseUpdateStatus {
+        let current = try await activeDatabaseData()
+        let candidate: Data
+        if let staged = try? Data(contentsOf: candidateURL),
+           (try? Self.decodeDatabase(staged)) != nil {
+            candidate = staged
+        } else {
+            candidate = try await downloadLatestDatabase()
+        }
+        guard candidate != current else { return .latest }
+        try Self.replaceActiveDatabase(with: candidate, at: cacheURL)
+        entries = nil
+        suggestionCache = [:]
+        _ = try await loadEntries()
+        return .latest
     }
 
     public static func decodeDatabase(_ data: Data) throws -> [SearchTagSuggestion] {
@@ -127,8 +170,8 @@ public actor TagSuggestionProvider {
             return try await loadingTask.value
         }
 
-        let task = Task { [sourceURLs, cacheURL, session] in
-            try await Self.loadEntries(sourceURLs: sourceURLs, cacheURL: cacheURL, session: session)
+        let task = Task { [cacheURL, bundledDatabaseURL] in
+            try Self.loadActiveEntries(cacheURL: cacheURL, bundledDatabaseURL: bundledDatabaseURL)
         }
         loadingTask = task
         do {
@@ -142,50 +185,103 @@ public actor TagSuggestionProvider {
         }
     }
 
-    private static func loadEntries(
-        sourceURLs: [URL],
-        cacheURL: URL,
-        session: URLSession
-    ) async throws -> [SearchTagSuggestion] {
-        let cachedData = try? Data(contentsOf: cacheURL)
-        if let cachedData, isCacheFresh(at: cacheURL),
-           let decoded = try? Self.decodeDatabase(cachedData) {
-            return decoded
-        }
+    private var candidateURL: URL {
+        cacheURL.deletingLastPathComponent()
+            .appendingPathComponent("\(cacheURL.lastPathComponent).candidate")
+    }
 
+    private func activeDatabaseData() async throws -> Data {
+        try Self.activeDatabaseData(cacheURL: cacheURL, bundledDatabaseURL: bundledDatabaseURL)
+    }
+
+    private static func loadActiveEntries(
+        cacheURL: URL,
+        bundledDatabaseURL: URL?
+    ) throws -> [SearchTagSuggestion] {
+        try decodeDatabase(activeDatabaseData(cacheURL: cacheURL, bundledDatabaseURL: bundledDatabaseURL))
+    }
+
+    private static func activeDatabaseData(
+        cacheURL: URL,
+        bundledDatabaseURL: URL?
+    ) throws -> Data {
+        if let installed = try? Data(contentsOf: cacheURL),
+           (try? decodeDatabase(installed)) != nil {
+            return installed
+        }
+        guard let bundledDatabaseURL,
+              let bundled = try? Data(contentsOf: bundledDatabaseURL),
+              (try? decodeDatabase(bundled)) != nil else {
+            throw EHError.storageFailed(String(localized: "内置标签数据库不可用"))
+        }
+        return bundled
+    }
+
+    private func downloadLatestDatabase() async throws -> Data {
         var lastError: Error?
         for sourceURL in sourceURLs {
             do {
-                let (data, response) = try await session.data(from: sourceURL)
-                guard let response = response as? HTTPURLResponse,
-                      (200..<300).contains(response.statusCode) else { throw EHError.invalidResponse }
-                let decoded = try Self.decodeDatabase(data)
-                try persist(data, to: cacheURL)
-                return decoded
+                let data: Data
+                if let remoteDataLoader {
+                    data = try await remoteDataLoader(sourceURL)
+                } else {
+                    let (loadedData, response) = try await session.data(from: sourceURL)
+                    guard let response = response as? HTTPURLResponse,
+                          (200..<300).contains(response.statusCode) else { throw EHError.invalidResponse }
+                    data = loadedData
+                }
+                _ = try Self.decodeDatabase(data)
+                return data
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 lastError = error
             }
         }
-        if let cachedData, let decoded = try? Self.decodeDatabase(cachedData) {
-            return decoded
-        }
         throw lastError ?? EHError.networkFailed(String(localized: "标签数据库下载失败"))
     }
 
-    private static func isCacheFresh(at cacheURL: URL) -> Bool {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: cacheURL.path),
-              let modifiedAt = attributes[.modificationDate] as? Date else { return false }
-        return Date.now.timeIntervalSince(modifiedAt) < 7 * 24 * 60 * 60
+    private static func replaceActiveDatabase(with data: Data, at cacheURL: URL) throws {
+        let manager = FileManager.default
+        let directory = cacheURL.deletingLastPathComponent()
+        let stagingURL = directory.appendingPathComponent("\(cacheURL.lastPathComponent).staging-\(UUID().uuidString)")
+        let backupName = "\(cacheURL.lastPathComponent).backup-\(UUID().uuidString)"
+        let backupURL = directory.appendingPathComponent(backupName)
+
+        try write(data, to: stagingURL)
+        _ = try decodeDatabase(Data(contentsOf: stagingURL))
+
+        if manager.fileExists(atPath: cacheURL.path) {
+            _ = try manager.replaceItemAt(
+                cacheURL,
+                withItemAt: stagingURL,
+                backupItemName: backupName,
+                options: []
+            )
+        } else {
+            try manager.moveItem(at: stagingURL, to: cacheURL)
+        }
+
+        do {
+            _ = try decodeDatabase(Data(contentsOf: cacheURL))
+        } catch {
+            guard manager.fileExists(atPath: backupURL.path) else { throw error }
+            _ = try manager.replaceItemAt(
+                cacheURL,
+                withItemAt: backupURL,
+                backupItemName: nil,
+                options: []
+            )
+            throw error
+        }
     }
 
-    private static func persist(_ data: Data, to cacheURL: URL) throws {
+    private static func write(_ data: Data, to url: URL) throws {
         try FileManager.default.createDirectory(
-            at: cacheURL.deletingLastPathComponent(),
+            at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try data.write(to: cacheURL, options: .atomic)
+        try data.write(to: url, options: .atomic)
     }
 
     private static func expandedNamespace(in tag: String) -> String {

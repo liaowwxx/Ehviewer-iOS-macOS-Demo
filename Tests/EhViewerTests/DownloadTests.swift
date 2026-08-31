@@ -125,6 +125,25 @@ struct DownloadTests {
         try await store.remove(key)
     }
 
+    @Test("Local download usage counts only galleries with readable pages")
+    func localDownloadUsage() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-download-usage-\(UUID().uuidString)")
+        let store = DownloadFileStore(root: root, minimumFreeBytes: 1)
+        let localKey = GalleryKey(gid: 21, token: "local")
+        let emptyKey = GalleryKey(gid: 22, token: "empty")
+        let imageData = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
+
+        _ = try await store.write(imageData, for: localKey, pageIndex: 0)
+        _ = try await store.write(imageData, for: localKey, pageIndex: 1)
+        let usage = await store.localLibraryUsage(for: [emptyKey, localKey, localKey])
+
+        #expect(usage.galleryKeys == [localKey])
+        #expect(usage.galleryCount == 1)
+        #expect(usage.byteCount == Int64(imageData.count * 2))
+        try await store.remove(localKey)
+    }
+
     @Test("Download file store rejects successful HTML responses as image pages")
     func fileStoreRejectsNonImageData() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ehviewer-download-invalid-\(UUID().uuidString)")

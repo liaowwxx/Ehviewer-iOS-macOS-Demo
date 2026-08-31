@@ -97,13 +97,50 @@ public struct DeviceSyncMetadataDigest: Codable, Hashable, Sendable {
         encoder.outputFormatting = [.sortedKeys]
         let stableData = try encoder.encode(record.stable)
         let dynamicData = try record.dynamic.map(encoder.encode)
-        let estimatedTransferBytes = Int64(try encoder.encode(record).count)
+        return try Self.make(
+            stable: record.stable,
+            dynamic: record.dynamic,
+            stableData: stableData,
+            dynamicData: dynamicData,
+            estimatedTransferBytes: Int64(stableData.count + (dynamicData?.count ?? 0))
+        )
+    }
+
+    public static func make(
+        stable: StableGalleryMetadataSnapshot,
+        dynamic: DownloadedGalleryDynamicSnapshot?
+    ) throws -> Self {
+        let encoder = makeEncoder()
+        let stableData = try encoder.encode(stable)
+        let dynamicData = try dynamic.map(encoder.encode)
+        return try Self.make(
+            stable: stable,
+            dynamic: dynamic,
+            stableData: stableData,
+            dynamicData: dynamicData,
+            estimatedTransferBytes: Int64(stableData.count + (dynamicData?.count ?? 0))
+        )
+    }
+
+    private static func makeEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+
+    private static func make(
+        stable: StableGalleryMetadataSnapshot,
+        dynamic: DownloadedGalleryDynamicSnapshot?,
+        stableData: Data,
+        dynamicData: Data?,
+        estimatedTransferBytes: Int64
+    ) throws -> Self {
         return try Self(
-            stableCapturedAt: record.stable.capturedAt,
-            stableCompleteness: record.stable.completeness,
+            stableCapturedAt: stable.capturedAt,
+            stableCompleteness: stable.completeness,
             stableFingerprint: Data(SHA256.hash(data: stableData)),
-            dynamicCapturedAt: record.dynamic?.capturedAt,
-            dynamicCompleteness: record.dynamic?.completeness,
+            dynamicCapturedAt: dynamic?.capturedAt,
+            dynamicCompleteness: dynamic?.completeness,
             dynamicFingerprint: dynamicData.map { Data(SHA256.hash(data: $0)) },
             estimatedTransferBytes: estimatedTransferBytes
         )
@@ -155,7 +192,7 @@ public struct DeviceSyncGalleryEntry: Codable, Hashable, Sendable, Identifiable 
 
     public var id: String { key.id }
 
-    fileprivate static func isValid(key: GalleryKey) -> Bool {
+    static func isValid(key: GalleryKey) -> Bool {
         guard key.gid > 0,
               key.token.isEmpty == false,
               key.token.count <= 512 else { return false }

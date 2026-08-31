@@ -34,6 +34,7 @@ let package = Package(
                 "EHDomain",
                 .product(name: "SwiftSoup", package: "SwiftSoup")
             ],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(

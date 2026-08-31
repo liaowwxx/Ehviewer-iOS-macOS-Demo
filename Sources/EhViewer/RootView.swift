@@ -53,8 +53,23 @@ struct RootView: View {
         .onChange(of: model.pendingIncomingArchive) { _, _ in refreshRootAlert() }
         .onChange(of: model.pendingIncomingGallerySync) { _, _ in refreshRootAlert() }
         .onChange(of: model.importResultMessage) { _, _ in refreshRootAlert() }
+        .onChange(of: model.isDeviceSyncIndexSetupRequired) { _, _ in refreshRootAlert() }
         .alert(item: $presentedRootAlert) { alert in
             switch alert {
+            case .deviceSyncIndexSetup:
+                Alert(
+                    title: Text("准备设备同步"),
+                    message: Text("首次使用设备间同步需要扫描一次本地下载文件，之后同步会直接读取索引，速度更快。"),
+                    primaryButton: .default(Text("建立索引")) {
+                        model.isDeviceSyncIndexSetupRequired = false
+                        model.runFileOperation {
+                            await model.buildDeviceSyncIndex()
+                        }
+                    },
+                    secondaryButton: .cancel(Text("稍后")) {
+                        model.isDeviceSyncIndexSetupRequired = false
+                    }
+                )
             case .error(let message):
                 Alert(
                     title: Text("发生错误"),
@@ -113,7 +128,9 @@ struct RootView: View {
     }
 
     private func refreshRootAlert() {
-        if let message = model.importResultMessage {
+        if model.isDeviceSyncIndexSetupRequired {
+            presentedRootAlert = .deviceSyncIndexSetup
+        } else if let message = model.importResultMessage {
             presentedRootAlert = .importResult(message)
         } else if let message = model.errorMessage {
             presentedRootAlert = .error(message)
@@ -129,6 +146,7 @@ struct RootView: View {
 }
 
 private enum RootAlert: Identifiable {
+    case deviceSyncIndexSetup
     case error(String)
     case incomingArchive(PendingIncomingArchive)
     case incomingGallerySync(PendingIncomingGallerySync)
@@ -136,6 +154,7 @@ private enum RootAlert: Identifiable {
 
     var id: String {
         switch self {
+        case .deviceSyncIndexSetup: "device-sync-index-setup"
         case .error(let message): "error-\(message)"
         case .incomingArchive(let pending): "incoming-\(pending.id)"
         case .incomingGallerySync(let pending): "incoming-gallery-sync-\(pending.id)"
@@ -288,6 +307,7 @@ private struct CompactRootView: View {
         case .settings,
              .settingsSiteAndLogin,
              .settingsBrowsingAndFiltering,
+             .settingsReading,
              .settingsStorageManagement,
              .settingsDataBackupAndSync,
              .documentation,
@@ -410,6 +430,8 @@ struct DestinationView: View {
             SettingsView(page: .siteAndLogin)
         case .settingsBrowsingAndFiltering:
             SettingsView(page: .browsingAndFiltering)
+        case .settingsReading:
+            SettingsView(page: .reading)
         case .settingsStorageManagement:
             SettingsView(page: .storageManagement)
         case .settingsDataBackupAndSync:

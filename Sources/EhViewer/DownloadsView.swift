@@ -411,12 +411,11 @@ struct DownloadsView: View {
         }
         .task(id: "\(model.isLoadingDownloads)-\(page.rawValue)", priority: .utility) {
             guard hasLoadedJobs == false || model.isLoadingDownloads else { return }
-            await Task.yield()
-            guard Task.isCancelled == false else { return }
-            jobs = await model.downloads.snapshot()
-            guard Task.isCancelled == false else { return }
-            jobsRevision &+= 1
-            hasLoadedJobs = true
+            await reloadJobsSnapshot()
+        }
+        .task(id: localLibraryRefreshTaskID, priority: .utility) {
+            guard page == .local else { return }
+            await reloadJobsSnapshot()
         }
         .task(id: localGallerySummaryTaskID, priority: .utility) {
             await loadLocalGallerySummaries()
@@ -524,11 +523,11 @@ struct DownloadsView: View {
     private var downloadManagementMenu: some View {
         Menu("更多", systemImage: "ellipsis.circle") {
             if page == .downloading {
-                Button("开始全部", systemImage: "play.fill") {
+                Button("开始全部") {
                     Task { await model.startAllDownloads() }
                 }
                 .disabled(canStartAll == false)
-                Button("暂停全部", systemImage: "pause.fill") {
+                Button("暂停全部") {
                     Task { await model.downloads.stopAll() }
                 }
                 .disabled(canStopAll == false)
@@ -559,6 +558,14 @@ struct DownloadsView: View {
         return "jobs=\(jobsRevision)|library=\(model.localLibraryRevision)"
     }
 
+    /// A local-library revision is published after operations that can change
+    /// files and persisted download jobs outside this view (for example the
+    /// Settings delete-all action and device sync). Refreshing the coordinator
+    /// snapshot here prevents stale cards from surviving until app restart.
+    private var localLibraryRefreshTaskID: Int {
+        page == .local ? model.localLibraryRevision : -1
+    }
+
     private var downloadGallerySummaryTaskID: String {
         guard page != .local, needsDownloadGallerySummaries else { return "download-summary-disabled" }
         return "jobs=\(jobsRevision)|library=\(model.localLibraryRevision)|sort=\(effectiveSortOrder.rawValue)|categories=\(model.downloadCategoryFilter.map(\.rawValue).sorted().joined(separator: ","))"
@@ -582,6 +589,16 @@ struct DownloadsView: View {
             uniquingKeysWith: { first, _ in first }
         )
         summariesRevision &+= 1
+    }
+
+    private func reloadJobsSnapshot() async {
+        await Task.yield()
+        guard Task.isCancelled == false else { return }
+        let snapshot = await model.downloads.snapshot()
+        guard Task.isCancelled == false else { return }
+        jobs = snapshot
+        jobsRevision &+= 1
+        hasLoadedJobs = true
     }
 
     private func loadDownloadGallerySummaries() async {
@@ -970,13 +987,15 @@ private struct DownloadManagementSheet: View {
             Form {
                 if page == .downloading {
                     Section("下载任务") {
-                        Button("开始全部", systemImage: "play.fill") {
+                        Button("开始全部") {
                             Task { await model.startAllDownloads() }
                         }
+                        .foregroundStyle(.primary)
                         .disabled(canStartAll == false)
-                        Button("暂停全部", systemImage: "pause.fill") {
+                        Button("暂停全部") {
                             Task { await model.downloads.stopAll() }
                         }
+                        .foregroundStyle(.primary)
                         .disabled(canStopAll == false)
                     }
                 }
@@ -989,9 +1008,10 @@ private struct DownloadManagementSheet: View {
                             }
                         }
                     }
-                    Button("高级筛选", systemImage: "slider.horizontal.3") {
+                    Button("高级筛选") {
                         showingCategoryFilter = true
                     }
+                    .foregroundStyle(.primary)
                 }
 
                 Section("排序") {
@@ -1003,21 +1023,19 @@ private struct DownloadManagementSheet: View {
                 }
 
                 Section("显示") {
-                    Button {
-                        model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
+                    Picker("布局", selection: $model.downloadLayoutMode) {
+                        ForEach(DownloadsLayoutMode.allCases) { layout in
+                            Text(layout.title).tag(layout)
+                        }
+                    }
+                    .onChange(of: model.downloadLayoutMode) { _, _ in
                         model.persistDownloadPreferences()
-                    } label: {
-                        Label(
-                            model.downloadLayoutMode == .list ? "切换到卡片" : "切换到列表",
-                            systemImage: model.downloadLayoutMode == .list
-                                ? "square.grid.2x2"
-                                : "list.bullet"
-                        )
                     }
                 }
 
             }
             .navigationTitle("下载管理")
+            .tint(.primary)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成", action: dismiss.callAsFunction)
@@ -1157,7 +1175,15 @@ private struct DownloadSearchContainer<Content: View>: View {
             }
             .zIndex(100)
         }
+#if os(iOS)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "搜索下载标题或标签"
+        )
+#else
         .searchable(text: $searchText, placement: .toolbar, prompt: "搜索下载标题或标签")
+#endif
         .onSubmit(of: .search, submitSearch)
         .onChange(of: searchText) { _, newValue in
             let normalized = SearchQueryComposer.normalized(newValue)
@@ -2073,6 +2099,17 @@ private struct DownloadGridCard: View, Equatable {
                         .accessibilityLabel(isSelected ? String(localized: "已选择") : String(localized: "未选择"))
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                if isSelectionMode == false, showsStatusIndicator {
+                    Image(systemName: statusSystemImage)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 36, minHeight: 36)
+                        .background(statusColor, in: Circle())
+                        .padding(8)
+                        .accessibilityLabel(statusTitle)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .contentShape(Rectangle())
     }
@@ -2083,6 +2120,51 @@ private struct DownloadGridCard: View, Equatable {
 
     private var showsProgress: Bool {
         job.state != .completed && job.state != .cancelled
+    }
+
+    /// Completed local cards already communicate their state through their
+    /// placement in the local library. Omitting the checkmark also keeps this
+    /// status indicator distinct from the selection control.
+    private var showsStatusIndicator: Bool {
+        job.state != .completed
+    }
+
+    private var statusTitle: String {
+        switch job.state {
+        case .queued: String(localized: "等待中")
+        case .running: String(localized: "下载中")
+        case .paused: String(localized: "已暂停")
+        case .completed: String(localized: "已完成")
+        case .failed: String(localized: "失败")
+        case .authenticationRequired: String(localized: "需要登录")
+        case .rateLimited: String(localized: "请求受限")
+        case .bandwidthLimited: String(localized: "流量受限")
+        case .cancelled: String(localized: "已取消")
+        }
+    }
+
+    private var statusSystemImage: String {
+        switch job.state {
+        case .queued: "clock.fill"
+        case .running: "arrow.down.circle.fill"
+        case .paused: "pause.circle.fill"
+        case .completed: "checkmark.circle.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        case .authenticationRequired: "lock.fill"
+        case .rateLimited: "hourglass"
+        case .bandwidthLimited: "gauge.with.dots.needle.50percent"
+        case .cancelled: "xmark.circle.fill"
+        }
+    }
+
+    private var statusColor: Color {
+        switch job.state {
+        case .queued, .cancelled: .secondary
+        case .running, .completed: AppTheme.accent
+        case .paused: .orange
+        case .failed: .red
+        case .authenticationRequired, .rateLimited, .bandwidthLimited: .orange
+        }
     }
 
     private var canToggle: Bool {

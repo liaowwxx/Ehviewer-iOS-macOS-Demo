@@ -304,6 +304,15 @@ public enum ModelContainerFactory {
 
 @ModelActor
 public actor PersistenceStore {
+    private var deviceSyncIndex: (any DeviceSyncIndexSink)?
+    private var pendingDeviceSyncMetadataKeys = Set<GalleryKey>()
+    private var pendingDeviceSyncMetadataRemovals = Set<GalleryKey>()
+
+    public func configureDeviceSyncIndex(_ index: (any DeviceSyncIndexSink)?) async {
+        deviceSyncIndex = index
+        await flushDeviceSyncIndex()
+    }
+
     public func upsert(_ snapshots: [GallerySummary], site: SiteMode = .eHentai) throws {
         for snapshot in snapshots {
             let stable = StableGalleryMetadataSnapshot(summary: snapshot, sourceSite: site)
@@ -319,7 +328,7 @@ public actor PersistenceStore {
     public func upsertStableSnapshot(
         _ snapshot: StableGalleryMetadataSnapshot,
         retainForDownload: Bool = false
-    ) throws {
+    ) async throws {
         try applyStableSnapshot(snapshot, retainForDownload: retainForDownload)
         try applyDynamicSnapshotIfPresent(
             from: snapshot.summary,
@@ -327,6 +336,7 @@ public actor PersistenceStore {
             retainForDownload: retainForDownload
         )
         try modelContext.save()
+        await flushDeviceSyncIndex()
     }
 
     /// Applies several stable snapshots in one SwiftData transaction. This is
@@ -335,7 +345,7 @@ public actor PersistenceStore {
     public func upsertStableSnapshots(
         _ snapshots: [StableGalleryMetadataSnapshot],
         retainForDownload: Bool = false
-    ) throws {
+    ) async throws {
         for snapshot in snapshots {
             try applyStableSnapshot(snapshot, retainForDownload: retainForDownload)
             try applyDynamicSnapshotIfPresent(
@@ -345,6 +355,7 @@ public actor PersistenceStore {
             )
         }
         try modelContext.save()
+        await flushDeviceSyncIndex()
     }
 
     /// Persists stable metadata and downloaded dynamic values together. The
@@ -353,7 +364,7 @@ public actor PersistenceStore {
     public func saveDownloadedMetadata(
         stableSnapshots: [StableGalleryMetadataSnapshot],
         dynamicSnapshots: [DownloadedGalleryDynamicSnapshot]
-    ) throws {
+    ) async throws {
         for snapshot in stableSnapshots {
             try applyStableSnapshot(snapshot, retainForDownload: true)
         }
@@ -361,6 +372,7 @@ public actor PersistenceStore {
             try applyDownloadedDynamicSnapshot(snapshot)
         }
         try modelContext.save()
+        await flushDeviceSyncIndex()
     }
 
     private func applyStableSnapshot(
@@ -417,16 +429,18 @@ public actor PersistenceStore {
             .compactMap { try? decodeStable(from: $0) }
     }
 
-    public func saveDownloadedDynamicSnapshot(_ snapshot: DownloadedGalleryDynamicSnapshot) throws {
+    public func saveDownloadedDynamicSnapshot(_ snapshot: DownloadedGalleryDynamicSnapshot) async throws {
         try applyDownloadedDynamicSnapshot(snapshot)
         try modelContext.save()
+        await flushDeviceSyncIndex()
     }
 
-    public func saveDownloadedDynamicSnapshots(_ snapshots: [DownloadedGalleryDynamicSnapshot]) throws {
+    public func saveDownloadedDynamicSnapshots(_ snapshots: [DownloadedGalleryDynamicSnapshot]) async throws {
         for snapshot in snapshots {
             try applyDownloadedDynamicSnapshot(snapshot)
         }
         try modelContext.save()
+        await flushDeviceSyncIndex()
     }
 
     private func applyDownloadedDynamicSnapshot(
@@ -449,6 +463,45 @@ public actor PersistenceStore {
         let merged = GallerySnapshotMerger.merge(existing: existingDynamic, incoming: snapshot)
         record.dynamicData = try JSONEncoder().encode(merged)
         record.updatedAt = Date()
+        pendingDeviceSyncMetadataKeys.insert(snapshot.key)
+        pendingDeviceSyncMetadataRemovals.remove(snapshot.key)
+    }
+
+    private func flushDeviceSyncIndex() async {
+        guard let index = deviceSyncIndex else { return }
+        let keys = pendingDeviceSyncMetadataKeys
+        let removals = pendingDeviceSyncMetadataRemovals
+        pendingDeviceSyncMetadataKeys.removeAll(keepingCapacity: true)
+        pendingDeviceSyncMetadataRemovals.removeAll(keepingCapacity: true)
+
+        for key in keys.sorted(by: { $0.id < $1.id }) where removals.contains(key) == false {
+            let record: DownloadedGalleryMetadataRecord?
+            do {
+                record = try downloadedMetadataRecord(for: key)
+            } catch {
+                await index.removeMetadata(for: key)
+                continue
+            }
+            guard let record, let stable = try? decodeStable(from: record) else {
+                await index.removeMetadata(for: key)
+                continue
+            }
+            let dynamic: DownloadedGalleryDynamicSnapshot?
+            do {
+                dynamic = try decodeDynamic(from: record)
+            } catch {
+                await index.removeMetadata(for: key)
+                continue
+            }
+            guard let metadata = try? DeviceSyncMetadataDigest.make(stable: stable, dynamic: dynamic) else {
+                await index.removeMetadata(for: key)
+                continue
+            }
+            await index.upsertMetadata(DeviceSyncIndexMetadataEntry(key: key, metadata: metadata))
+        }
+        for key in removals.sorted(by: { $0.id < $1.id }) {
+            await index.removeMetadata(for: key)
+        }
     }
 
     private func applyDynamicSnapshotIfPresent(
@@ -586,12 +639,13 @@ public actor PersistenceStore {
     /// Merges metadata received from another device through the existing
     /// field-level snapshot merger. This does not alter reading progress,
     /// favorites or any account-scoped state.
-    public func mergeDeviceSyncMetadata(_ transfer: GalleryTransferRecord) throws {
+    public func mergeDeviceSyncMetadata(_ transfer: GalleryTransferRecord) async throws {
         try applyStableSnapshot(transfer.stable, retainForDownload: true)
         if let dynamic = transfer.dynamic {
             try applyDownloadedDynamicSnapshot(dynamic)
         }
         try modelContext.save()
+        await flushDeviceSyncIndex()
     }
 
     /// Creates the minimum download-job/page rows needed for received media.
@@ -600,9 +654,10 @@ public actor PersistenceStore {
     public func prepareDeviceSyncDownload(
         _ transfer: GalleryTransferRecord,
         pageIndexes: Set<Int>
-    ) throws {
+    ) async throws {
         _ = try applyDeviceSyncDownload(transfer, pageIndexes: pageIndexes)
         try modelContext.save()
+        await flushDeviceSyncIndex()
     }
 
     /// Atomically merges a gallery's metadata, creates any required download
@@ -611,7 +666,7 @@ public actor PersistenceStore {
     public func commitDeviceSyncGallery(
         _ transfer: GalleryTransferRecord,
         completedPages: [Int: Int64]
-    ) throws {
+    ) async throws {
         do {
             let job = try applyDeviceSyncDownload(
                 transfer,
@@ -632,6 +687,7 @@ public actor PersistenceStore {
             }
             job.updatedAt = Date()
             try modelContext.save()
+            await flushDeviceSyncIndex()
         } catch {
             modelContext.rollback()
             throw error
@@ -703,12 +759,13 @@ public actor PersistenceStore {
     public func promoteToDownloadedGallery(
         stable: StableGalleryMetadataSnapshot,
         dynamic: DownloadedGalleryDynamicSnapshot? = nil
-    ) throws {
+    ) async throws {
         try applyDownloadedStableSnapshot(stable)
         if let dynamic {
             try applyDownloadedDynamicSnapshot(dynamic)
         }
         try modelContext.save()
+        await flushDeviceSyncIndex()
     }
 
     /// Removes all ordinary browsing metadata and media indexes. Downloaded
@@ -864,6 +921,8 @@ public actor PersistenceStore {
         } else {
             try insertDownloadedMetadata(stable: snapshot, dynamic: nil)
         }
+        pendingDeviceSyncMetadataKeys.insert(snapshot.key)
+        pendingDeviceSyncMetadataRemovals.remove(snapshot.key)
     }
 
     private func decodeStable(
@@ -1033,7 +1092,7 @@ public actor PersistenceStore {
         stateRaw: String,
         errorMessage: String?,
         label: String? = nil
-    ) throws {
+    ) async throws {
         var completeness = GalleryMetadataCompleteness()
         completeness.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? .loadedEmpty
@@ -1091,6 +1150,7 @@ public actor PersistenceStore {
             }
         }
         try modelContext.save()
+        await flushDeviceSyncIndex()
     }
 
     public func downloadJobs() throws -> [PersistedDownload] {
@@ -1177,7 +1237,7 @@ public actor PersistenceStore {
         try modelContext.save()
     }
 
-    public func deleteDownload(for key: GalleryKey) throws {
+    public func deleteDownload(for key: GalleryKey) async throws {
         let descriptor = FetchDescriptor<DownloadJobRecord>(predicate: #Predicate {
             $0.gid == key.gid && $0.token == key.token
         })
@@ -1192,13 +1252,15 @@ public actor PersistenceStore {
         }
         if downloadRecords.isEmpty == false || metadataRecords.isEmpty == false {
             try modelContext.save()
+            pendingDeviceSyncMetadataRemovals.insert(key)
+            await flushDeviceSyncIndex()
         }
     }
 
     /// Removes several download records in one SwiftData transaction. The
     /// coordinator deletes media files separately so file work can report
     /// progress without holding this context open between every item.
-    public func deleteDownloads(for keys: Set<GalleryKey>) throws {
+    public func deleteDownloads(for keys: Set<GalleryKey>) async throws {
         guard keys.isEmpty == false else { return }
 
         let downloadRecords = try modelContext.fetch(FetchDescriptor<DownloadJobRecord>())
@@ -1217,6 +1279,8 @@ public actor PersistenceStore {
 
         if didChange {
             try modelContext.save()
+            pendingDeviceSyncMetadataRemovals.formUnion(keys)
+            await flushDeviceSyncIndex()
         }
     }
 
@@ -1360,6 +1424,30 @@ public actor PersistenceStore {
         try modelContext.save()
     }
 
+    /// Replaces one locale's reference database in a single save after a
+    /// validated database update. Existing user-facing translations for other
+    /// locales remain untouched.
+    public func replaceTagTranslations(_ entries: [(tag: String, localizedText: String)], locale: String) throws {
+        let normalizedLocale = locale.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedLocale.isEmpty == false else { return }
+
+        let existing = try modelContext.fetch(
+            FetchDescriptor<TagTranslationRecord>(predicate: #Predicate { $0.locale == normalizedLocale })
+        )
+        for record in existing {
+            modelContext.delete(record)
+        }
+        for (rawTag, rawText) in entries {
+            let tag = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard tag.isEmpty == false, text.isEmpty == false else { continue }
+            modelContext.insert(
+                TagTranslationRecord(tag: tag, locale: normalizedLocale, localizedText: text)
+            )
+        }
+        try modelContext.save()
+    }
+
     public func gallerySyncSummaries(for keys: Set<GalleryKey>) throws -> [GallerySummary] {
         guard keys.isEmpty == false else { return [] }
         return try modelContext.fetch(FetchDescriptor<GalleryRecord>())
@@ -1405,7 +1493,7 @@ public actor PersistenceStore {
     /// It never creates or mutates an ordinary browsing-cache record.
     public func mergeDownloadedGallerySyncSummaries(
         _ summaries: [GallerySummary]
-    ) throws -> GallerySyncImportOutcome {
+    ) async throws -> GallerySyncImportOutcome {
         var uniqueSummaries: [GallerySummary] = []
         var incomingKeys = Set<GalleryKey>()
         for summary in summaries where incomingKeys.insert(summary.key).inserted {
@@ -1425,6 +1513,7 @@ public actor PersistenceStore {
             )
         }
         try modelContext.save()
+        await flushDeviceSyncIndex()
         let insertedCount = uniqueSummaries.filter { existingKeys.contains($0.key) == false }.count
         return GallerySyncImportOutcome(
             sourceCount: summaries.count,
@@ -1439,7 +1528,7 @@ public actor PersistenceStore {
     /// local state.
     public func insertMissingGallerySyncSummaries(
         _ summaries: [GallerySummary]
-    ) throws -> GallerySyncImportOutcome {
+    ) async throws -> GallerySyncImportOutcome {
         var uniqueSummaries: [GallerySummary] = []
         var incomingKeys = Set<GalleryKey>()
         uniqueSummaries.reserveCapacity(summaries.count)
@@ -1450,7 +1539,7 @@ public actor PersistenceStore {
         let existingKeys = Set(try modelContext.fetch(FetchDescriptor<GalleryRecord>()).map(\.key))
         let missing = uniqueSummaries.filter { existingKeys.contains($0.key) == false }
         for summary in missing {
-            try upsertStableSnapshot(
+            try await upsertStableSnapshot(
                 StableGalleryMetadataSnapshot(summary: summary, sourceSite: .eHentai)
             )
         }
@@ -1467,7 +1556,7 @@ public actor PersistenceStore {
     /// progress, favorite state and all downloaded page records.
     public func mergeGallerySyncSummaries(
         _ summaries: [GallerySummary]
-    ) throws -> GallerySyncImportOutcome {
+    ) async throws -> GallerySyncImportOutcome {
         var uniqueSummaries: [GallerySummary] = []
         var incomingKeys = Set<GalleryKey>()
         uniqueSummaries.reserveCapacity(summaries.count)
@@ -1482,7 +1571,7 @@ public actor PersistenceStore {
             if existingKeys.contains(summary.key) == false {
                 insertedCount += 1
             }
-            try upsertStableSnapshot(
+            try await upsertStableSnapshot(
                 StableGalleryMetadataSnapshot(summary: summary, sourceSite: .eHentai)
             )
         }

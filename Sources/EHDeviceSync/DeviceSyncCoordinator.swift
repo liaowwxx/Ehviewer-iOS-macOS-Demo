@@ -174,6 +174,7 @@ public struct DeviceSyncRecoveryResult: Hashable, Sendable {
 
 public enum DeviceSyncState: Sendable, Equatable {
     case idle
+    case indexRequired
     case discovering
     case awaitingPairingCode
     case connecting
@@ -207,6 +208,7 @@ public final class DeviceSyncCoordinator {
 
     public let persistence: PersistenceStore
     public let files: DownloadFileStore
+    public let index: DeviceSyncIndexStore
 
     public private(set) var state: DeviceSyncState = .idle
     public private(set) var peers: [DeviceSyncPeer] = []
@@ -224,6 +226,7 @@ public final class DeviceSyncCoordinator {
     private var pendingIncoming: NWConnection?
     private var wire: DeviceSyncWireConnection?
     private var sessionTask: Task<Void, Never>?
+    private var indexStatusTask: Task<Void, Never>?
     private var interruptionFinalizationTask: Task<Void, Never>?
     private var pairingExpiryTask: Task<Void, Never>?
     private var pairingAttempts = 0
@@ -266,9 +269,14 @@ public final class DeviceSyncCoordinator {
     private var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
     #endif
 
-    public init(persistence: PersistenceStore, files: DownloadFileStore) {
+    public init(
+        persistence: PersistenceStore,
+        files: DownloadFileStore,
+        index: DeviceSyncIndexStore = DeviceSyncIndexStore()
+    ) {
         self.persistence = persistence
         self.files = files
+        self.index = index
         self.localDeviceName = Self.makeDeviceName()
     }
 
@@ -305,6 +313,13 @@ public final class DeviceSyncCoordinator {
                     guard journal.pages.allSatisfy({ localPages[$0.pageIndex] == $0.byteCount }) else {
                         throw DeviceSyncError.transferNotPlanned
                     }
+                    for page in journal.pages {
+                        await index.upsertMediaPage(
+                            key: journal.key,
+                            pageIndex: page.pageIndex,
+                            byteCount: page.byteCount
+                        )
+                    }
                     try await persistence.commitDeviceSyncGallery(
                         record,
                         completedPages: Dictionary(
@@ -337,9 +352,60 @@ public final class DeviceSyncCoordinator {
         )
     }
 
+    /// Builds the sidecar index from the authoritative metadata records and
+    /// validated local media. During the scan, file and metadata mutations are
+    /// queued by the index actor and applied to the rebuilt snapshot before it
+    /// becomes visible to synchronization.
+    public func rebuildIndex(
+        progress: @escaping @MainActor (Int, Int) -> Void
+    ) async throws {
+        try await index.beginRebuild()
+        do {
+            let records = try await persistence.downloadedGalleryTransferRecords()
+            let total = max(1, records.count * 2)
+            progress(0, total)
+            let pagesByGallery = try await files.scanLocalPageEntries(for: records.map { $0.stable.key })
+            progress(records.count, total)
+
+            var entries: [DeviceSyncIndexEntry] = []
+            entries.reserveCapacity(records.count)
+            for (offset, record) in records.enumerated() {
+                try Task.checkCancellation()
+                let metadata = try DeviceSyncMetadataDigest.make(
+                    stable: record.stable,
+                    dynamic: record.dynamic
+                )
+                entries.append(try DeviceSyncIndexEntry(
+                    key: record.stable.key,
+                    pages: pagesByGallery[record.stable.key] ?? [],
+                    metadata: metadata
+                ))
+                progress(records.count + offset + 1, total)
+            }
+
+            try await index.finishRebuild(with: DeviceSyncIndexSnapshot(entries: entries))
+            state = .idle
+        } catch {
+            await index.cancelRebuild()
+            throw error
+        }
+    }
+
     /// Starts Bonjour browser/listener only while the sync screen is active.
     public func start() {
         stop()
+        guard interruptionFinalizationTask == nil else { return }
+        indexStatusTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard await self.index.status() == .ready else {
+                self.state = .indexRequired
+                return
+            }
+            self.startDiscovery()
+        }
+    }
+
+    private func startDiscovery() {
         guard interruptionFinalizationTask == nil else { return }
         state = .discovering
         do {
@@ -392,6 +458,8 @@ public final class DeviceSyncCoordinator {
         let task = sessionTask
         task?.cancel()
         sessionTask = nil
+        indexStatusTask?.cancel()
+        indexStatusTask = nil
         pairingExpiryTask?.cancel()
         pairingExpiryTask = nil
         browser?.cancel()
@@ -708,9 +776,9 @@ public final class DeviceSyncCoordinator {
     private func runInitiatorSession(wire: DeviceSyncWireConnection) async throws {
         guard peerApproved else { throw DeviceSyncError.peerRejected }
         state = .preparing(.generatingManifest)
-        let (manifest, records) = try await makeLocalManifest()
+        let manifest = try await makeLocalManifest()
         localManifest = manifest
-        localRecords = Dictionary(uniqueKeysWithValues: records.map { ($0.stable.key, $0) })
+        localRecords.removeAll(keepingCapacity: true)
         try await wire.send(.manifest, payload: try encodeControl(manifest))
         let remote: DeviceSyncManifest = try decodeControl(try await wire.receivePayload(expected: .manifest))
         try await preparePreview(local: manifest, remote: remote)
@@ -722,9 +790,9 @@ public final class DeviceSyncCoordinator {
         guard localApproved else { throw DeviceSyncError.peerRejected }
         state = .preparing(.generatingManifest)
         let remote: DeviceSyncManifest = try decodeControl(try await wire.receivePayload(expected: .manifest))
-        let (manifest, records) = try await makeLocalManifest()
+        let manifest = try await makeLocalManifest()
         localManifest = manifest
-        localRecords = Dictionary(uniqueKeysWithValues: records.map { ($0.stable.key, $0) })
+        localRecords.removeAll(keepingCapacity: true)
         try await wire.send(.manifest, payload: try encodeControl(manifest))
         try await preparePreview(local: manifest, remote: remote)
         try await waitForPeerSyncStart(wire: wire)
@@ -1137,29 +1205,16 @@ public final class DeviceSyncCoordinator {
         return record
     }
 
-    private func makeLocalManifest() async throws -> (DeviceSyncManifest, [GalleryTransferRecord]) {
-        let records = try await persistence.downloadedGalleryTransferRecords()
-        var pagesByGallery = [GalleryKey: [DeviceSyncPageEntry]]()
-        var recordsWithMedia: [GalleryTransferRecord] = []
-        for record in records {
-            let entries = await files.localPageEntries(for: record.stable.key).compactMap { entry in
-                try? DeviceSyncPageEntry(pageIndex: entry.pageIndex, byteCount: entry.byteCount)
-            }
-            guard entries.isEmpty == false else { continue }
-            recordsWithMedia.append(record)
-            pagesByGallery[record.stable.key] = entries
-        }
-        return (
-            try DeviceSyncManifest(records: recordsWithMedia, pagesByGallery: pagesByGallery),
-            recordsWithMedia
-        )
+    private func makeLocalManifest() async throws -> DeviceSyncManifest {
+        try await index.snapshot().manifest()
     }
 
     /// Performs the one library-wide validation pass after transport has
     /// stopped. Per-page hash/media checks remain internal commit guards and
     /// never switch the public progress phase away from sending/receiving.
     private func verifyLocalTransferState() async throws -> (DeviceSyncManifest, [GalleryTransferRecord]) {
-        let (manifest, records) = try await makeLocalManifest()
+        let manifest = try await makeLocalManifest()
+        let records = try await persistence.galleryTransferRecords(for: manifest.galleryKeys)
         localManifest = manifest
         localRecords = Dictionary(uniqueKeysWithValues: records.map { ($0.stable.key, $0) })
         try await reconcileLocalDownloadState(manifest: manifest, records: records)

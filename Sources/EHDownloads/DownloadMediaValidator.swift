@@ -39,6 +39,10 @@ public enum DownloadMediaValidator {
 
     public static func fileExtension(of url: URL) -> String? {
         guard let kind = kind(of: url) else { return nil }
+        return fileExtension(of: url, kind: kind)
+    }
+
+    public static func fileExtension(of url: URL, kind: DownloadMediaKind) -> String? {
         switch kind {
         case .image:
             return "jpg"

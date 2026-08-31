@@ -39,6 +39,29 @@ struct DeviceSyncView: View {
     @ViewBuilder
     private var content: some View {
         switch model.deviceSync.state {
+        case .indexRequired:
+            VStack(spacing: 16) {
+                Image(systemName: "list.bullet.rectangle.portrait")
+                    .font(.largeTitle)
+                Text("需要先建立同步索引")
+                    .font(.headline)
+                Text("首次建立会扫描本地下载文件。完成后，设备同步将直接读取索引，不再每次扫描全部画廊。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button("建立索引", systemImage: "arrow.triangle.2.circlepath") {
+                    model.runFileOperation {
+                        await model.buildDeviceSyncIndex()
+                        if model.isDeviceSyncIndexSetupRequired == false {
+                            model.deviceSync.start()
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
+            .frame(maxWidth: 420)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .idle, .discovering:
             discoveringView
         case .awaitingPairingCode:

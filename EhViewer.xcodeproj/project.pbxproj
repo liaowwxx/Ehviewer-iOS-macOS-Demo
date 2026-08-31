@@ -83,6 +83,7 @@
 		EHB0000000000000000005E /* GalleryRatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005E /* GalleryRatingView.swift */; };
 		EHB0000000000000000005F /* GalleryCardDownloadStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */; };
 		EHB00000000000000000060 /* DocumentationHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000060 /* DocumentationHTML.swift */; };
+		EHB00000000000000000063 /* ReadingSettingsForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000063 /* ReadingSettingsForm.swift */; };
 		EHB00000000000000000062 /* Documentation in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */; };
 /* End PBXBuildFile section */
 
@@ -194,6 +195,7 @@
 		EHF0000000000000000005E /* GalleryRatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryRatingView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardDownloadStatus.swift; sourceTree = "<group>"; };
 		EHF00000000000000000060 /* DocumentationHTML.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationHTML.swift; sourceTree = "<group>"; };
+		EHF00000000000000000063 /* ReadingSettingsForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingSettingsForm.swift; sourceTree = "<group>"; };
 		EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Sources/EhViewer/Resources/Documentation; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -294,6 +296,7 @@
 				EHF00000000000000000030 /* WebLoginSheet.swift */,
 				EHF00000000000000000016 /* LocalArchiveView.swift */,
 				EHF00000000000000000034 /* ReadingSettings.swift */,
+				EHF00000000000000000063 /* ReadingSettingsForm.swift */,
 				EHF00000000000000000035 /* MigrationDocument.swift */,
 				EHF00000000000000000039 /* PhotoLibrarySaver.swift */,
 				EHF0000000000000000003A /* ReaderSettingsMenu.swift */,
@@ -521,6 +524,7 @@
 				EHB00000000000000000030 /* WebLoginSheet.swift in Sources */,
 				EHB00000000000000000021 /* LocalArchiveView.swift in Sources */,
 				EHB00000000000000000034 /* ReadingSettings.swift in Sources */,
+				EHB00000000000000000063 /* ReadingSettingsForm.swift in Sources */,
 				EHB00000000000000000035 /* MigrationDocument.swift in Sources */,
 				EHB00000000000000000039 /* PhotoLibrarySaver.swift in Sources */,
 				EHB0000000000000000003A /* ReaderSettingsMenu.swift in Sources */,
