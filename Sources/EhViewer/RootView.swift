@@ -384,7 +384,6 @@ private struct SidebarLabel: View {
             Text(title)
         } icon: {
             Image(systemName: systemImage)
-                .foregroundStyle(AppTheme.accent)
         }
     }
 }

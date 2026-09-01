@@ -617,6 +617,29 @@ struct ProfileNameEditor: View {
     }
 
     var body: some View {
+#if os(macOS)
+        VStack(alignment: .leading, spacing: 16) {
+            Text(request.title)
+                .font(.headline)
+
+            TextField("Profile 名称", text: $name)
+                .accessibilityIdentifier("profile-name-field")
+
+            HStack {
+                Spacer()
+                Button("取消", role: .cancel, action: dismiss.callAsFunction)
+                    .keyboardShortcut(.cancelAction)
+                Button("保存") {
+                    save(name)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("profile-name-save-action")
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 400, idealWidth: 420, minHeight: 160, idealHeight: 180)
+#else
         NavigationStack {
             Form {
                 TextField("Profile 名称", text: $name)
@@ -636,9 +659,7 @@ struct ProfileNameEditor: View {
                 }
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 360, minHeight: 150)
-        #endif
+#endif
     }
 }
 
@@ -648,7 +669,7 @@ struct ProfileManagementSection: View {
     @Binding var profilePendingDeletion: ProfileDescriptor?
 
     var body: some View {
-        Section("Profile") {
+        Section("配置文件") {
             ForEach(session.profiles) { profile in
                 HStack(alignment: .center, spacing: 12) {
                     ProfileSummary(

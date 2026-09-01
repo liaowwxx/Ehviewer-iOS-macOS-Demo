@@ -87,7 +87,7 @@ struct SettingsView: View {
                 profilePendingDeletion: $profilePendingDeletion
             )
 
-            Section {
+            Section("设置") {
                 NavigationLink(value: AppRoute.settingsSiteAndLogin) {
                     SettingsNavigationLabel("站点&登录", systemImage: "globe")
                 }
@@ -95,30 +95,22 @@ struct SettingsView: View {
                 .accessibilityIdentifier("session-status")
                 .accessibilityLabel("站点与登录")
                 .accessibilityValue(model.isGuestMode ? String(localized: "游客模式") : String(localized: "已登录"))
-            }
 
-            Section {
                 NavigationLink(value: AppRoute.settingsBrowsingAndFiltering) {
                     SettingsNavigationLabel("浏览&过滤", systemImage: "book.pages")
                 }
                 .accessibilityIdentifier("settings-browsing-link")
-            }
 
-            Section {
                 NavigationLink(value: AppRoute.settingsReading) {
                     SettingsNavigationLabel("阅读设置", systemImage: "book")
                 }
                 .accessibilityIdentifier("settings-reading-link")
-            }
 
-            Section {
                 NavigationLink(value: AppRoute.settingsStorageManagement) {
                     SettingsNavigationLabel("存储管理", systemImage: "externaldrive")
                 }
                 .accessibilityIdentifier("settings-storage-and-progress-link")
-            }
 
-            Section {
                 NavigationLink(value: AppRoute.settingsDataBackupAndSync) {
                     SettingsNavigationLabel("数据备份&同步", systemImage: "externaldrive.badge.icloud")
                 }
@@ -355,88 +347,118 @@ struct SettingsView: View {
     private var dataAndBackupForm: some View {
         Form {
             Section("数据与备份") {
-                Button("更新已下载画廊信息") {
-                    showingDownloadedMetadataRefreshDialog = true
-                }
-                .foregroundStyle(.primary)
-                .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
-                .accessibilityIdentifier("refresh-downloaded-gallery-metadata-action")
-                .confirmationDialog(
-                    "更新已下载画廊信息",
-                    isPresented: $showingDownloadedMetadataRefreshDialog,
-                    titleVisibility: .visible
+                SettingsActionRow(
+                    title: "更新已下载画廊信息",
+                    subtitle: "更新本地下载画廊的元数据"
                 ) {
-                    Button("更新全部") {
-                        model.runFileOperation {
-                            await model.refreshDownloadedGalleryMetadata(mode: .all)
-                        }
+                    Button("更新…") {
+                        showingDownloadedMetadataRefreshDialog = true
                     }
-                    Button("仅更新缺失信息") {
-                        model.runFileOperation {
-                            await model.refreshDownloadedGalleryMetadata(mode: .missingOnly)
+                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
+                    .accessibilityIdentifier("refresh-downloaded-gallery-metadata-action")
+                    .confirmationDialog(
+                        "更新已下载画廊信息",
+                        isPresented: $showingDownloadedMetadataRefreshDialog,
+                        titleVisibility: .visible
+                    ) {
+                        Button("更新全部") {
+                            model.runFileOperation {
+                                await model.refreshDownloadedGalleryMetadata(mode: .all)
+                            }
                         }
+                        Button("仅更新缺失信息") {
+                            model.runFileOperation {
+                                await model.refreshDownloadedGalleryMetadata(mode: .missingOnly)
+                            }
+                        }
+                        Button("取消", role: .cancel) {}
+                    } message: {
+                        Text("缺失信息包括标题、作者、分类、页数、上传日期、缩略图和评分。")
                     }
-                    Button("取消", role: .cancel) {}
-                } message: {
-                    Text("缺失信息包括标题、作者、分类、页数、上传日期、缩略图和评分。")
                 }
             }
-            Section("导入") {
-                Button("导入元数据(.ehgallery)") {
-                    startFileImport(.gallerySync)
-                }
-                .foregroundStyle(.primary)
-                .disabled(model.isMigrating || model.isRestoringDownloads)
-                Button("导入归档(.eharchive)") {
-                    startFileImport(.downloadArchive)
-                }
-                .foregroundStyle(.primary)
-                .disabled(model.isMigrating || model.isRestoringDownloads)
-            }
-            Section("导出") {
-                Button("导出元数据(.ehgallery)") {
-                    model.runFileOperation {
-                        guard let url = await model.exportGallerySync() else { return }
-#if os(iOS)
-                        pendingShareFile = PendingSharedFile(url: url)
-#else
-                        gallerySyncExportFilename = url.lastPathComponent
-                        gallerySyncExportDocument = GallerySyncExportDocument(sourceURL: url)
-                        showingGallerySyncExporter = true
-#endif
+            Section("导入与导出") {
+                SettingsActionRow(
+                    title: "导入元数据",
+                    subtitle: "从 .ehgallery 文件导入"
+                ) {
+                    Button("导入…") {
+                        startFileImport(.gallerySync)
                     }
+                    .disabled(model.isMigrating || model.isRestoringDownloads)
+                    .accessibilityIdentifier("import-gallery-metadata-action")
                 }
-                .foregroundStyle(.primary)
-                .disabled(model.isMigrating || model.isRestoringDownloads)
-                Button("导出归档(.eharchive)") {
-                    model.runFileOperation {
-                        guard let url = await model.exportDownloadArchive() else { return }
-#if os(iOS)
-                        pendingShareFile = PendingSharedFile(url: url)
-#else
-                        pendingArchiveSaveFile = PendingSharedFile(url: url)
-#endif
+                SettingsActionRow(
+                    title: "导入归档",
+                    subtitle: "从 .eharchive 或兼容 ZIP 文件恢复下载项"
+                ) {
+                    Button("导入…") {
+                        startFileImport(.downloadArchive)
                     }
+                    .disabled(model.isMigrating || model.isRestoringDownloads)
+                    .accessibilityIdentifier("import-download-archive-action")
                 }
-                .foregroundStyle(.primary)
-                .disabled(model.isMigrating || model.isRestoringDownloads)
+                SettingsActionRow(
+                    title: "导出元数据",
+                    subtitle: "导出为 .ehgallery 文件"
+                ) {
+                    Button("导出…") {
+                        model.runFileOperation {
+                            guard let url = await model.exportGallerySync() else { return }
+#if os(iOS)
+                            pendingShareFile = PendingSharedFile(url: url)
+#else
+                            gallerySyncExportFilename = url.lastPathComponent
+                            gallerySyncExportDocument = GallerySyncExportDocument(sourceURL: url)
+                            showingGallerySyncExporter = true
+#endif
+                        }
+                    }
+                    .disabled(model.isMigrating || model.isRestoringDownloads)
+                    .accessibilityIdentifier("export-gallery-metadata-action")
+                }
+                SettingsActionRow(
+                    title: "导出归档",
+                    subtitle: "导出为 .eharchive 文件"
+                ) {
+                    Button("导出…") {
+                        model.runFileOperation {
+                            guard let url = await model.exportDownloadArchive() else { return }
+#if os(iOS)
+                            pendingShareFile = PendingSharedFile(url: url)
+#else
+                            pendingArchiveSaveFile = PendingSharedFile(url: url)
+#endif
+                        }
+                    }
+                    .disabled(model.isMigrating || model.isRestoringDownloads)
+                    .accessibilityIdentifier("export-download-archive-action")
+                }
             }
             Section("设备间同步") {
-                Button("重建设备同步索引") {
-                    model.runFileOperation {
-                        await model.buildDeviceSyncIndex()
-                    }
-                }
-                .foregroundStyle(.primary)
-                .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
                 NavigationLink(value: AppRoute.settingsDeviceSync) {
-                    SettingsNavigationLabel("设备间同步", systemImage: "arrow.triangle.2.circlepath")
+                    SettingsDetailLabel(
+                        title: "设备间同步",
+                        subtitle: "在附近的 EhViewer 设备之间合并漫画、阅读进度和元数据"
+                    )
                 }
                 .accessibilityIdentifier("device-sync-link")
                 .disabled(model.isMigrating || model.isRestoringDownloads)
-                Text("在附近的 EhViewer 设备之间合并本地漫画、阅读进度和元数据。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+
+                SettingsActionRow(
+                    title: "重建同步索引",
+                    subtitle: "扫描本地下载文件并重建设备同步索引"
+                ) {
+                    Button("重建…") {
+                        model.runFileOperation {
+                            await model.buildDeviceSyncIndex()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.secondary)
+                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
+                    .accessibilityIdentifier("rebuild-device-sync-index-action")
+                }
             }
         }
         .formStyle(.grouped)
@@ -618,6 +640,57 @@ struct SettingsView: View {
 
     private var localDownloadSize: String {
         ByteCountFormatter.string(fromByteCount: model.localDownloadByteCount, countStyle: .file)
+    }
+}
+
+private struct SettingsActionRow<Action: View>: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
+    let action: () -> Action
+
+    init(
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey,
+        @ViewBuilder action: @escaping () -> Action
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.action = action
+    }
+
+    var body: some View {
+        if horizontalSizeClass == .compact {
+            VStack(alignment: .leading, spacing: 8) {
+                SettingsDetailLabel(title: title, subtitle: subtitle)
+                HStack {
+                    Spacer(minLength: 0)
+                    action()
+                }
+            }
+        } else {
+            LabeledContent {
+                action()
+            } label: {
+                SettingsDetailLabel(title: title, subtitle: subtitle)
+            }
+        }
+    }
+}
+
+private struct SettingsDetailLabel: View {
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.body)
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

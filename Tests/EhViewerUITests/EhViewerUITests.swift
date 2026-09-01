@@ -121,6 +121,65 @@ final class EhViewerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["documentation-menu"].waitForExistence(timeout: 5))
     }
 
+    func testSettingsOverviewKeepsAllNavigationRowsInSettingsSection() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestUseGuestMode", "YES"]
+        app.launch()
+
+        openSettings(in: app)
+
+        XCTAssertTrue(app.descendants(matching: .any)["settings-screen"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["配置文件"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["设置"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["关于"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["profile-create-action"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings-browsing-link"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings-reading-link"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings-storage-and-progress-link"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["settings-data-and-backup-link"].exists)
+    }
+
+    func testDataBackupAndSyncExposesSettingsRows() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestUseGuestMode", "YES"]
+        app.launch()
+
+        openSettings(in: app)
+        let dataSettings = app.descendants(matching: .any)["settings-data-and-backup-link"]
+        XCTAssertTrue(dataSettings.waitForExistence(timeout: 5))
+        dataSettings.tap()
+
+        XCTAssertTrue(app.navigationBars["数据备份&同步"].waitForExistence(timeout: 5))
+        for identifier in [
+            "refresh-downloaded-gallery-metadata-action",
+            "import-gallery-metadata-action",
+            "import-download-archive-action",
+            "export-gallery-metadata-action",
+            "export-download-archive-action",
+            "device-sync-link",
+            "rebuild-device-sync-index-action"
+        ] {
+            XCTAssertTrue(
+                app.descendants(matching: .any)[identifier].waitForExistence(timeout: 5),
+                "Missing settings action: \(identifier)"
+            )
+        }
+    }
+
+    func testCreatingProfileShowsNameEditorControls() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestUseGuestMode", "YES"]
+        app.launch()
+
+        openSettings(in: app)
+        let createProfile = app.descendants(matching: .any)["profile-create-action"]
+        XCTAssertTrue(createProfile.waitForExistence(timeout: 5))
+        createProfile.tap()
+
+        XCTAssertTrue(app.textFields["profile-name-field"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["profile-name-save-action"].waitForExistence(timeout: 5))
+    }
+
     func testGalleryDeepLinkPushesDetailOnIPhone() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestUseGuestMode", "YES"]
@@ -130,5 +189,15 @@ final class EhViewerUITests: XCTestCase {
         app.open(URL(string: "ehviewer://?url=https://e-hentai.org/g/12345/token/")!)
 
         XCTAssertTrue(app.navigationBars["详情"].waitForExistence(timeout: 5))
+    }
+
+    private func openSettings(in app: XCUIApplication) {
+        if app.buttons["settings-tab"].waitForExistence(timeout: 5) {
+            app.buttons["settings-tab"].tap()
+        } else if app.buttons["settings-sidebar"].waitForExistence(timeout: 5) {
+            app.buttons["settings-sidebar"].tap()
+        } else if app.tabBars.firstMatch.exists {
+            app.tabBars.buttons.element(boundBy: app.tabBars.buttons.count - 1).tap()
+        }
     }
 }
