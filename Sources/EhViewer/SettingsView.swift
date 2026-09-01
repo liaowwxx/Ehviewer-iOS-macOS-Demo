@@ -246,8 +246,12 @@ struct SettingsView: View {
     private var storageAndProgressForm: some View {
         Form {
             Section("本地漫画") {
-                LabeledContent("本数", value: "\(model.localDownloadGalleryCount) 本")
-                LabeledContent("空间占用", value: localDownloadSize)
+                if model.hasLoadedLocalDownloadUsage == false || model.isRefreshingLocalDownloadUsage {
+                    ProgressView("正在计算本地漫画占用…")
+                } else {
+                    LabeledContent("本数", value: "\(model.localDownloadGalleryCount) 本")
+                    LabeledContent("空间占用", value: localDownloadSize)
+                }
                 if let progress = model.localMangaDeletionProgress {
                     VStack(alignment: .leading) {
                         ProgressView(value: progress.fraction) {

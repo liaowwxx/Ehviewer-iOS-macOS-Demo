@@ -347,6 +347,7 @@ final class ProfileSession {
             }
             await migrateLegacySessionIfNeeded(for: profiles[index])
             let newRuntime = try ProfileRuntime(descriptor: profiles[index], profilesRoot: profilesRoot)
+            await newRuntime.model.waitUntilReady()
             profiles[index].lastUsedAt = Date()
             lastUsedProfileID = profileID
             try persistRegistry()

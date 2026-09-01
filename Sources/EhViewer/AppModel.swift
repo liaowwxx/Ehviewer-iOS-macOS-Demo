@@ -232,6 +232,8 @@ final class AppModel {
     private(set) var galleryCacheByteCount: Int64 = 0
     private(set) var localDownloadGalleryCount = 0
     private(set) var localDownloadByteCount: Int64 = 0
+    private(set) var hasLoadedLocalDownloadUsage = false
+    private(set) var isRefreshingLocalDownloadUsage = false
     private(set) var isDeletingAllLocalManga = false
     private(set) var localMangaDeletionProgress: DownloadRemovalProgress?
     var galleries: [GallerySummary] = []
@@ -266,6 +268,7 @@ final class AppModel {
     private(set) var isMigrating = false
     private(set) var migrationProgress: MigrationProgress?
     private(set) var isLoadingDownloads = true
+    private(set) var isReady = false
     var isDeviceSyncIndexSetupRequired = false
     private(set) var nextPageURL: URL?
     var hasMorePage: Bool { nextPageURL != nil }
@@ -279,6 +282,7 @@ final class AppModel {
     @ObservationIgnored private var tagTranslationLoadTask: Task<Void, Never>?
     @ObservationIgnored private var tagTranslationImportTask: Task<Void, Never>?
     @ObservationIgnored private var downloadRevisionTask: Task<Void, Never>?
+    @ObservationIgnored private var readyContinuation: CheckedContinuation<Void, Never>?
 
     init(
         container: ModelContainer,
@@ -438,7 +442,6 @@ final class AppModel {
             await self.migrateLegacyGalleryCache()
             await self.galleryCoverLoader.removeLegacyLocalEntries()
             await self.refreshGalleryCacheUsage()
-            await self.refreshLocalDownloadUsage()
             if self.forceGuestMode == false {
                 await self.refreshSessionStatus()
             }
@@ -493,6 +496,7 @@ final class AppModel {
     /// installed. Every asynchronous callback is invalidated before the
     /// runtime's container can be discarded.
     func shutdown() async {
+        markReady()
         activeListRequestID = UUID()
         incomingStagingGeneration &+= 1
         fileOperationGeneration &+= 1
@@ -510,6 +514,27 @@ final class AppModel {
         await backgroundSession.cancelAll()
         deviceSync.stop()
         await galleryCoverLoader.removeAll()
+    }
+
+    /// Waits until the persisted download baseline is available in the
+    /// coordinator. The UI must not expose an empty in-memory snapshot as if
+    /// it were an empty library while profile startup is still restoring.
+    func waitUntilReady() async {
+        guard isReady == false else { return }
+        await withCheckedContinuation { continuation in
+            if isReady {
+                continuation.resume()
+            } else {
+                readyContinuation = continuation
+            }
+        }
+    }
+
+    private func markReady() {
+        guard isReady == false else { return }
+        isReady = true
+        readyContinuation?.resume()
+        readyContinuation = nil
     }
 
     func load(query: GalleryListQuery? = nil) async {
@@ -966,10 +991,14 @@ final class AppModel {
     }
 
     func refreshLocalDownloadUsage() async {
+        guard isRefreshingLocalDownloadUsage == false else { return }
+        isRefreshingLocalDownloadUsage = true
+        defer { isRefreshingLocalDownloadUsage = false }
         let keys = await downloads.snapshot().map(\.key)
         let usage = await downloadFiles.localLibraryUsage(for: keys)
         localDownloadGalleryCount = usage.galleryCount
         localDownloadByteCount = usage.byteCount
+        hasLoadedLocalDownloadUsage = true
     }
 
     func deleteAllLocalManga() async {
@@ -2030,11 +2059,13 @@ final class AppModel {
         isLoadingDownloads = true
         guard let persisted = try? await persistence.downloadJobs() else {
             isLoadingDownloads = false
+            markReady()
             return
         }
 
         let baselines = persisted.map(makePersistedDownloadJob)
         await downloads.loadPersisted(baselines)
+        markReady()
         isLoadingDownloads = false
         progress?(0, persisted.count)
 

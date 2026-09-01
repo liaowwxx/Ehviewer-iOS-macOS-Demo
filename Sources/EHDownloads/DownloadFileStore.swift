@@ -193,19 +193,29 @@ public actor DownloadFileStore {
 
     /// Counts only galleries that contain at least one valid, readable page.
     /// Queued jobs and incomplete temporary files are intentionally excluded.
-    public func localLibraryUsage(for keys: [GalleryKey]) -> LocalDownloadLibraryUsage {
-        var seen = Set<GalleryKey>()
-        var localKeys: [GalleryKey] = []
-        var byteCount: Int64 = 0
+    public func localLibraryUsage(for keys: [GalleryKey]) async -> LocalDownloadLibraryUsage {
+        // Media validation uses ImageIO and can be expensive for a large
+        // library. Keep it off this actor so local page reads are not queued
+        // behind the storage-management scan.
+        let root = root
+        return await Task.detached(priority: .utility) {
+            var seen = Set<GalleryKey>()
+            var localKeys: [GalleryKey] = []
+            var byteCount: Int64 = 0
 
-        for key in keys where seen.insert(key).inserted {
-            let pages = auditLocalGallery(for: key, removeInvalidFiles: false).validPages
-            guard pages.isEmpty == false else { continue }
-            localKeys.append(key)
-            byteCount += pages.reduce(into: Int64.zero) { $0 += $1.byteCount }
-        }
+            for key in keys where seen.insert(key).inserted {
+                let pages = Self.auditLocalGallery(
+                    root: root,
+                    key: key,
+                    removeInvalidFiles: false
+                ).validPages
+                guard pages.isEmpty == false else { continue }
+                localKeys.append(key)
+                byteCount += pages.reduce(into: Int64.zero) { $0 += $1.byteCount }
+            }
 
-        return LocalDownloadLibraryUsage(galleryKeys: localKeys, byteCount: byteCount)
+            return LocalDownloadLibraryUsage(galleryKeys: localKeys, byteCount: byteCount)
+        }.value
     }
 
     /// Performs the one-time validation pass used to build the device-sync
@@ -235,7 +245,15 @@ public actor DownloadFileStore {
         for key: GalleryKey,
         removeInvalidFiles: Bool
     ) -> DownloadGalleryFileAudit {
-        let directory = directory(for: key)
+        Self.auditLocalGallery(root: root, key: key, removeInvalidFiles: removeInvalidFiles)
+    }
+
+    private static func auditLocalGallery(
+        root: URL,
+        key: GalleryKey,
+        removeInvalidFiles: Bool
+    ) -> DownloadGalleryFileAudit {
+        let directory = directory(for: key, root: root)
         guard let names = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
@@ -738,6 +756,10 @@ public actor DownloadFileStore {
     }
 
     private func directory(for key: GalleryKey) -> URL {
+        Self.directory(for: key, root: root)
+    }
+
+    private static func directory(for key: GalleryKey, root: URL) -> URL {
         let encoded = Data(key.id.utf8)
             .base64EncodedString()
             .replacingOccurrences(of: "/", with: "_")
