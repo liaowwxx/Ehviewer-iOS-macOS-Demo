@@ -21,6 +21,26 @@ struct PersistenceTests {
         #expect(recent.first?.postedAt != nil)
     }
 
+    @Test("Reading a downloaded-only gallery creates a history record")
+    func downloadedOnlyProgressCreatesHistory() async throws {
+        let store = PersistenceStore(modelContainer: try ModelContainerFactory.make(inMemory: true))
+        let key = GalleryKey(gid: 73, token: "downloaded-only")
+        try await store.promoteToDownloadedGallery(
+            stable: StableGalleryMetadataSnapshot(
+                key: key,
+                sourceSite: .eHentai,
+                title: "Downloaded only"
+            )
+        )
+
+        try await store.updateReadingProgress(for: key, page: 2)
+
+        let recent = try await store.recent()
+        #expect(recent.count == 1)
+        #expect(recent.first?.key == key)
+        #expect(recent.first?.title == "Downloaded only")
+    }
+
     @Test("Batch library removal keeps the other library state")
     func batchLibraryRemovalKeepsIndependentState() async throws {
         let container = try ModelContainerFactory.make(inMemory: true)

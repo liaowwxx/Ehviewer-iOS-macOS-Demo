@@ -988,16 +988,28 @@ public actor PersistenceStore {
         }
     }
 
-    public func updateReadingProgress(for key: GalleryKey, page: Int) throws {
+    public func updateReadingProgress(
+        for key: GalleryKey,
+        page: Int,
+        fallbackSummary: GallerySummary? = nil
+    ) throws {
         var descriptor = FetchDescriptor<GalleryRecord>(predicate: #Predicate {
             $0.gid == key.gid && $0.token == key.token
         })
         descriptor.fetchLimit = 1
-        if let record = try modelContext.fetch(descriptor).first {
-            record.lastReadPage = page
-            record.lastReadAt = Date()
-            try modelContext.save()
+        let record: GalleryRecord
+        if let existing = try modelContext.fetch(descriptor).first {
+            record = existing
+        } else {
+            let summaryFromDownload = try downloadedMetadataRecord(for: key)
+                .flatMap { try? downloadedSummary(from: $0) }
+            guard let summary = fallbackSummary ?? summaryFromDownload else { return }
+            record = GalleryRecord(snapshot: summary)
+            modelContext.insert(record)
         }
+        record.lastReadPage = page
+        record.lastReadAt = Date()
+        try modelContext.save()
     }
 
     public func readingPage(for key: GalleryKey) throws -> Int? {

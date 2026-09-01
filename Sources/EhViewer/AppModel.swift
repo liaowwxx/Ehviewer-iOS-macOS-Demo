@@ -1218,7 +1218,22 @@ final class AppModel {
     }
 
     func updateProgress(for key: GalleryKey, page: Int) async {
-        do { try await persistence.updateReadingProgress(for: key, page: page) }
+        let fallbackSummary = await downloads.job(for: key).map { job in
+            GallerySummary(
+                key: job.key,
+                title: job.title,
+                japaneseTitle: job.japaneseTitle,
+                pageCount: job.pages.isEmpty ? nil : job.pages.count,
+                tags: job.tags
+            )
+        }
+        do {
+            try await persistence.updateReadingProgress(
+                for: key,
+                page: page,
+                fallbackSummary: fallbackSummary
+            )
+        }
         catch { errorMessage = error.localizedDescription }
     }
 
