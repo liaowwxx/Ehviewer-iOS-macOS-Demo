@@ -176,19 +176,31 @@ private struct MigrationProgressOverlay: View {
             } else {
                 ProgressView()
             }
-            Text(progress.status)
-                .font(.callout)
-                .multilineTextAlignment(.center)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(progress.status)
+                    .font(.callout)
+                    .multilineTextAlignment(.leading)
+                if progress.total > 0 {
+                    Spacer(minLength: 0)
+                    Text("\(min(progress.completed, progress.total))/\(progress.total)")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
             if canCancel {
                 Button("取消", role: .cancel, action: cancel)
                     .buttonStyle(.bordered)
             }
         }
         .padding()
-        .frame(maxWidth: 280)
+        .frame(maxWidth: 340)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(progress.status)
+        .accessibilityLabel(
+            progress.total > 0
+                ? "\(progress.status)，已完成 \(min(progress.completed, progress.total))/\(progress.total)"
+                : progress.status
+        )
     }
 }
 

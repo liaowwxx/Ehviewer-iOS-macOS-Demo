@@ -360,18 +360,23 @@ public final class DeviceSyncCoordinator {
     /// queued by the index actor and applied to the rebuilt snapshot before it
     /// becomes visible to synchronization.
     public func rebuildIndex(
-        progress: @escaping @MainActor (Int, Int) -> Void
+        progress: @escaping @MainActor @Sendable (Int, Int) -> Void
     ) async throws {
         try await index.beginRebuild()
         do {
             let records = try await persistence.downloadedGalleryTransferRecords()
-            let total = max(1, records.count * 2)
+            let galleryCount = records.count
+            let total = max(1, galleryCount * 2)
             progress(0, total)
-            let pagesByGallery = try await files.scanLocalPageEntries(for: records.map { $0.stable.key })
-            progress(records.count, total)
+            let pagesByGallery = try await files.scanLocalPageEntries(
+                for: records.map { $0.stable.key },
+                progress: { completed, _ in
+                    progress(completed, total)
+                }
+            )
 
             var entries: [DeviceSyncIndexEntry] = []
-            entries.reserveCapacity(records.count)
+            entries.reserveCapacity(galleryCount)
             for (offset, record) in records.enumerated() {
                 try Task.checkCancellation()
                 let metadata = try DeviceSyncMetadataDigest.make(
@@ -383,10 +388,11 @@ public final class DeviceSyncCoordinator {
                     pages: pagesByGallery[record.stable.key] ?? [],
                     metadata: metadata
                 ))
-                progress(records.count + offset + 1, total)
+                progress(galleryCount + offset + 1, total)
             }
 
             try await index.finishRebuild(with: DeviceSyncIndexSnapshot(entries: entries))
+            progress(total, total)
             state = .idle
         } catch {
             await index.cancelRebuild()

@@ -19,8 +19,9 @@
 import SwiftUI
 
 enum AppTheme {
-    /// RGB 0.259, 0.581, 0.533 from the supplied reference.
-    static let accent = Color(red: 0.259, green: 0.581, blue: 0.533)
+    /// The app-wide accent supplied by the AccentColor asset catalog entry.
+    /// On macOS this also follows the user's system accent when macOS applies it.
+    static let accent = Color.accentColor
     static let onAccent = Color.white
 
     /// The reference client's `colorAccent` (#e040fb), used for tag group

@@ -8,6 +8,24 @@ import EHDownloads
 import EHPersistence
 
 struct DeviceSyncIndexTests {
+    @Test("Local page scan reports progress for every gallery")
+    @MainActor
+    func localPageScanReportsProgressPerGallery() async throws {
+        let files = DownloadFileStore(root: temporaryRoot("progress"))
+        var updates: [(Int, Int)] = []
+        let keys = [
+            GalleryKey(gid: 40, token: "first"),
+            GalleryKey(gid: 41, token: "second")
+        ]
+
+        _ = try await files.scanLocalPageEntries(for: keys) { completed, total in
+            updates.append((completed, total))
+        }
+
+        #expect(updates.map(\.0) == [1, 2])
+        #expect(updates.map(\.1) == [2, 2])
+    }
+
     @Test("Index rebuild is published atomically and later media changes are journaled")
     func rebuildAndIncrementalMediaChanges() async throws {
         let indexRoot = temporaryRoot("index")

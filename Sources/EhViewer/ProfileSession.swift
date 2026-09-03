@@ -558,22 +558,115 @@ private struct ProfilePickerView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(session.profiles) { profile in
-                    Button {
-                        Task {
-                            await session.switchProfile(to: profile.id)
-                            if session.runtime != nil { dismiss() }
-                        }
-                    } label: {
-                        ProfileSummary(profile: profile, isCurrent: profile.id == session.runtime?.descriptor.id)
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(session.profiles) { profile in
+                        ProfilePickerRow(
+                            profile: profile,
+                            isCurrent: profile.id == session.runtime?.descriptor.id,
+                            action: { select(profile) }
+                        )
                     }
-                    .accessibilityIdentifier("profile-row-\(profile.id.uuidString)")
+                }
+                .padding(20)
+            }
+            .scrollIndicators(.hidden)
+            .navigationTitle("Profile")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成", action: dismiss)
+                        .keyboardShortcut(.cancelAction)
                 }
             }
-            .navigationTitle("Profile")
-            .toolbar { Button("完成", action: dismiss) }
         }
+#if os(macOS)
+        .frame(minWidth: 440, idealWidth: 500, minHeight: 250, idealHeight: 340, maxHeight: 520)
+#endif
+    }
+
+    private func select(_ profile: ProfileDescriptor) {
+        Task {
+            await session.switchProfile(to: profile.id)
+            if session.runtime != nil {
+                dismiss()
+            }
+        }
+    }
+}
+
+private struct ProfilePickerRow: View {
+    let profile: ProfileDescriptor
+    let isCurrent: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    private var rowBackground: Color {
+        if isCurrent {
+            return AppTheme.accent.opacity(0.12)
+        }
+        if isHovered {
+            return Color.primary.opacity(0.09)
+        }
+        return Color.primary.opacity(0.045)
+    }
+
+    private var rowBorder: Color {
+        isCurrent ? AppTheme.accent.opacity(0.45) : Color.primary.opacity(0.08)
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(isCurrent ? AppTheme.accent : Color.secondary)
+                    .frame(width: 40, height: 40)
+                    .background(
+                        isCurrent ? AppTheme.accent.opacity(0.14) : Color.primary.opacity(0.07),
+                        in: Circle()
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(profile.name)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    Label(
+                        isCurrent ? "当前使用中" : "需要解锁",
+                        systemImage: isCurrent ? "checkmark.circle.fill" : "lock.fill"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(isCurrent ? AppTheme.accent : Color.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                if isCurrent {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(AppTheme.accent)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(Color.secondary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(rowBorder, lineWidth: 1)
+        }
+        .onHover { isHovered = $0 }
+        .accessibilityValue(isCurrent ? "当前使用中" : "需要解锁")
+        .accessibilityHint("点击切换到此 Profile")
+        .accessibilityIdentifier("profile-row-\(profile.id.uuidString)")
     }
 }
 

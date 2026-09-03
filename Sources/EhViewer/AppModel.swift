@@ -612,8 +612,14 @@ final class AppModel {
         defer { finishMigration() }
         do {
             try await deviceSync.rebuildIndex { [weak self] completed, total in
+                let status: String
+                if total > 1, completed <= total / 2 {
+                    status = String(localized: "正在扫描本地页面…")
+                } else {
+                    status = String(localized: "正在整理同步索引…")
+                }
                 self?.setMigrationProgress(
-                    status: String(localized: "正在建立设备同步索引…"),
+                    status: status,
                     completed: completed,
                     total: total
                 )

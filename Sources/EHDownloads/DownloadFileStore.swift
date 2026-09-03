@@ -218,15 +218,17 @@ public actor DownloadFileStore {
         }.value
     }
 
-    /// Performs the one-time validation pass used to build the device-sync
-    /// index. Keeping the loop inside this actor avoids an actor hop for every
-    /// page while still checking cancellation between galleries.
+    /// Performs the full validation pass used to build or rebuild the
+    /// device-sync index. Keeping the loop inside this actor avoids an actor
+    /// hop for every page while still reporting completion per gallery and
+    /// checking cancellation between galleries.
     public func scanLocalPageEntries(
-        for keys: [GalleryKey]
+        for keys: [GalleryKey],
+        progress: (@MainActor @Sendable (Int, Int) -> Void)? = nil
     ) async throws -> [GalleryKey: [DeviceSyncPageEntry]] {
         var result: [GalleryKey: [DeviceSyncPageEntry]] = [:]
         result.reserveCapacity(keys.count)
-        for key in keys {
+        for (offset, key) in keys.enumerated() {
             try Task.checkCancellation()
             let entries = auditLocalGallery(for: key, removeInvalidFiles: false).validPages.compactMap { entry in
                 try? DeviceSyncPageEntry(pageIndex: entry.pageIndex, byteCount: entry.byteCount)
@@ -234,6 +236,7 @@ public actor DownloadFileStore {
             if entries.isEmpty == false {
                 result[key] = entries
             }
+            await progress?(offset + 1, keys.count)
         }
         return result
     }

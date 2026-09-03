@@ -447,15 +447,15 @@ struct SettingsView: View {
 
                 SettingsActionRow(
                     title: "重建同步索引",
-                    subtitle: "扫描本地下载文件并重建设备同步索引"
+                    subtitle: "完整扫描下载记录和本地页面文件，替换现有同步索引"
                 ) {
-                    Button("重建…") {
+                    Button("重建索引", systemImage: "arrow.clockwise") {
                         model.runFileOperation {
                             await model.buildDeviceSyncIndex()
                         }
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.secondary)
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.accent)
                     .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
                     .accessibilityIdentifier("rebuild-device-sync-index-action")
                 }
