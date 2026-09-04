@@ -47,6 +47,7 @@ struct GalleryDetailView: View {
     @State private var isRating = false
     @State private var downloadJob: DownloadJob?
     @State private var shouldFullyRefreshDetail = false
+    @ScaledMetric(relativeTo: .body) private var actionMinimumWidth: CGFloat = 148
 
     var body: some View {
         Group {
@@ -179,112 +180,140 @@ struct GalleryDetailView: View {
     @ViewBuilder
     private func actionSection(_ detail: GalleryDetail, pageListReady: Bool) -> some View {
         VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                NavigationLink(value: AppRoute.reader(key, page: readerStartPage)) {
-                    Label(readingActionTitle, systemImage: downloadJob == nil ? "book" : "internaldrive")
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .foregroundStyle(AppTheme.onAccent)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    primaryActionItems(detail, pageListReady: pageListReady)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(pageListReady == false)
-                .accessibilityIdentifier("start-reading-action")
-                #if os(macOS)
-                Button {
-                    guard let profileID = profileSession.runtime?.descriptor.id else { return }
-                    openWindow(value: ProfileReaderRoute(
-                        profileID: profileID,
-                        key: key,
-                        page: readerStartPage
-                    ))
-                } label: {
-                    Label("新窗口阅读", systemImage: "rectangle.split.2x1")
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12)
+                    ],
+                    spacing: 12
+                ) {
+                    primaryActionItems(detail, pageListReady: pageListReady)
                 }
-                .buttonStyle(.bordered)
-                .disabled(pageListReady == false)
-                .accessibilityIdentifier("new-window-reader-action")
-                #endif
-                if let downloadJob {
-                    Label(downloadStatusTitle(downloadJob), systemImage: downloadStatusIcon(downloadJob))
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("download-status")
-                } else {
-                    Button {
-                        isEnqueueing = true
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    secondaryActionItems(detail)
+                }
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12)
+                    ],
+                    spacing: 12
+                ) {
+                    secondaryActionItems(detail)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func primaryActionItems(_ detail: GalleryDetail, pageListReady: Bool) -> some View {
+        NavigationLink(value: AppRoute.reader(key, page: readerStartPage)) {
+            Label(readingActionTitle, systemImage: downloadJob == nil ? "book" : "internaldrive")
+                .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(AppTheme.onAccent)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(pageListReady == false)
+        .accessibilityIdentifier("start-reading-action")
+#if os(macOS)
+        Button {
+            guard let profileID = profileSession.runtime?.descriptor.id else { return }
+            openWindow(value: ProfileReaderRoute(
+                profileID: profileID,
+                key: key,
+                page: readerStartPage
+            ))
+        } label: {
+            Label("新窗口阅读", systemImage: "rectangle.split.2x1")
+                .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .disabled(pageListReady == false)
+        .accessibilityIdentifier("new-window-reader-action")
+#endif
+        if let downloadJob {
+            Label(downloadStatusTitle(downloadJob), systemImage: downloadStatusIcon(downloadJob))
+                .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("download-status")
+        } else {
+            Button {
+                isEnqueueing = true
+                Task {
+                    defer { isEnqueueing = false }
+                    await model.enqueue(detail)
+                    downloadJob = await model.downloadJob(for: key)
+                }
+            } label: {
+                Label("加入下载", systemImage: "arrow.down.circle")
+                    .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isEnqueueing || pageListReady == false)
+            .accessibilityIdentifier("enqueue-download-action")
+        }
+    }
+
+    @ViewBuilder
+    private func secondaryActionItems(_ detail: GalleryDetail) -> some View {
+        Button {
+            isUpdatingFavorite = true
+            Task {
+                defer { isUpdatingFavorite = false }
+                await model.toggleFavorite(for: key, remoteDetail: detail)
+                isFavorite = await model.favoriteState(for: key)
+            }
+        } label: {
+            Label(favoriteTitle, systemImage: isFavorite ? "heart.fill" : "heart")
+                .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isUpdatingFavorite)
+        .accessibilityIdentifier("favorite-action")
+
+        if detail.apiUID != nil, detail.apiKey != nil {
+            Menu {
+                ForEach(1...5, id: \.self) { value in
+                    Button("评分 \(value)") {
+                        isRating = true
                         Task {
-                            defer { isEnqueueing = false }
-                            await model.enqueue(detail)
-                            downloadJob = await model.downloadJob(for: key)
+                            defer { isRating = false }
+                            await model.rate(detail, value: Double(value))
                         }
-                    } label: {
-                        Label("加入下载", systemImage: "arrow.down.circle")
-                            .frame(maxWidth: .infinity, minHeight: 44)
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(isEnqueueing || pageListReady == false)
-                    .accessibilityIdentifier("enqueue-download-action")
                 }
+            } label: {
+                Label("评分", systemImage: "star")
+                    .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
             }
+            .buttonStyle(.bordered)
+            .disabled(isRating)
+            .accessibilityIdentifier("rate-action")
+        }
 
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
-                alignment: .leading,
-                spacing: 10
-            ) {
-                Button {
-                    isUpdatingFavorite = true
-                    Task {
-                        defer { isUpdatingFavorite = false }
-                        await model.toggleFavorite(for: key, remoteDetail: detail)
-                        isFavorite = await model.favoriteState(for: key)
-                    }
-                } label: {
-                    Label(favoriteTitle, systemImage: isFavorite ? "heart.fill" : "heart")
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-                .disabled(isUpdatingFavorite)
-                .accessibilityIdentifier("favorite-action")
-
-                if detail.apiUID != nil, detail.apiKey != nil {
-                    Menu {
-                        ForEach(1...5, id: \.self) { value in
-                            Button("评分 \(value)") {
-                                isRating = true
-                                Task {
-                                    defer { isRating = false }
-                                    await model.rate(detail, value: Double(value))
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("评分", systemImage: "star")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isRating)
-                    .accessibilityIdentifier("rate-action")
-                }
-
-                if let externalURL = detail.externalURL {
-                    ShareLink(item: externalURL) {
-                        Label("分享", systemImage: "square.and.arrow.up")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("share-action")
-                }
-
-                if let similarQuery = similarSearchQuery(for: detail) {
-                    NavigationLink(value: AppRoute.search(similarQuery, advancedSearch: nil)) {
-                        Label("相似画廊", systemImage: "rectangle.on.rectangle.angled")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("similar-gallery-action")
-                }
+        if let externalURL = detail.externalURL {
+            ShareLink(item: externalURL) {
+                Label("分享", systemImage: "square.and.arrow.up")
+                    .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
             }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("share-action")
+        }
+
+        if let similarQuery = similarSearchQuery(for: detail) {
+            NavigationLink(value: AppRoute.search(similarQuery, advancedSearch: nil)) {
+                Label("相似画廊", systemImage: "rectangle.on.rectangle.angled")
+                    .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("similar-gallery-action")
         }
     }
 

@@ -222,6 +222,7 @@ final class ProfileSession {
     private(set) var runtime: ProfileRuntime?
     private(set) var startupError: String?
     private(set) var isAuthenticating = false
+    private(set) var isActivatingProfile = false
     private(set) var isPrepared = false
 
     init(
@@ -341,6 +342,8 @@ final class ProfileSession {
 
     private func activate(profileID: UUID, reason: String) async {
         guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
+        isActivatingProfile = true
+        defer { isActivatingProfile = false }
         do {
             guard try await authenticate(reason: reason) else {
                 throw ProfileSessionError.authenticationCancelled
@@ -497,6 +500,7 @@ final class ProfileSession {
 
 struct ProfileHostView: View {
     @Bindable var session: ProfileSession
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -508,10 +512,16 @@ struct ProfileHostView: View {
                     .modelContainer(runtime.container)
                     .tint(AppTheme.accent)
                     .onOpenURL { runtime.model.handleIncomingURL($0) }
+                    .transition(.opacity)
             } else {
                 ProfileUnlockView(session: session)
+                    .transition(.opacity)
             }
         }
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: 0.2),
+            value: session.runtime != nil
+        )
         .task { session.prepare() }
     }
 }
@@ -526,17 +536,22 @@ private struct ProfileUnlockView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(AppTheme.accent)
             if session.isPrepared {
-                Text(session.selectedProfile?.name ?? "EhViewer")
-                    .font(.title2.weight(.semibold))
-                Text("使用 Face ID、Touch ID 或设备密码解锁 Profile。")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                Button("解锁") { Task { await session.unlockSelectedProfile() } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(session.isAuthenticating)
-                    .accessibilityIdentifier("profile-unlock-action")
-                Button("切换 Profile") { showingProfiles = true }
-                    .accessibilityIdentifier("profile-switch-action")
+                if session.isActivatingProfile {
+                    ProgressView(session.isAuthenticating ? "正在验证…" : "正在加载 Profile…")
+                        .accessibilityIdentifier("profile-activation-loading")
+                } else {
+                    Text(session.selectedProfile?.name ?? "EhViewer")
+                        .font(.title2.weight(.semibold))
+                    Text("使用 Face ID、Touch ID 或设备密码解锁 Profile。")
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                    Button("解锁") { Task { await session.unlockSelectedProfile() } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(session.isAuthenticating)
+                        .accessibilityIdentifier("profile-unlock-action")
+                    Button("切换 Profile") { showingProfiles = true }
+                        .accessibilityIdentifier("profile-switch-action")
+                }
             } else {
                 ProgressView("正在加载 Profile…")
                     .accessibilityIdentifier("profile-loading")

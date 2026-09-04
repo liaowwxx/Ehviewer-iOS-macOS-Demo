@@ -365,13 +365,14 @@ private struct SplitRootView: View {
                         .accessibilityIdentifier("settings-sidebar")
                 }
             }
-            .tint(AppTheme.accent)
+            .listItemTint(.preferred(AppTheme.accent))
             .navigationTitle("EhViewer")
         } detail: {
             RootNavigationStack(path: $detailPath) { path in
                 DestinationView(route: selection ?? .browse, navigationPath: path)
             }
         }
+        .tint(AppTheme.accent)
         .onChange(of: selection) { _, route in
             model.selectedRoute = route
             detailPath.removeAll()
