@@ -31,12 +31,20 @@ struct MigrationProgress: Sendable, Hashable {
     let completed: Int
     let total: Int
     let fraction: Double?
+    let estimatedRemainingSeconds: TimeInterval?
 
-    init(status: String, completed: Int = 0, total: Int = 0, fraction: Double? = nil) {
+    init(
+        status: String,
+        completed: Int = 0,
+        total: Int = 0,
+        fraction: Double? = nil,
+        estimatedRemainingSeconds: TimeInterval? = nil
+    ) {
         self.status = status
         self.completed = completed
         self.total = total
         self.fraction = fraction ?? (total > 0 ? min(1, max(0, Double(completed) / Double(total))) : nil)
+        self.estimatedRemainingSeconds = estimatedRemainingSeconds
     }
 }
 
@@ -265,6 +273,7 @@ final class AppModel {
     var pendingSharedFileURL: URL?
     var isRestoringDownloads = false
     var downloadRestoreStatus = ""
+    private(set) var downloadRestoreProgress: MigrationProgress?
     private(set) var isMigrating = false
     private(set) var migrationProgress: MigrationProgress?
     private(set) var isLoadingDownloads = true
@@ -1572,11 +1581,13 @@ final class AppModel {
         }
         isRestoringDownloads = true
         downloadRestoreStatus = String(localized: "正在检查备份压缩包…")
+        downloadRestoreProgress = MigrationProgress(status: downloadRestoreStatus)
         let restoreSite = site
         var operationIssues: [FileOperationIssue] = []
         defer {
             isRestoringDownloads = false
             downloadRestoreStatus = ""
+            downloadRestoreProgress = nil
         }
 
         do {
@@ -1602,7 +1613,8 @@ final class AppModel {
                 let pageIndexes = Array(0..<candidate.declaredPageCount)
                 existingLocalIndexes[candidate.key] = await downloadFiles.readablePageIndexes(
                     for: candidate.key,
-                    pageIndexes: pageIndexes
+                    pageIndexes: pageIndexes,
+                    refreshValidIndexEntries: false
                 )
             }
 
@@ -1723,16 +1735,31 @@ final class AppModel {
                     return LegacyDownloadPageSelection(
                         archivePath: image.archivePath,
                         key: candidate.key,
-                        pageIndex: image.pageIndex
+                        pageIndex: image.pageIndex,
+                        byteCount: image.byteCount
                     )
                 }
             }
 
             downloadRestoreStatus = String(localized: "正在解压下载图片…")
+            downloadRestoreProgress = MigrationProgress(
+                status: downloadRestoreStatus,
+                completed: 0,
+                total: selections.count,
+                fraction: 0
+            )
             let extraction = try await LegacyDownloadArchive.extractPages(
                 from: archiveURL,
                 selections: selections
-            )
+            ) { [weak self] progress in
+                guard let self else { return }
+                await self.setDownloadRestoreProgress(
+                    completed: progress.completedFiles,
+                    total: progress.totalFiles,
+                    fraction: progress.fraction,
+                    estimatedRemainingSeconds: progress.estimatedRemainingSeconds
+                )
+            }
             defer { try? FileManager.default.removeItem(at: extraction.temporaryDirectory) }
 
             var importedPageCount = 0
@@ -1751,6 +1778,7 @@ final class AppModel {
 
                 var imported = existingLocalIndexes[candidate.key] ?? []
                 var newlyImported: [(pageIndex: Int, sha256: Data)] = []
+                var validatedPageEntries: [DeviceSyncPageEntry] = []
                 var galleryImportFailed = false
                 let galleryPages = extractedByKey[candidate.key] ?? []
                 for (pageOffset, page) in galleryPages.enumerated() {
@@ -1762,9 +1790,17 @@ final class AppModel {
                         let result = try await downloadFiles.importFileResult(
                             at: page.fileURL,
                             for: page.key,
-                            pageIndex: page.pageIndex
+                            pageIndex: page.pageIndex,
+                            knownSHA256: page.sha256,
+                            updateIndex: false
                         )
                         imported.insert(page.pageIndex)
+                        if let entry = try? DeviceSyncPageEntry(
+                            pageIndex: page.pageIndex,
+                            byteCount: page.byteCount
+                        ) {
+                            validatedPageEntries.append(entry)
+                        }
                         if case let .imported(_, sha256) = result {
                             newlyImported.append((page.pageIndex, sha256))
                             importedPageCount += 1
@@ -1868,6 +1904,10 @@ final class AppModel {
                     if let summary = summaryByKey[candidate.key] {
                         await downloads.mergeMetadata([summary])
                     }
+                    await deviceSyncIndex.upsertMediaPages(
+                        key: candidate.key,
+                        pages: validatedPageEntries
+                    )
                     restoredJobs.append(job)
                 } catch {
                     for newPage in newlyImported {
@@ -3256,12 +3296,12 @@ final class AppModel {
                     status: progress.currentTitle.map { String(localized: "正在导出《\($0)》…") } ?? String(localized: "正在导出下载文件…"),
                     completed: progress.completedFiles,
                     total: progress.totalFiles,
-                    fraction: 0.1 + archiveFraction * 0.85
+                    fraction: 0.1 + archiveFraction * 0.9,
+                    estimatedRemainingSeconds: progress.estimatedRemainingSeconds
                 )
             }
-            setMigrationProgress(status: String(localized: "正在验证下载包…"), fraction: 0.97)
-            let inspection = try await LegacyDownloadArchive.inspect(partialURL)
-            guard inspection.candidates.isEmpty == false else {
+            guard let archiveSize = try? partialURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  archiveSize > 0 else {
                 throw EHError.parsingFailed(String(localized: "导出的下载包没有可恢复内容。"))
             }
             try FileManager.default.moveItem(at: partialURL, to: archiveURL)
@@ -3627,13 +3667,30 @@ final class AppModel {
         status: String,
         completed: Int = 0,
         total: Int = 0,
-        fraction: Double? = nil
+        fraction: Double? = nil,
+        estimatedRemainingSeconds: TimeInterval? = nil
     ) {
         migrationProgress = MigrationProgress(
             status: status,
             completed: completed,
             total: total,
-            fraction: fraction
+            fraction: fraction,
+            estimatedRemainingSeconds: estimatedRemainingSeconds
+        )
+    }
+
+    private func setDownloadRestoreProgress(
+        completed: Int,
+        total: Int,
+        fraction: Double,
+        estimatedRemainingSeconds: TimeInterval?
+    ) {
+        downloadRestoreProgress = MigrationProgress(
+            status: downloadRestoreStatus,
+            completed: completed,
+            total: total,
+            fraction: fraction,
+            estimatedRemainingSeconds: estimatedRemainingSeconds
         )
     }
 

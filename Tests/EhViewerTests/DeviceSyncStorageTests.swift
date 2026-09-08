@@ -173,9 +173,9 @@ struct DeviceSyncStorageTests {
     @Test("Device sync v3 uses bounded adaptive transfer windows")
     func usesAdaptiveTransferTuning() {
         #expect(DeviceSyncCoordinator.protocolVersion == 3)
-        #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 1 * 1024 * 1024) == 256 * 1024)
-        #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 16 * 1024 * 1024) == 512 * 1024)
-        #expect(DeviceSyncCoordinator.sendWindowBytes == 4 * 1024 * 1024)
+        #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 1 * 1024 * 1024) == 512 * 1024)
+        #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 16 * 1024 * 1024) == 1 * 1024 * 1024)
+        #expect(DeviceSyncCoordinator.sendWindowBytes == 16 * 1024 * 1024)
         #expect(DeviceSyncCoordinator.maximumPageChunkBytes <= DeviceSyncCoordinator.sendWindowBytes)
     }
 

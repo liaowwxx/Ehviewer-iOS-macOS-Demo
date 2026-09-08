@@ -119,8 +119,13 @@ struct RootView: View {
                 )
             }
             if model.isRestoringDownloads {
-                DownloadRestoreProgressOverlay(
-                    status: model.downloadRestoreStatus,
+                MigrationProgressOverlay(
+                    progress: model.downloadRestoreProgress ?? MigrationProgress(
+                        status: model.downloadRestoreStatus.isEmpty
+                            ? String(localized: "正在恢复下载项…")
+                            : model.downloadRestoreStatus
+                    ),
+                    canCancel: true,
                     cancel: model.cancelCurrentFileOperation
                 )
             }
@@ -169,24 +174,24 @@ private struct MigrationProgressOverlay: View {
     let cancel: () -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             if let fraction = progress.fraction {
                 ProgressView(value: fraction)
                     .progressViewStyle(.linear)
+                    .accessibilityLabel(progress.status)
+                    .accessibilityValue(progressAccessibilityValue)
             } else {
                 ProgressView()
+                    .accessibilityLabel(progress.status)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(progress.status)
-                    .font(.callout)
-                    .multilineTextAlignment(.leading)
-                if progress.total > 0 {
-                    Spacer(minLength: 0)
-                    Text("\(min(progress.completed, progress.total))/\(progress.total)")
-                        .font(.callout.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
+            HStack(alignment: .firstTextBaseline) {
+                Text(progressCountText)
+                    .monospacedDigit()
+                Spacer(minLength: 12)
+                Text(estimatedRemainingText)
+                    .foregroundStyle(.secondary)
             }
+            .font(.callout)
             if canCancel {
                 Button("取消", role: .cancel, action: cancel)
                     .buttonStyle(.bordered)
@@ -194,31 +199,32 @@ private struct MigrationProgressOverlay: View {
         }
         .padding()
         .frame(maxWidth: 340)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            progress.total > 0
-                ? "\(progress.status)，已完成 \(min(progress.completed, progress.total))/\(progress.total)"
-                : progress.status
-        )
+        .background(.regularMaterial, in: .rect(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
+        .accessibilityElement(children: .contain)
     }
-}
 
-private struct DownloadRestoreProgressOverlay: View {
-    let status: String
-    let cancel: () -> Void
+    private var progressCountText: String {
+        guard progress.total > 0 else { return "--/--" }
+        return "\(min(progress.completed, progress.total))/\(progress.total)"
+    }
 
-    var body: some View {
-        VStack(spacing: 10) {
-            ProgressView(status.isEmpty ? String(localized: "正在恢复下载项…") : status)
-            Button("取消", role: .cancel, action: cancel)
-                .buttonStyle(.bordered)
+    private var estimatedRemainingText: String {
+        guard let seconds = progress.estimatedRemainingSeconds else {
+            return String(localized: "正在估算剩余时间")
         }
-        .padding()
-        .frame(maxWidth: 280)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(status)
+        guard seconds > 0.5 else { return String(localized: "即将完成") }
+        let duration = Duration.seconds(seconds).formatted(
+            .units(allowed: [.hours, .minutes, .seconds], width: .abbreviated)
+        )
+        return String(localized: "剩余 \(duration)")
+    }
+
+    private var progressAccessibilityValue: String {
+        guard progress.total > 0 else { return estimatedRemainingText }
+        return String(
+            localized: "已完成 \(min(progress.completed, progress.total))/\(progress.total)，\(estimatedRemainingText)"
+        )
     }
 }
 

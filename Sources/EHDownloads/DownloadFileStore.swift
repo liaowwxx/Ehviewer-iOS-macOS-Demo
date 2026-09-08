@@ -166,7 +166,11 @@ public actor DownloadFileStore {
         FileManager.default.fileExists(atPath: finalURL(for: key, pageIndex: pageIndex).path)
     }
 
-    public func readablePageIndexes(for key: GalleryKey, pageIndexes: [Int]) async -> Set<Int> {
+    public func readablePageIndexes(
+        for key: GalleryKey,
+        pageIndexes: [Int],
+        refreshValidIndexEntries: Bool = true
+    ) async -> Set<Int> {
         var readable: Set<Int> = []
         for pageIndex in pageIndexes {
             let url = finalURL(for: key, pageIndex: pageIndex)
@@ -179,7 +183,9 @@ public actor DownloadFileStore {
                 continue
             }
             readable.insert(pageIndex)
-            await indexSink?.upsertMediaPage(key: key, pageIndex: pageIndex, byteCount: Int64(fileSize))
+            if refreshValidIndexEntries {
+                await indexSink?.upsertMediaPage(key: key, pageIndex: pageIndex, byteCount: Int64(fileSize))
+            }
             _ = kind
         }
         return readable
@@ -508,14 +514,20 @@ public actor DownloadFileStore {
 
     public func finishReceive(
         _ handle: DownloadReceiveHandle,
-        expectedSHA256: Data
+        expectedSHA256: Data,
+        updateIndex: Bool = true
     ) async throws -> DownloadReceiveResult {
-        try await finishReceive(handle, expectedSHA256: Optional(expectedSHA256))
+        try await finishReceive(
+            handle,
+            expectedSHA256: Optional(expectedSHA256),
+            updateIndex: updateIndex
+        )
     }
 
     private func finishReceive(
         _ handle: DownloadReceiveHandle,
-        expectedSHA256 suppliedSHA256: Data?
+        expectedSHA256 suppliedSHA256: Data?,
+        updateIndex: Bool = true
     ) async throws -> DownloadReceiveResult {
         guard let receiving = receivingPages.removeValue(forKey: handle.id) else {
             throw DownloadReceiveError.unknownHandle
@@ -541,11 +553,13 @@ public actor DownloadFileStore {
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: finalURL.path), DownloadMediaValidator.kind(of: finalURL) != nil {
             try? fileManager.removeItem(at: receiving.temporaryURL)
-            await indexSink?.upsertMediaPage(
-                key: receiving.key,
-                pageIndex: receiving.pageIndex,
-                byteCount: receiving.expectedByteCount
-            )
+            if updateIndex {
+                await indexSink?.upsertMediaPage(
+                    key: receiving.key,
+                    pageIndex: receiving.pageIndex,
+                    byteCount: receiving.expectedByteCount
+                )
+            }
             return .alreadyPresent(finalURL)
         }
         do {
@@ -553,11 +567,13 @@ public actor DownloadFileStore {
                 try fileManager.removeItem(at: finalURL)
             }
             try fileManager.moveItem(at: receiving.temporaryURL, to: finalURL)
-            await indexSink?.upsertMediaPage(
-                key: receiving.key,
-                pageIndex: receiving.pageIndex,
-                byteCount: receiving.expectedByteCount
-            )
+            if updateIndex {
+                await indexSink?.upsertMediaPage(
+                    key: receiving.key,
+                    pageIndex: receiving.pageIndex,
+                    byteCount: receiving.expectedByteCount
+                )
+            }
             return .committed(finalURL)
         } catch {
             try? fileManager.removeItem(at: receiving.temporaryURL)
@@ -663,7 +679,9 @@ public actor DownloadFileStore {
     public func importFileResult(
         at sourceURL: URL,
         for key: GalleryKey,
-        pageIndex: Int
+        pageIndex: Int,
+        knownSHA256: Data? = nil,
+        updateIndex: Bool = true
     ) async throws -> DownloadImportResult {
         guard FileManager.default.fileExists(atPath: sourceURL.path),
               DownloadMediaValidator.kind(of: sourceURL) != nil else {
@@ -672,7 +690,15 @@ public actor DownloadFileStore {
         if hasSufficientFreeSpace == false {
             throw EHError.diskSpaceLow
         }
-        let sourceSHA256 = try sha256(of: sourceURL)
+        let sourceSHA256: Data
+        if let knownSHA256 {
+            guard knownSHA256.count == SHA256.Digest.byteCount else {
+                throw EHError.parsingFailed(String(localized: "恢复文件的完整性信息无效"))
+            }
+            sourceSHA256 = knownSHA256
+        } else {
+            sourceSHA256 = try sha256(of: sourceURL)
+        }
 
         var directory = directory(for: key)
         let fileManager = FileManager.default
@@ -686,7 +712,7 @@ public actor DownloadFileStore {
             if fileManager.fileExists(atPath: finalURL.path),
                DownloadMediaValidator.kind(of: finalURL) != nil {
                 let byteCount = (try? finalURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
-                if byteCount > 0 {
+                if updateIndex, byteCount > 0 {
                     await indexSink?.upsertMediaPage(key: key, pageIndex: pageIndex, byteCount: byteCount)
                 }
                 return .alreadyPresent(finalURL)
@@ -705,7 +731,7 @@ public actor DownloadFileStore {
                DownloadMediaValidator.kind(of: finalURL) != nil {
                 try? fileManager.removeItem(at: partialURL)
                 let byteCount = (try? finalURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
-                if byteCount > 0 {
+                if updateIndex, byteCount > 0 {
                     await indexSink?.upsertMediaPage(key: key, pageIndex: pageIndex, byteCount: byteCount)
                 }
                 return .alreadyPresent(finalURL)
@@ -714,11 +740,13 @@ public actor DownloadFileStore {
                 try fileManager.removeItem(at: finalURL)
             }
             try fileManager.moveItem(at: partialURL, to: finalURL)
-            await indexSink?.upsertMediaPage(
-                key: key,
-                pageIndex: pageIndex,
-                byteCount: Int64(try finalURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
-            )
+            if updateIndex {
+                await indexSink?.upsertMediaPage(
+                    key: key,
+                    pageIndex: pageIndex,
+                    byteCount: Int64(try finalURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+                )
+            }
             return .imported(finalURL, sha256: sourceSHA256)
         } catch let error as EHError {
             throw error
@@ -746,7 +774,7 @@ public actor DownloadFileStore {
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             var hasher = SHA256()
-            while let chunk = try handle.read(upToCount: 64 * 1024), chunk.isEmpty == false {
+            while let chunk = try handle.read(upToCount: 1 * 1_024 * 1_024), chunk.isEmpty == false {
                 try Task.checkCancellation()
                 hasher.update(data: chunk)
             }

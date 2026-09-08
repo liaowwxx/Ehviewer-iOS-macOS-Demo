@@ -59,10 +59,16 @@ struct DeviceSyncIndexTests {
         #expect(updated.entries.first?.pages.map(\.pageIndex) == [0])
         #expect(updated.entries.first?.pages.first?.byteCount == Int64(image.count))
 
+        await index.upsertMediaPages(key: key, pages: [
+            try DeviceSyncPageEntry(pageIndex: 1, byteCount: 128),
+            try DeviceSyncPageEntry(pageIndex: 2, byteCount: 256)
+        ])
+        #expect(try await index.snapshot().entries.first?.pages.map(\.pageIndex) == [0, 1, 2])
+
         let reopened = DeviceSyncIndexStore(root: indexRoot)
         let reopenedStatus = await reopened.status()
         #expect(reopenedStatus == .ready)
-        #expect(try await reopened.snapshot().entries.first?.pages.map(\.pageIndex) == [0])
+        #expect(try await reopened.snapshot().entries.first?.pages.map(\.pageIndex) == [0, 1, 2])
 
         try await store.remove(key)
         let reopenedAfterRemoval = DeviceSyncIndexStore(root: indexRoot)

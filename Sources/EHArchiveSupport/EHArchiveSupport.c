@@ -23,6 +23,7 @@ extern int64_t archive_entry_size(const struct archive_entry *);
 extern mode_t archive_entry_filetype(const struct archive_entry *);
 extern struct archive *archive_write_new(void);
 extern int archive_write_set_format_zip(struct archive *);
+extern int archive_write_set_format_option(struct archive *, const char *, const char *, const char *);
 extern int archive_write_open_filename(struct archive *, const char *);
 extern int archive_write_header(struct archive *, struct archive_entry *);
 extern int64_t archive_write_data(struct archive *, const void *, size_t);
@@ -42,6 +43,7 @@ struct eh_archive_reader {
 struct eh_archive_writer {
     struct archive *archive;
     struct archive_entry *entry;
+    int finished;
 };
 
 eh_archive_reader *eh_archive_open(const char *path) {
@@ -55,7 +57,10 @@ eh_archive_reader *eh_archive_open(const char *path) {
     }
     archive_read_support_filter_all(archive);
     archive_read_support_format_all(archive);
-    if (archive_read_open_filename(archive, path, 10240) != 0) {
+    // Archive payloads are mostly already-compressed images and videos. A
+    // larger read block substantially reduces syscall overhead for both our
+    // uncompressed exports and third-party compressed ZIP backups.
+    if (archive_read_open_filename(archive, path, 1024 * 1024) != 0) {
         archive_read_free(archive);
         return NULL;
     }
@@ -131,7 +136,10 @@ eh_archive_writer *eh_archive_writer_open(const char *path) {
     }
 
     struct archive *archive = archive_write_new();
+    // Media files gain almost nothing from DEFLATE but pay its full CPU cost.
+    // Store entries directly so export and restore remain I/O-bound.
     if (archive == NULL || archive_write_set_format_zip(archive) != 0 ||
+        archive_write_set_format_option(archive, "zip", "compression", "store") != 0 ||
         archive_write_open_filename(archive, path) != 0) {
         if (archive != NULL) {
             archive_write_free(archive);
@@ -201,6 +209,20 @@ const char *eh_archive_writer_error(eh_archive_writer *writer) {
     return archive_error_string(writer->archive);
 }
 
+int eh_archive_writer_finish(eh_archive_writer *writer) {
+    if (writer == NULL || writer->archive == NULL || writer->entry != NULL) {
+        return -1;
+    }
+    if (writer->finished) {
+        return 0;
+    }
+    int result = archive_write_close(writer->archive);
+    if (result == 0) {
+        writer->finished = 1;
+    }
+    return result;
+}
+
 void eh_archive_writer_close(eh_archive_writer *writer) {
     if (writer == NULL) {
         return;
@@ -210,7 +232,9 @@ void eh_archive_writer_close(eh_archive_writer *writer) {
         writer->entry = NULL;
     }
     if (writer->archive != NULL) {
-        archive_write_close(writer->archive);
+        if (!writer->finished) {
+            archive_write_close(writer->archive);
+        }
         archive_write_free(writer->archive);
     }
     free(writer);

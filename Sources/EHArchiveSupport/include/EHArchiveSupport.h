@@ -57,6 +57,10 @@ int eh_archive_writer_end_file(eh_archive_writer *writer);
 /// Returns a short error owned by the writer, or NULL when no detail exists.
 const char *eh_archive_writer_error(eh_archive_writer *writer);
 
+/// Finishes the archive and writes its central directory. The writer remains
+/// valid for error inspection and must still be released with close.
+int eh_archive_writer_finish(eh_archive_writer *writer);
+
 /// Closes and releases the writer.
 void eh_archive_writer_close(eh_archive_writer *writer);
 

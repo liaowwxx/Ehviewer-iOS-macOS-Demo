@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import CryptoKit
 import Foundation
 import EHArchiveSupport
 import EHDomain
@@ -85,11 +86,13 @@ public struct LegacyDownloadPageSelection: Hashable, Sendable {
     public let archivePath: String
     public let key: GalleryKey
     public let pageIndex: Int
+    public let byteCount: Int64
 
-    public init(archivePath: String, key: GalleryKey, pageIndex: Int) {
+    public init(archivePath: String, key: GalleryKey, pageIndex: Int, byteCount: Int64 = 0) {
         self.archivePath = archivePath
         self.key = key
         self.pageIndex = pageIndex
+        self.byteCount = max(0, byteCount)
     }
 }
 
@@ -97,11 +100,37 @@ public struct LegacyExtractedPage: Hashable, Sendable {
     public let fileURL: URL
     public let key: GalleryKey
     public let pageIndex: Int
+    public let byteCount: Int64
+    public let sha256: Data?
 
-    public init(fileURL: URL, key: GalleryKey, pageIndex: Int) {
+    public init(
+        fileURL: URL,
+        key: GalleryKey,
+        pageIndex: Int,
+        byteCount: Int64 = 0,
+        sha256: Data? = nil
+    ) {
         self.fileURL = fileURL
         self.key = key
         self.pageIndex = pageIndex
+        self.byteCount = max(0, byteCount)
+        self.sha256 = sha256
+    }
+}
+
+public struct LegacyDownloadArchiveProgress: Sendable, Hashable {
+    public let completedBytes: Int64
+    public let totalBytes: Int64
+    public let completedFiles: Int
+    public let totalFiles: Int
+    public let estimatedRemainingSeconds: TimeInterval?
+
+    public var fraction: Double {
+        if totalBytes > 0 {
+            return min(1, max(0, Double(completedBytes) / Double(totalBytes)))
+        }
+        guard totalFiles > 0 else { return 1 }
+        return min(1, max(0, Double(completedFiles) / Double(totalFiles)))
     }
 }
 
@@ -118,6 +147,8 @@ public struct LegacyDownloadArchiveExtraction: Sendable {
 }
 
 public enum LegacyDownloadArchive {
+    public typealias ProgressHandler = @Sendable (LegacyDownloadArchiveProgress) async -> Void
+
     private static let archiveEOF: Int32 = 1
     private static let maximumMetadataBytes = 16 * 1_024 * 1_024
     private static let maximumPageBytes: Int64 = 256 * 1_024 * 1_024
@@ -205,7 +236,8 @@ public enum LegacyDownloadArchive {
     @concurrent
     public static func extractPages(
         from archiveURL: URL,
-        selections: [LegacyDownloadPageSelection]
+        selections: [LegacyDownloadPageSelection],
+        progress: ProgressHandler? = nil
     ) async throws -> LegacyDownloadArchiveExtraction {
         try Task.checkCancellation()
         let fileManager = FileManager.default
@@ -227,6 +259,19 @@ public enum LegacyDownloadArchive {
             }
             var extractedPages: [LegacyExtractedPage] = []
             var failedPageCount = 0
+            let totalBytes = selections.reduce(Int64(0)) { $0 + $1.byteCount }
+            let totalFiles = selectionByPath.count
+            var completedBytes: Int64 = 0
+            var completedFiles = 0
+            let clock = ContinuousClock()
+            let startedAt = clock.now
+            await progress?(LegacyDownloadArchiveProgress(
+                completedBytes: 0,
+                totalBytes: totalBytes,
+                completedFiles: 0,
+                totalFiles: totalFiles,
+                estimatedRemainingSeconds: nil
+            ))
 
             while true {
                 try Task.checkCancellation()
@@ -245,30 +290,65 @@ public enum LegacyDownloadArchive {
 
                 if size > UInt64(maximumPageBytes) {
                     failedPageCount += 1
+                    completedFiles += 1
+                    completedBytes += selection.byteCount
                     guard eh_archive_skip(reader) == 0 else { throw archiveError(reader) }
+                    await progress?(makeProgress(
+                        completedBytes: completedBytes,
+                        totalBytes: totalBytes,
+                        completedFiles: completedFiles,
+                        totalFiles: totalFiles,
+                        startedAt: startedAt,
+                        now: clock.now
+                    ))
                     continue
                 }
 
                 let destination = temporaryDirectory.appendingPathComponent(UUID().uuidString)
                 do {
-                    try extractCurrentEntry(reader, to: destination, volumeURL: temporaryDirectory)
+                    let extracted = try extractCurrentEntry(
+                        reader,
+                        to: destination,
+                        volumeURL: temporaryDirectory
+                    )
                     extractedPages.append(
                         LegacyExtractedPage(
                             fileURL: destination,
                             key: selection.key,
-                            pageIndex: selection.pageIndex
+                            pageIndex: selection.pageIndex,
+                            byteCount: extracted.byteCount,
+                            sha256: extracted.sha256
                         )
                     )
+                    completedBytes += extracted.byteCount
                 } catch let error as EHError where error == .diskSpaceLow {
                     throw error
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
                     failedPageCount += 1
+                    completedBytes += selection.byteCount
                     try? fileManager.removeItem(at: destination)
                 }
+                completedFiles += 1
+                await progress?(makeProgress(
+                    completedBytes: totalBytes > 0 ? min(totalBytes, completedBytes) : completedBytes,
+                    totalBytes: totalBytes,
+                    completedFiles: completedFiles,
+                    totalFiles: totalFiles,
+                    startedAt: startedAt,
+                    now: clock.now
+                ))
                 guard eh_archive_skip(reader) == 0 else { throw archiveError(reader) }
             }
+
+            await progress?(LegacyDownloadArchiveProgress(
+                completedBytes: max(totalBytes, completedBytes),
+                totalBytes: totalBytes,
+                completedFiles: totalFiles,
+                totalFiles: totalFiles,
+                estimatedRemainingSeconds: nil
+            ))
 
             return LegacyDownloadArchiveExtraction(
                 temporaryDirectory: temporaryDirectory,
@@ -285,7 +365,7 @@ public enum LegacyDownloadArchive {
         _ reader: OpaquePointer,
         to destination: URL,
         volumeURL: URL
-    ) throws {
+    ) throws -> (byteCount: Int64, sha256: Data) {
         guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
             throw EHError.storageFailed(String(localized: "无法创建恢复临时文件"))
         }
@@ -294,7 +374,8 @@ public enum LegacyDownloadArchive {
 
         var totalBytes: Int64 = 0
         var bytesSinceCapacityCheck: Int64 = 0
-        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        var hasher = SHA256()
+        var buffer = [UInt8](repeating: 0, count: 1 * 1_024 * 1_024)
         while true {
             try Task.checkCancellation()
             let count = buffer.withUnsafeMutableBytes { bytes in
@@ -313,8 +394,38 @@ public enum LegacyDownloadArchive {
                     throw EHError.diskSpaceLow
                 }
             }
-            try handle.write(contentsOf: Data(buffer.prefix(Int(count))))
+            let data = Data(buffer.prefix(Int(count)))
+            try handle.write(contentsOf: data)
+            hasher.update(data: data)
         }
+        return (totalBytes, Data(hasher.finalize()))
+    }
+
+    private static func makeProgress(
+        completedBytes: Int64,
+        totalBytes: Int64,
+        completedFiles: Int,
+        totalFiles: Int,
+        startedAt: ContinuousClock.Instant,
+        now: ContinuousClock.Instant
+    ) -> LegacyDownloadArchiveProgress {
+        let elapsed = seconds(from: startedAt.duration(to: now))
+        let speed = elapsed > 0.5 && completedBytes > 0 ? Double(completedBytes) / elapsed : nil
+        let remaining = max(0, totalBytes - completedBytes)
+        let eta = speed.flatMap { $0 > 1 && remaining > 0 ? Double(remaining) / $0 : nil }
+        return LegacyDownloadArchiveProgress(
+            completedBytes: completedBytes,
+            totalBytes: totalBytes,
+            completedFiles: completedFiles,
+            totalFiles: totalFiles,
+            estimatedRemainingSeconds: eta
+        )
+    }
+
+    private static func seconds(from duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return Double(components.seconds)
+            + Double(components.attoseconds) / 1_000_000_000_000_000_000
     }
 
     private static func readMetadata(_ reader: OpaquePointer, maximumBytes: Int) throws -> Data {

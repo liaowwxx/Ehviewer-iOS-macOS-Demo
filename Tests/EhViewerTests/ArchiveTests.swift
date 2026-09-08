@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 import EHDomain
@@ -256,13 +257,33 @@ struct ArchiveTests {
         #expect(candidate.images.contains { $0.archivePath.hasSuffix("00000002.mp4") })
 
         let selections = candidate.images.map {
-            LegacyDownloadPageSelection(archivePath: $0.archivePath, key: key, pageIndex: $0.pageIndex)
+            LegacyDownloadPageSelection(
+                archivePath: $0.archivePath,
+                key: key,
+                pageIndex: $0.pageIndex,
+                byteCount: $0.byteCount
+            )
         }
-        let extraction = try await LegacyDownloadArchive.extractPages(from: archiveURL, selections: selections)
+        let extractionProgress = ProgressProbe()
+        let extraction = try await LegacyDownloadArchive.extractPages(
+            from: archiveURL,
+            selections: selections
+        ) { update in
+            await extractionProgress.record(update)
+        }
         defer { try? FileManager.default.removeItem(at: extraction.temporaryDirectory) }
+        #expect(await extractionProgress.isMonotonic)
+        #expect(await extractionProgress.values.last == 1)
         let importedStore = DownloadFileStore(root: importedRoot, minimumFreeBytes: 1)
         for page in extraction.pages {
-            _ = try await importedStore.importFile(at: page.fileURL, for: page.key, pageIndex: page.pageIndex)
+            let expectedData = page.pageIndex == 0 ? imageData : videoData
+            #expect(page.sha256 == Data(SHA256.hash(data: expectedData)))
+            _ = try await importedStore.importFileResult(
+                at: page.fileURL,
+                for: page.key,
+                pageIndex: page.pageIndex,
+                knownSHA256: page.sha256
+            )
         }
         #expect(try await importedStore.data(for: key, pageIndex: 0) == imageData)
         #expect(try await importedStore.data(for: key, pageIndex: 1) == videoData)
@@ -345,6 +366,10 @@ private actor ProgressProbe {
     }
 
     func record(_ progress: DownloadArchiveExportProgress) {
+        values.append(progress.fraction)
+    }
+
+    func record(_ progress: LegacyDownloadArchiveProgress) {
         values.append(progress.fraction)
     }
 }

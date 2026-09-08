@@ -57,6 +57,7 @@ public struct DownloadArchiveExportProgress: Sendable, Hashable {
     public let completedFiles: Int
     public let totalFiles: Int
     public let currentTitle: String?
+    public let estimatedRemainingSeconds: TimeInterval?
 
     public var fraction: Double {
         guard totalBytes > 0 else {
@@ -71,20 +72,24 @@ public struct DownloadArchiveExportProgress: Sendable, Hashable {
         totalBytes: Int64,
         completedFiles: Int,
         totalFiles: Int,
-        currentTitle: String?
+        currentTitle: String?,
+        estimatedRemainingSeconds: TimeInterval? = nil
     ) {
         self.completedBytes = completedBytes
         self.totalBytes = totalBytes
         self.completedFiles = completedFiles
         self.totalFiles = totalFiles
         self.currentTitle = currentTitle
+        self.estimatedRemainingSeconds = estimatedRemainingSeconds
     }
 }
 
 public enum DownloadArchiveExporter {
     public typealias ProgressHandler = @Sendable (DownloadArchiveExportProgress) async -> Void
 
-    private static let bufferSize = 64 * 1_024
+    private static let bufferSize = 1 * 1_024 * 1_024
+    private static let progressByteInterval: Int64 = 4 * 1_024 * 1_024
+    private static let progressTimeInterval: TimeInterval = 0.25
 
     public static func export(
         items: [DownloadArchiveExportItem],
@@ -117,6 +122,30 @@ public enum DownloadArchiveExporter {
         var completedBytes: Int64 = 0
         var completedFiles = 0
         var currentDirectory: String?
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+        var lastPublishedAt = startedAt
+        var lastPublishedBytes: Int64 = 0
+
+        func makeProgress(
+            bytes: Int64,
+            files: Int,
+            title: String?,
+            now: ContinuousClock.Instant
+        ) -> DownloadArchiveExportProgress {
+            let elapsed = Self.seconds(from: startedAt.duration(to: now))
+            let speed = elapsed > 0.5 && bytes > 0 ? Double(bytes) / elapsed : nil
+            let remaining = max(0, totalBytes - bytes)
+            let eta = speed.flatMap { $0 > 1 && remaining > 0 ? Double(remaining) / $0 : nil }
+            return DownloadArchiveExportProgress(
+                completedBytes: bytes,
+                totalBytes: totalBytes,
+                completedFiles: files,
+                totalFiles: totalFiles,
+                currentTitle: title,
+                estimatedRemainingSeconds: eta
+            )
+        }
 
         for item in prepared {
             try Task.checkCancellation()
@@ -138,14 +167,21 @@ public enum DownloadArchiveExporter {
                     guard let data = try handle.read(upToCount: bufferSize), data.isEmpty == false else { break }
                     try writeData(data, writer: writer)
                     fileBytes += Int64(data.count)
-                    currentProgress = DownloadArchiveExportProgress(
-                        completedBytes: min(totalBytes, completedBytes + fileBytes),
-                        totalBytes: totalBytes,
-                        completedFiles: completedFiles,
-                        totalFiles: totalFiles,
-                        currentTitle: item.title
-                    )
-                    await progress?(currentProgress)
+                    let reportedBytes = min(totalBytes, completedBytes + fileBytes)
+                    let now = clock.now
+                    let publishInterval = Self.seconds(from: lastPublishedAt.duration(to: now))
+                    if reportedBytes - lastPublishedBytes >= progressByteInterval
+                        || publishInterval >= progressTimeInterval {
+                        currentProgress = makeProgress(
+                            bytes: reportedBytes,
+                            files: completedFiles,
+                            title: item.title,
+                            now: now
+                        )
+                        lastPublishedAt = now
+                        lastPublishedBytes = reportedBytes
+                        await progress?(currentProgress)
+                    }
                 }
             }
             guard fileBytes == item.entry.byteCount else {
@@ -156,17 +192,29 @@ public enum DownloadArchiveExporter {
             }
             completedBytes += item.entry.byteCount
             completedFiles += 1
-            currentProgress = DownloadArchiveExportProgress(
-                completedBytes: completedBytes,
-                totalBytes: totalBytes,
-                completedFiles: completedFiles,
-                totalFiles: totalFiles,
-                currentTitle: item.title
+            let now = clock.now
+            currentProgress = makeProgress(
+                bytes: completedBytes,
+                files: completedFiles,
+                title: item.title,
+                now: now
             )
+            lastPublishedAt = now
+            lastPublishedBytes = completedBytes
             await progress?(currentProgress)
         }
 
+        guard eh_archive_writer_finish(writer) == 0 else {
+            throw writerError(writer, operation: String(localized: "完成压缩包"))
+        }
+
         return currentProgress
+    }
+
+    private static func seconds(from duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return Double(components.seconds)
+            + Double(components.attoseconds) / 1_000_000_000_000_000_000
     }
 
     private struct PreparedEntry: Sendable {

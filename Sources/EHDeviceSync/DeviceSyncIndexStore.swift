@@ -128,6 +128,22 @@ public actor DeviceSyncIndexStore: DeviceSyncIndexSink {
         ))
     }
 
+    /// Persists a gallery's validated pages in one journal write. Import and
+    /// device-sync commits use this to avoid an fsync for every individual
+    /// media file while preserving the same crash-rebuild behavior.
+    public func upsertMediaPages(key: GalleryKey, pages: [DeviceSyncPageEntry]) async {
+        guard pages.isEmpty == false else { return }
+        await record(pages.map { page in
+            Event(
+                operation: .upsertMediaPage,
+                key: key,
+                pageIndex: page.pageIndex,
+                byteCount: page.byteCount,
+                metadata: nil
+            )
+        })
+    }
+
     public func removeMediaPage(key: GalleryKey, pageIndex: Int) async {
         await record(Event(
             operation: .removeMediaPage,
@@ -169,9 +185,14 @@ public actor DeviceSyncIndexStore: DeviceSyncIndexSink {
     }
 
     private func record(_ event: Event) async {
+        await record([event])
+    }
+
+    private func record(_ events: [Event]) async {
+        guard events.isEmpty == false else { return }
         ensureLoaded()
         if rebuildInProgress {
-            pendingRebuildEvents.append(event)
+            pendingRebuildEvents.append(contentsOf: events)
             return
         }
         // A missing or dirty index is rebuilt from authoritative storage. Do
@@ -179,10 +200,14 @@ public actor DeviceSyncIndexStore: DeviceSyncIndexSink {
         // first rebuild.
         guard indexStatus == .ready else { return }
         do {
-            try apply(event, to: &entries)
-            let encoded = try JSONEncoder().encode(event) + Data([0x0A])
+            var encoded = Data()
+            for event in events {
+                try apply(event, to: &entries)
+                encoded.append(try JSONEncoder().encode(event))
+                encoded.append(0x0A)
+            }
             try appendToJournal(encoded)
-            journalEventCount += 1
+            journalEventCount += events.count
             journalByteCount += encoded.count
             if journalEventCount >= 512 || journalByteCount >= 1_024 * 1_024 {
                 try persistSnapshot(makeSnapshot())

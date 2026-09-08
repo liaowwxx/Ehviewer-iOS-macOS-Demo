@@ -200,9 +200,9 @@ public final class DeviceSyncCoordinator {
     nonisolated public static let serviceType = "_ehviewer-sync._tcp"
     nonisolated public static let protocolVersion = 3
     nonisolated public static let maximumControlFrameBytes = 4 * 1024 * 1024
-    nonisolated public static let pageChunkBytes = 256 * 1024
-    nonisolated public static let maximumPageChunkBytes = 512 * 1024
-    nonisolated public static let sendWindowBytes = 4 * 1024 * 1024
+    nonisolated public static let pageChunkBytes = 512 * 1024
+    nonisolated public static let maximumPageChunkBytes = 1 * 1024 * 1024
+    nonisolated public static let sendWindowBytes = 16 * 1024 * 1024
     nonisolated public static let progressUpdateBytes = 1 * 1024 * 1024
     private static let serviceInstanceTXTKey = "ehviewer-instance"
 
@@ -862,7 +862,7 @@ public final class DeviceSyncCoordinator {
         // not exchange a second manifest here: the transport phase already
         // exchanged per-gallery results, and waiting for a peer final manifest
         // can leave both devices blocked when either side has already failed.
-        _ = try await verifyLocalTransferState()
+        try await verifyCompletedTransfer(plan)
         state = .completed(result(for: plan))
         progressPlan = nil
     }
@@ -871,8 +871,18 @@ public final class DeviceSyncCoordinator {
         let galleryKeys = Set(plan.sendMetadata).union(plan.sendPages.map(\.key))
         let records = try await persistence.galleryTransferRecords(for: galleryKeys)
         let recordsByKey = Dictionary(uniqueKeysWithValues: records.map { ($0.stable.key, $0) })
-        for key in galleryKeys.sorted(by: Self.galleryKeyLessThan) {
-            let pages = plan.sendPages.filter { $0.key == key }.sorted { $0.pageIndex < $1.pageIndex }
+        let pagesByKey = Dictionary(grouping: plan.sendPages, by: \.key)
+        let orderedKeys = galleryKeys.sorted(by: Self.galleryKeyLessThan)
+        let expectedPageIndexesByKey = Dictionary(uniqueKeysWithValues: orderedKeys.map { key in
+            (key, Set((pagesByKey[key] ?? []).map(\.pageIndex)))
+        })
+        async let receivedResults = Self.receiveGalleryResults(
+            expectedPageIndexesByKey: expectedPageIndexesByKey,
+            wire: wire
+        )
+
+        for key in orderedKeys {
+            let pages = (pagesByKey[key] ?? []).sorted { $0.pageIndex < $1.pageIndex }
             let includesMetadata = plan.sendMetadata.contains(key)
             let title = recordsByKey[key]?.stable.title
             publishProgress(
@@ -881,49 +891,74 @@ public final class DeviceSyncCoordinator {
                 galleryTitle: title,
                 force: true
             )
-            try await wire.send(.galleryBegin, payload: try encodeControl(DeviceSyncGalleryBegin(
+            _ = try await wire.enqueue(.galleryBegin, payload: try encodeControl(DeviceSyncGalleryBegin(
                 key: key,
                 pageIndexes: pages.map(\.pageIndex),
                 includesMetadata: includesMetadata
             )))
             if includesMetadata {
                 guard let record = recordsByKey[key] else { throw DeviceSyncError.transferNotPlanned }
-                try await wire.send(.metadata, payload: try encodeControl(record))
+                _ = try await wire.enqueue(.metadata, payload: try encodeControl(record))
             }
             for page in pages {
                 try await sendPage(page, title: title, wire: wire)
             }
-            let finishFlush = try await wire.enqueue(
+            _ = try await wire.enqueue(
                 .galleryFinished,
                 payload: try encodeControl(DeviceSyncGalleryFinished(key: key))
             )
-            addProgressBytes(finishFlush, direction: .sending)
-            addProgressBytes(try await wire.flush(), direction: .sending)
-            let galleryResult: DeviceSyncGalleryResult = try decodeControl(
-                try await wire.receivePayload(expected: .galleryResult)
-            )
-            let resultIndexes = galleryResult.pageResults.map(\.pageIndex)
-            guard galleryResult.key == key,
-                  galleryResult.pageResults.allSatisfy({ $0.key == key }),
-                  Set(resultIndexes) == Set(pages.map(\.pageIndex)),
-                  resultIndexes.count == pages.count else {
+        }
+        _ = try await wire.send(.transferFinished, payload: Data())
+
+        let results = try await receivedResults
+        guard results.count == orderedKeys.count else {
+            throw DeviceSyncError.unexpectedMessage
+        }
+        for key in orderedKeys {
+            let pages = (pagesByKey[key] ?? []).sorted { $0.pageIndex < $1.pageIndex }
+            guard let succeeded = results[key] else {
                 throw DeviceSyncError.unexpectedMessage
             }
-            if galleryResult.succeeded {
-                guard galleryResult.pageResults.allSatisfy({ $0.succeeded }) else {
-                    throw DeviceSyncError.unexpectedMessage
-                }
+            if succeeded {
                 addCompletedPages(pages.count, direction: .sending)
                 progressCompletedGalleries += 1
                 progressSentGalleries += 1
-                publishProgress(phase: .sending, direction: .sending, galleryTitle: title, force: true)
+                publishProgress(
+                    phase: .sending,
+                    direction: .sending,
+                    galleryTitle: recordsByKey[key]?.stable.title,
+                    force: true
+                )
             }
         }
-        try await wire.send(.transferFinished, payload: Data())
+    }
+
+    @concurrent
+    private static func receiveGalleryResults(
+        expectedPageIndexesByKey: [GalleryKey: Set<Int>],
+        wire: DeviceSyncWireConnection
+    ) async throws -> [GalleryKey: Bool] {
+        var results: [GalleryKey: Bool] = [:]
+        results.reserveCapacity(expectedPageIndexesByKey.count)
+        for _ in 0..<expectedPageIndexesByKey.count {
+            try Task.checkCancellation()
+            let payload = try await wire.receivePayload(expected: .galleryResult)
+            let result = try JSONDecoder().decode(DeviceSyncGalleryResult.self, from: payload)
+            guard let expectedIndexes = expectedPageIndexesByKey[result.key],
+                  result.pageResults.allSatisfy({ $0.key == result.key }),
+                  result.pageResults.count == expectedIndexes.count,
+                  Set(result.pageResults.map(\.pageIndex)) == expectedIndexes,
+                  result.succeeded == result.pageResults.allSatisfy({ $0.succeeded }),
+                  results.updateValue(result.succeeded, forKey: result.key) == nil else {
+                throw DeviceSyncError.unexpectedMessage
+            }
+        }
+        return results
     }
 
     private func receivePlannedData(plan: DeviceSyncPlan, wire: DeviceSyncWireConnection) async throws {
         let expectedGalleryKeys = Set(plan.receiveMetadata).union(plan.receivePages.map(\.key))
+        let expectedPagesByKey = Dictionary(grouping: plan.receivePages, by: \.key)
         var receivedGalleryKeys = Set<GalleryKey>()
         while true {
             let message = try await wire.receive()
@@ -936,7 +971,11 @@ public final class DeviceSyncCoordinator {
                     throw DeviceSyncError.transferNotPlanned
                 }
                 do {
-                    try await receiveGallery(begin, plan: plan, wire: wire)
+                    try await receiveGallery(
+                        begin,
+                        expectedPageTransfers: expectedPagesByKey[begin.key] ?? [],
+                        wire: wire
+                    )
                 } catch {
                     let rolledBack = await rollbackActiveTransaction()
                     if rolledBack { progressRolledBackGalleries += 1 }
@@ -957,12 +996,10 @@ public final class DeviceSyncCoordinator {
 
     private func receiveGallery(
         _ begin: DeviceSyncGalleryBegin,
-        plan: DeviceSyncPlan,
+        expectedPageTransfers: [DeviceSyncPageTransfer],
         wire: DeviceSyncWireConnection
     ) async throws {
-        let expectedPages = Dictionary(uniqueKeysWithValues: plan.receivePages
-            .filter { $0.key == begin.key }
-            .map { ($0.pageIndex, $0) })
+        let expectedPages = Dictionary(uniqueKeysWithValues: expectedPageTransfers.map { ($0.pageIndex, $0) })
         guard Set(begin.pageIndexes) == Set(expectedPages.keys),
               begin.pageIndexes.count == expectedPages.count else {
             throw DeviceSyncError.transferNotPlanned
@@ -1107,6 +1144,13 @@ public final class DeviceSyncCoordinator {
                                 uniquingKeysWith: { first, _ in first }
                             )
                         )
+                        let pageEntries = validatedPages.compactMap {
+                            try? DeviceSyncPageEntry(pageIndex: $0.pageIndex, byteCount: $0.byteCount)
+                        }
+                        await index.upsertMediaPages(key: begin.key, pages: pageEntries)
+                        guard await index.status() == .ready else {
+                            throw DeviceSyncIndexError.persistenceFailed
+                        }
                         let mergedRecord = try await persistence.galleryTransferRecords(for: [begin.key]).first
                             ?? record
                         localRecords[begin.key] = mergedRecord
@@ -1175,8 +1219,7 @@ public final class DeviceSyncCoordinator {
             pageIndex: page.pageIndex,
             byteCount: page.byteCount
         )
-        let headerFlush = try await wire.enqueue(.pageHeader, payload: try encodeControl(header))
-        addProgressBytes(headerFlush, direction: .sending)
+        _ = try await wire.enqueue(.pageHeader, payload: try encodeControl(header))
         publishProgress(
             phase: .sending,
             direction: .sending,
@@ -1189,20 +1232,17 @@ public final class DeviceSyncCoordinator {
             pageIndex: page.pageIndex,
             chunkSize: Self.preferredPageChunkBytes(forPageByteCount: page.byteCount)
         ) { chunk in
-            let flushed = try await wire.enqueueRaw(chunk)
-            if flushed > 0 {
-                await MainActor.run {
-                    self.addProgressBytes(flushed, direction: .sending)
-                }
+            _ = try await wire.enqueueRaw(chunk)
+            await MainActor.run {
+                self.addProgressBytes(Int64(chunk.count), direction: .sending)
             }
         }
         guard streamResult.byteCount == page.byteCount else { throw DeviceSyncError.transferNotPlanned }
-        let finishFlush = try await wire.enqueue(.pageFinished, payload: try encodeControl(DeviceSyncPageFinished(
+        _ = try await wire.enqueue(.pageFinished, payload: try encodeControl(DeviceSyncPageFinished(
             key: page.key,
             pageIndex: page.pageIndex,
             sha256: streamResult.sha256
         )))
-        addProgressBytes(finishFlush, direction: .sending)
     }
 
     private func transferRecord(for key: GalleryKey) async throws -> GalleryTransferRecord {
@@ -1218,35 +1258,40 @@ public final class DeviceSyncCoordinator {
         try await index.snapshot().manifest()
     }
 
-    /// Performs the one library-wide validation pass after transport has
-    /// stopped. Per-page hash/media checks remain internal commit guards and
-    /// never switch the public progress phase away from sending/receiving.
-    private func verifyLocalTransferState() async throws -> (DeviceSyncManifest, [GalleryTransferRecord]) {
+    /// Refreshes only the records touched by this synchronization round. Page
+    /// bytes were hashed while streaming and every received gallery was
+    /// already committed transactionally, so repeating a library-wide
+    /// SwiftData commit here would add latency without strengthening checks.
+    private func refreshLocalTransferState(
+        keys: Set<GalleryKey>
+    ) async throws -> (DeviceSyncManifest, [GalleryTransferRecord]) {
         let manifest = try await makeLocalManifest()
-        let records = try await persistence.galleryTransferRecords(for: manifest.galleryKeys)
+        let records = try await persistence.galleryTransferRecords(for: keys)
         localManifest = manifest
-        localRecords = Dictionary(uniqueKeysWithValues: records.map { ($0.stable.key, $0) })
-        try await reconcileLocalDownloadState(manifest: manifest, records: records)
+        for record in records {
+            localRecords[record.stable.key] = record
+        }
         return (manifest, records)
     }
 
-    /// Synchronizes the download-job view with the same validated media set
-    /// used by the final Manifest. This covers pages that were already local
-    /// and therefore were not part of this transfer round.
-    private func reconcileLocalDownloadState(
-        manifest: DeviceSyncManifest,
-        records: [GalleryTransferRecord]
-    ) async throws {
+    /// Performs a cheap index-level completion check for this round. The
+    /// expensive media validation remains in `finishReceive`, where it runs
+    /// once while bytes are already passing through the SHA-256 hasher.
+    private func verifyCompletedTransfer(_ plan: DeviceSyncPlan) async throws {
+        let receivedKeys = Set(plan.receiveMetadata).union(plan.receivePages.map(\.key))
+        let (manifest, records) = try await refreshLocalTransferState(keys: receivedKeys)
+        let galleriesByKey = Dictionary(uniqueKeysWithValues: manifest.galleries.map { ($0.key, $0) })
         let recordsByKey = Dictionary(uniqueKeysWithValues: records.map { ($0.stable.key, $0) })
-        for gallery in manifest.galleries {
-            guard let record = recordsByKey[gallery.key] else { continue }
-            try await persistence.commitDeviceSyncGallery(
-                record,
-                completedPages: Dictionary(
-                    gallery.pages.map { ($0.pageIndex, $0.byteCount) },
-                    uniquingKeysWith: { first, _ in first }
-                )
-            )
+
+        guard receivedKeys.allSatisfy({ galleriesByKey[$0] != nil && recordsByKey[$0] != nil }) else {
+            throw DeviceSyncError.transferNotPlanned
+        }
+        for page in plan.receivePages {
+            guard galleriesByKey[page.key]?.pages.contains(where: {
+                $0.pageIndex == page.pageIndex && $0.byteCount == page.byteCount
+            }) == true else {
+                throw DeviceSyncError.transferNotPlanned
+            }
         }
     }
 
@@ -1578,7 +1623,10 @@ public final class DeviceSyncCoordinator {
 
             var finalReason = reason
             do {
-                _ = try await self.verifyLocalTransferState()
+                let affectedKeys = self.currentPlan.map {
+                    Set($0.receiveMetadata).union($0.receivePages.map(\.key))
+                } ?? []
+                _ = try await self.refreshLocalTransferState(keys: affectedKeys)
             } catch is CancellationError {
                 return
             } catch {
@@ -1842,7 +1890,11 @@ private actor DeviceSyncPageReceiver {
         self.handle = nil
         do {
             return DeviceSyncPageReceiveOutcome(
-                result: try await files.finishReceive(handle, expectedSHA256: expectedSHA256),
+                result: try await files.finishReceive(
+                    handle,
+                    expectedSHA256: expectedSHA256,
+                    updateIndex: false
+                ),
                 errorMessage: nil,
                 trailingProgressBytes: trailingBytes
             )
@@ -2004,23 +2056,27 @@ private actor DeviceSyncWireConnection {
     }
 
     private func sendBatchUnbounded(_ sends: [PendingSend]) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.batch {
-                for send in sends.dropLast() {
-                    connection.send(content: send.data, completion: .idempotent)
-                }
-                guard let last = sends.last else {
-                    continuation.resume(returning: ())
-                    return
-                }
-                connection.send(content: last.data, completion: .contentProcessed { error in
-                    if let error {
-                        continuation.resume(throwing: DeviceSyncError.network(error.localizedDescription))
-                    } else {
-                        continuation.resume(returning: ())
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                connection.batch {
+                    for send in sends.dropLast() {
+                        connection.send(content: send.data, completion: .idempotent)
                     }
-                })
+                    guard let last = sends.last else {
+                        continuation.resume(returning: ())
+                        return
+                    }
+                    connection.send(content: last.data, completion: .contentProcessed { error in
+                        if let error {
+                            continuation.resume(throwing: DeviceSyncError.network(error.localizedDescription))
+                        } else {
+                            continuation.resume(returning: ())
+                        }
+                    })
+                }
             }
+        } onCancel: {
+            connection.cancel()
         }
     }
 
@@ -2118,21 +2174,25 @@ private actor DeviceSyncWireConnection {
     }
 
     private func receiveChunkUnbounded(minimumLength: Int, maximumLength: Int) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            connection.receive(
-                minimumIncompleteLength: max(1, min(minimumLength, maximumLength)),
-                maximumLength: max(1, maximumLength)
-            ) { data, _, isComplete, error in
-                if let error {
-                    continuation.resume(throwing: DeviceSyncError.network(error.localizedDescription))
-                } else if let data, data.isEmpty == false {
-                    continuation.resume(returning: data)
-                } else if isComplete {
-                    continuation.resume(throwing: DeviceSyncError.network("连接已关闭"))
-                } else {
-                    continuation.resume(returning: Data())
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                connection.receive(
+                    minimumIncompleteLength: max(1, min(minimumLength, maximumLength)),
+                    maximumLength: max(1, maximumLength)
+                ) { data, _, isComplete, error in
+                    if let error {
+                        continuation.resume(throwing: DeviceSyncError.network(error.localizedDescription))
+                    } else if let data, data.isEmpty == false {
+                        continuation.resume(returning: data)
+                    } else if isComplete {
+                        continuation.resume(throwing: DeviceSyncError.network("连接已关闭"))
+                    } else {
+                        continuation.resume(returning: Data())
+                    }
                 }
             }
+        } onCancel: {
+            connection.cancel()
         }
     }
 }
