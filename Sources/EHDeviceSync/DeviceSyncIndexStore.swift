@@ -144,6 +144,39 @@ public actor DeviceSyncIndexStore: DeviceSyncIndexSink {
         })
     }
 
+    /// Commits all index state for one validated gallery with one journal
+    /// append and one durability boundary.
+    public func upsertGallery(
+        key: GalleryKey,
+        pages: [DeviceSyncPageEntry],
+        metadata: DeviceSyncMetadataDigest
+    ) async {
+        var events = pages.map { page in
+            Event(
+                operation: .upsertMediaPage,
+                key: key,
+                pageIndex: page.pageIndex,
+                byteCount: page.byteCount,
+                metadata: nil
+            )
+        }
+        events.append(Event(
+            operation: .upsertMetadata,
+            key: key,
+            pageIndex: nil,
+            byteCount: nil,
+            metadata: metadata
+        ))
+        await record(events)
+    }
+
+    public func removeGallery(_ key: GalleryKey) async {
+        await record([
+            Event(operation: .removeMedia, key: key, pageIndex: nil, byteCount: nil, metadata: nil),
+            Event(operation: .removeMetadata, key: key, pageIndex: nil, byteCount: nil, metadata: nil)
+        ])
+    }
+
     public func removeMediaPage(key: GalleryKey, pageIndex: Int) async {
         await record(Event(
             operation: .removeMediaPage,

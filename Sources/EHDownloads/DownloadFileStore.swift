@@ -360,12 +360,70 @@ public actor DownloadFileStore {
         chunkSize: Int = 64 * 1024,
         consume: @Sendable (Data) async throws -> Void
     ) async throws {
-        _ = try await readPageChunksAndHash(
+        guard chunkSize > 0 else { throw EHError.storageFailed("Invalid chunk size") }
+        let url = finalURL(for: key, pageIndex: pageIndex)
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+              let initialSize = values.fileSize,
+              initialSize > 0 else {
+            throw EHError.storageFailed(String(localized: "同步页面不存在。"))
+        }
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var byteCount: Int64 = 0
+            while let chunk = try handle.read(upToCount: chunkSize), chunk.isEmpty == false {
+                try Task.checkCancellation()
+                byteCount += Int64(chunk.count)
+                try await consume(chunk)
+            }
+            let finalSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            guard finalSize == initialSize, byteCount == Int64(initialSize) else {
+                throw EHError.storageFailed(String(localized: "同步页面在读取期间发生变化。"))
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as EHError {
+            throw error
+        } catch {
+            // The consumer performs the network send. Preserve transport
+            // errors instead of misclassifying them as local-storage errors.
+            throw error
+        }
+    }
+
+    /// Performs the expensive media parse only after the network stage has
+    /// acknowledged all declared bytes.
+    nonisolated public static func validateDeviceSyncStagedFile(at url: URL, expectedByteCount: Int64) throws {
+        guard expectedByteCount > 0,
+              let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              Int64(size) == expectedByteCount else {
+            throw DownloadReceiveError.byteCountMismatch
+        }
+        guard DownloadMediaValidator.kind(of: url) != nil else {
+            throw DownloadReceiveError.invalidMedia
+        }
+    }
+
+    /// Moves one validated staging file into the download store. Existing
+    /// valid media wins so a concurrent local download is never overwritten.
+    public func commitDeviceSyncStagedFile(
+        at url: URL,
+        for key: GalleryKey,
+        pageIndex: Int
+    ) async throws -> URL {
+        let commitURL = url.appendingPathExtension("commit-\(UUID().uuidString)")
+        do {
+            try FileManager.default.linkItem(at: url, to: commitURL)
+        } catch {
+            try FileManager.default.copyItem(at: url, to: commitURL)
+        }
+        defer { try? FileManager.default.removeItem(at: commitURL) }
+        return try await importFileResult(
+            at: commitURL,
             for: key,
             pageIndex: pageIndex,
-            chunkSize: chunkSize,
-            consume: consume
-        )
+            updateIndex: false
+        ).url
     }
 
     /// Streams one page and computes its digest in the same file read. Keeping

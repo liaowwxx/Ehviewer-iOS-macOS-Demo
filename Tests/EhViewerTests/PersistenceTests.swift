@@ -155,6 +155,28 @@ struct PersistenceTests {
         #expect(try await store.downloadedGallerySummary(for: key)?.title == "同步完成")
     }
 
+    @Test("Deleting an abnormal synced download preserves history and favorites")
+    func abnormalSyncDeletionPreservesLibraryState() async throws {
+        let store = PersistenceStore(modelContainer: try ModelContainerFactory.make(inMemory: true))
+        let key = GalleryKey(gid: 901, token: "abnormal-sync")
+        try await store.upsert([GallerySummary(key: key, title: "Browse copy")])
+        try await store.updateReadingProgress(for: key, page: 3)
+        try await store.setFavorite(for: key, isFavorite: true)
+        let transfer = try GalleryTransferRecord(stable: StableGalleryMetadataSnapshot(
+            key: key,
+            sourceSite: .eHentai,
+            title: "Downloaded copy"
+        ))
+        try await store.commitDeviceSyncGallery(transfer, completedPages: [0: 42])
+
+        try await store.deleteDownload(for: key)
+
+        #expect(try await store.downloadJobs().contains { $0.key == key } == false)
+        #expect(try await store.downloadedGallerySummary(for: key) == nil)
+        #expect(try await store.readingPage(for: key) == 3)
+        #expect(try await store.isFavorite(for: key) == true)
+    }
+
     @Test("SwiftData deletes a batch of downloads in one operation")
     func batchDownloadDeletion() async throws {
         let container = try ModelContainerFactory.make(inMemory: true)

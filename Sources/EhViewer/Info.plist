@@ -36,6 +36,7 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<!-- Wi-Fi Aware is intentionally disabled while using Personal Team signing. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

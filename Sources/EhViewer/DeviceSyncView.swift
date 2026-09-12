@@ -5,6 +5,10 @@
 
 import SwiftUI
 import EHDeviceSync
+#if EH_ENABLE_WIFI_AWARE && os(iOS) && canImport(WiFiAware) && canImport(DeviceDiscoveryUI)
+import WiFiAware
+import DeviceDiscoveryUI
+#endif
 
 struct DeviceSyncView: View {
     @Environment(AppModel.self) private var model
@@ -23,12 +27,9 @@ struct DeviceSyncView: View {
             }
             .onAppear { model.deviceSync.start() }
             .onDisappear { model.deviceSync.stop() }
-            .onChange(of: model.deviceSync.state) { _, state in
-                switch state {
-                case .completed(_), .cancelled(_), .interrupted(_):
+            .onChange(of: shouldRefreshDownloads) { _, shouldRefresh in
+                if shouldRefresh {
                     Task { await model.refreshDownloadsAfterDeviceSync() }
-                default:
-                    break
                 }
             }
             .onChange(of: scenePhase) { _, phase in
@@ -36,6 +37,13 @@ struct DeviceSyncView: View {
                     model.deviceSync.interruptForBackground()
                 }
             }
+    }
+
+    private var shouldRefreshDownloads: Bool {
+        switch model.deviceSync.state {
+        case .completed(_), .cancelled(_), .interrupted(_): true
+        default: false
+        }
     }
 
     @ViewBuilder
@@ -141,6 +149,41 @@ struct DeviceSyncView: View {
 
     private var discoveringView: some View {
         List {
+#if EH_ENABLE_WIFI_AWARE && os(iOS) && canImport(WiFiAware) && canImport(DeviceDiscoveryUI)
+            if #available(iOS 26.0, *),
+               DeviceSyncWiFiAwareSupport.isAvailable,
+               let publishable = WAPublishableService.allServices[DeviceSyncCoordinator.serviceType],
+               let subscribable = WASubscribableService.allServices[DeviceSyncCoordinator.serviceType] {
+                Section("Wi-Fi Aware（优先）") {
+                    DevicePicker(
+                        .wifiAware(.connecting(to: .userSpecifiedDevices, from: subscribable)),
+                        onSelect: { endpoint in
+                            model.deviceSync.connectWiFiAware(to: endpoint)
+                        },
+                        label: {
+                            Label("选择并连接设备", systemImage: "wifi")
+                        },
+                        fallback: {
+                            Label("系统设备选择器不可用", systemImage: "wifi.slash")
+                                .foregroundStyle(.secondary)
+                        }
+                    )
+                    DevicePairingView(
+                        .wifiAware(.connecting(to: publishable, from: .userSpecifiedDevices)),
+                        label: {
+                            Label("允许另一台设备配对", systemImage: "person.badge.plus")
+                        },
+                        fallback: {
+                            Label("系统配对界面不可用", systemImage: "person.crop.circle.badge.exclamationmark")
+                                .foregroundStyle(.secondary)
+                        }
+                    )
+                    Text("系统会优先使用高吞吐的批量模式。配对或连接失败时，可使用下方兼容连接。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+#endif
             Section("附近的 EhViewer 设备") {
                 if model.deviceSync.peers.isEmpty {
                     HStack {
@@ -217,6 +260,9 @@ struct DeviceSyncView: View {
     private func progressView(_ progress: DeviceSyncProgress) -> some View {
         List {
             Section {
+                if let transport = progress.transportInfo {
+                    LabeledContent("实际连接", value: transport.label)
+                }
                 if let fraction = progress.fraction {
                     ProgressView(value: fraction)
                         .progressViewStyle(.linear)
@@ -239,6 +285,13 @@ struct DeviceSyncView: View {
                 LabeledContent("已处理漫画") {
                     Text("\(progress.completedGalleries)/\(progress.totalGalleries) 本")
                         .monospacedDigit()
+                }
+                if progress.totalLocalGalleries > 0,
+                   progress.phase == .verifying || progress.phase == .committing {
+                    LabeledContent("本地校验与提交") {
+                        Text("\(progress.locallyProcessedGalleries)/\(progress.totalLocalGalleries) 本")
+                            .monospacedDigit()
+                    }
                 }
             } header: {
                 Label(phaseTitle(progress.phase), systemImage: phaseSystemImage(progress.phase))
@@ -301,8 +354,8 @@ struct DeviceSyncView: View {
             VStack(spacing: 8) {
                 Text(interruption.reason)
                 Text("计划：发送 \(interruption.result.plannedSentGalleryCount) 本，接收 \(interruption.result.plannedReceivedGalleryCount) 本。")
-                Text("实际完整提交：发送 \(interruption.result.sentGalleryCount) 本 / \(interruption.result.sentPageCount) 页，接收 \(interruption.result.receivedGalleryCount) 本 / \(interruption.result.receivedPageCount) 页。")
-                Text("已完整处理 \(interruption.completedGalleryCount) 本；已回滚当前画廊 \(interruption.rolledBackGalleryCount) 本。重新连接后会重新比对，只补传缺失内容。")
+                Text("中断前本机进度：发送已读取并排队 \(interruption.result.sentGalleryCount) 本 / \(interruption.result.sentPageCount) 页；接收已提交 \(interruption.result.receivedGalleryCount) 本 / \(interruption.result.receivedPageCount) 页。")
+                Text("本地校验通过 \(interruption.result.validatedGalleryCount) 本；整本清理 \(interruption.result.deletedGalleryCount) 本。重新连接后会重新比对，只补传缺失内容。")
             }
         } actions: {
             Button("重新搜索设备") { model.deviceSync.start() }
@@ -322,6 +375,10 @@ struct DeviceSyncView: View {
                 Text(description)
                 Text("计划：发送 \(result.plannedSentGalleryCount) 本，接收 \(result.plannedReceivedGalleryCount) 本。")
                 Text("实际完整提交：发送 \(result.sentGalleryCount) 本 / \(result.sentPageCount) 页，接收 \(result.receivedGalleryCount) 本 / \(result.receivedPageCount) 页。")
+                Text("本地校验通过 \(result.validatedGalleryCount) 本；整本清理 \(result.deletedGalleryCount) 本。")
+                if let metrics = result.transferMetrics {
+                    Text("网络阶段 \(metrics.networkDuration.formatted(.number.precision(.fractionLength(1)))) 秒，平均 \(byteString(Int64(metrics.averageBytesPerSecond)))/秒。")
+                }
             }
         }
     }

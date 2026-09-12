@@ -612,18 +612,19 @@ public actor PersistenceStore {
 
     public func galleryTransferRecords(for keys: Set<GalleryKey>) throws -> [GalleryTransferRecord] {
         guard keys.isEmpty == false else { return [] }
-        let records = try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>())
-        return try records.compactMap { record in
-            guard keys.contains(record.key) else { return nil }
+        var transfers: [GalleryTransferRecord] = []
+        transfers.reserveCapacity(keys.count)
+        for key in keys {
+            guard let record = try downloadedMetadataRecord(for: key) else { continue }
             let stable = try decodeStable(from: record)
-            let dynamic = try decodeDynamic(from: record)
-            return try GalleryTransferRecord(
+            transfers.append(try GalleryTransferRecord(
                 stable: stable,
-                dynamic: dynamic,
+                dynamic: try decodeDynamic(from: record),
                 exportedAt: Date(),
                 sourceSite: stable.sourceSite
-            )
+            ))
         }
+        return transfers
     }
 
     /// Returns only galleries retained by a download job. Ordinary gallery
@@ -669,15 +670,17 @@ public actor PersistenceStore {
     /// Callers commit the corresponding files before invoking this method.
     public func commitDeviceSyncGallery(
         _ transfer: GalleryTransferRecord,
-        completedPages: [Int: Int64]
+        completedPages: [Int: Int64],
+        flushIndex: Bool = true
     ) async throws {
         do {
             let job = try applyDeviceSyncDownload(
                 transfer,
                 pageIndexes: Set(completedPages.keys)
             )
+            let pagesByIndex = Dictionary(uniqueKeysWithValues: job.pages.map { ($0.pageIndex, $0) })
             for (pageIndex, byteCount) in completedPages {
-                guard let page = job.pages.first(where: { $0.pageIndex == pageIndex }) else { continue }
+                guard let page = pagesByIndex[pageIndex] else { continue }
                 page.stateRaw = "completed"
                 page.bytes = byteCount
                 page.backgroundTaskIdentifier = nil
@@ -691,7 +694,9 @@ public actor PersistenceStore {
             }
             job.updatedAt = Date()
             try modelContext.save()
-            await flushDeviceSyncIndex()
+            if flushIndex {
+                await flushDeviceSyncIndex()
+            }
         } catch {
             modelContext.rollback()
             throw error
@@ -726,18 +731,20 @@ public actor PersistenceStore {
         }
 
         let descriptorsByIndex = Dictionary(uniqueKeysWithValues: transfer.stable.pages.map { ($0.index, $0) })
-        let allIndexes = Set(job.pages.map(\.pageIndex))
+        var pagesByIndex = Dictionary(uniqueKeysWithValues: job.pages.map { ($0.pageIndex, $0) })
+        let allIndexes = Set(pagesByIndex.keys)
             .union(descriptorsByIndex.keys)
             .union(pageIndexes)
         for index in allIndexes.sorted() {
             let page: DownloadPageRecord
-            if let existing = job.pages.first(where: { $0.pageIndex == index }) {
+            if let existing = pagesByIndex[index] {
                 page = existing
             } else {
                 page = DownloadPageRecord(pageIndex: index, fileName: "page-\(index + 1).bin")
                 page.job = job
                 job.pages.append(page)
                 modelContext.insert(page)
+                pagesByIndex[index] = page
             }
             if let source = descriptorsByIndex[index] {
                 page.directURLString = source.pageURL.absoluteString

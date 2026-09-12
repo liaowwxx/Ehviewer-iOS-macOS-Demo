@@ -532,7 +532,7 @@ private struct ProfileUnlockView: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            Image(systemName: "person.crop.circle.badge.lock")
+            Image(systemName: "lock.circle")
                 .font(.system(size: 48))
                 .foregroundStyle(AppTheme.accent)
             if session.isPrepared {

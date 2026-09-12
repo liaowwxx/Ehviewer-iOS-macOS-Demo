@@ -60,7 +60,7 @@ let package = Package(
             name: "EhViewerPreview",
             dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads", "EHDeviceSync"],
             path: "Sources/EhViewer",
-            exclude: ["Info.plist"],
+            exclude: ["Info.plist", "Info-macOS.plist", "EhViewer-iOS.entitlements"],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

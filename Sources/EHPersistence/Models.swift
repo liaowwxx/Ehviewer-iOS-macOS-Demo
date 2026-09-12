@@ -374,7 +374,7 @@ public final class GalleryImageIndexRecord {
 
 @Model
 public final class DownloadJobRecord {
-    #Index<DownloadJobRecord>([\.gid], [\.stateRaw], [\.updatedAt])
+    #Index<DownloadJobRecord>([\.gid, \.token], [\.gid], [\.stateRaw], [\.updatedAt])
 
     public var gid: Int64
     public var token: String

@@ -170,14 +170,23 @@ struct DeviceSyncStorageTests {
         try await store.remove(key)
     }
 
-    @Test("Device sync v3 uses bounded adaptive transfer windows")
-    func usesAdaptiveTransferTuning() {
-        #expect(DeviceSyncCoordinator.protocolVersion == 3)
-        #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 1 * 1024 * 1024) == 512 * 1024)
+    @Test("Device sync v4 uses one MiB chunks and bounded transfer windows")
+    func usesV4TransferTuning() {
+        #expect(DeviceSyncCoordinator.protocolVersion == 4)
+        #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 1 * 1024 * 1024) == 1 * 1024 * 1024)
         #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 16 * 1024 * 1024) == 1 * 1024 * 1024)
         #expect(DeviceSyncCoordinator.sendWindowBytes == 16 * 1024 * 1024)
+        #expect(DeviceSyncCoordinator.receiveQueueBytes == 16 * 1024 * 1024)
         #expect(DeviceSyncCoordinator.maximumPageChunkBytes <= DeviceSyncCoordinator.sendWindowBytes)
     }
+
+#if os(macOS)
+    @Test("Native macOS always reports Wi-Fi Aware unavailable")
+    func macOSUsesLegacyTransport() {
+        #expect(DeviceSyncWiFiAwareSupport.isAvailable == false)
+        #expect(DeviceSyncWiFiAwareSupport.fallbackReason != nil)
+    }
+#endif
 
     private func imageData() throws -> Data {
         try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
