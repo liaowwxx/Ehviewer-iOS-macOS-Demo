@@ -53,7 +53,8 @@ struct ReaderPagedView: View {
                         descriptor: descriptor,
                         resolution: resolution,
                         source: source,
-                        fitsViewport: true
+                        fitsViewport: true,
+                        resetToken: resetToken
                     )
                     .containerRelativeFrame([.horizontal, .vertical])
                     .id(descriptor.index)
@@ -387,7 +388,8 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
             descriptor: descriptor,
             resolution: resolution,
             source: source,
-            fitsViewport: true
+            fitsViewport: true,
+            resetToken: UUID()
         )
         let hostingController = UIHostingController(rootView: AnyView(page.environment(model)))
         hostingController.view.backgroundColor = .clear

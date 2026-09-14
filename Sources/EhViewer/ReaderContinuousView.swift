@@ -53,7 +53,8 @@ struct ReaderVerticalPagedView: View {
                         descriptor: descriptor,
                         resolution: resolution,
                         source: source,
-                        fitsViewport: true
+                        fitsViewport: true,
+                        resetToken: resetToken
                     )
                     .containerRelativeFrame([.horizontal, .vertical])
                     .id(descriptor.index)

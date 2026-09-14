@@ -59,6 +59,7 @@
 		EHB0000000000000000003B /* BrowsePageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003B /* BrowsePageModel.swift */; };
 		EHB0000000000000000003C /* HomeBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003C /* HomeBrowseView.swift */; };
 		EHB0000000000000000003D /* ReaderMediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000003D /* ReaderMediaView.swift */; };
+		EHB0000000000000000006C /* MacReaderMediaScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000006C /* MacReaderMediaScrollView.swift */; };
 		EHB00000000000000000040 /* ReaderPageWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000040 /* ReaderPageWindow.swift */; };
 		EHB00000000000000000041 /* ReaderProgressControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000041 /* ReaderProgressControl.swift */; };
 		EHB00000000000000000042 /* ReaderThumbnailStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000042 /* ReaderThumbnailStrip.swift */; };
@@ -173,6 +174,7 @@
 		EHF0000000000000000003B /* BrowsePageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsePageModel.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003C /* HomeBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBrowseView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000003D /* ReaderMediaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderMediaView.swift; sourceTree = "<group>"; };
+		EHF0000000000000000006C /* MacReaderMediaScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacReaderMediaScrollView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000040 /* ReaderPageWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPageWindow.swift; sourceTree = "<group>"; };
 		EHF00000000000000000041 /* ReaderProgressControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderProgressControl.swift; sourceTree = "<group>"; };
 		EHF00000000000000000042 /* ReaderThumbnailStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderThumbnailStrip.swift; sourceTree = "<group>"; };
@@ -295,6 +297,7 @@
 				EHF00000000000000000026 /* ReadingMode.swift */,
 				EHF0000000000000000002B /* ReaderContinuousView.swift */,
 				EHF0000000000000000003D /* ReaderMediaView.swift */,
+				EHF0000000000000000006C /* MacReaderMediaScrollView.swift */,
 				EHF00000000000000000027 /* ReaderPage.swift */,
 				EHF0000000000000000002C /* ReaderPagedView.swift */,
 				EHF00000000000000000028 /* ReaderPositionState.swift */,
@@ -527,6 +530,7 @@
 				EHB00000000000000000026 /* ReadingMode.swift in Sources */,
 				EHB0000000000000000002B /* ReaderContinuousView.swift in Sources */,
 				EHB0000000000000000003D /* ReaderMediaView.swift in Sources */,
+				EHB0000000000000000006C /* MacReaderMediaScrollView.swift in Sources */,
 				EHB00000000000000000027 /* ReaderPage.swift in Sources */,
 				EHB0000000000000000002C /* ReaderPagedView.swift in Sources */,
 				EHB00000000000000000028 /* ReaderPositionState.swift in Sources */,

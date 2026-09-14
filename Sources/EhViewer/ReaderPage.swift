@@ -25,6 +25,7 @@ struct ReaderPage: View {
     let resolution: ImageResolution
     let source: ReaderContentSource
     let fitsViewport: Bool
+    let resetToken: UUID
     @State private var media: ReaderMediaView.Content?
     @State private var aspectRatio: CGFloat?
     @State private var failed = false
@@ -34,26 +35,15 @@ struct ReaderPage: View {
     @State private var showingSaveConfirmation = false
     @State private var showingSaveError = false
     @State private var saveErrorMessage: String?
-#if os(macOS)
-    @State private var zoomScale: CGFloat = 1
-    @GestureState private var pinchScale: CGFloat = 1
-#endif
-
     var body: some View {
         Group {
             if let media {
 #if os(macOS)
-                ReaderMediaView(content: media, fitsViewport: fitsViewport)
-                    .scaleEffect(min(max(zoomScale * pinchScale, 1), 4))
-                    .gesture(
-                        MagnificationGesture()
-                            .updating($pinchScale) { value, state, _ in
-                                state = value
-                            }
-                            .onEnded { value in
-                                zoomScale = min(max(zoomScale * value, 1), 4)
-                            }
-                    )
+                MacReaderMediaScrollView(
+                    content: media,
+                    fitsViewport: fitsViewport,
+                    resetToken: resetToken
+                )
                     .transition(.opacity)
 #else
                 ReaderMediaView(content: media, fitsViewport: fitsViewport)
