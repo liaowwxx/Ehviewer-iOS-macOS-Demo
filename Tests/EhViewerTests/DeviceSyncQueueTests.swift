@@ -139,7 +139,7 @@ struct DeviceSyncQueueTests {
         #expect(await queue.byteCount == 0)
     }
 
-    @Test("Network staging leaves the formal download directory untouched until commit")
+    @Test("Network staging leaves the formal download directory untouched until no-validation commit")
     func stagingIsolatedUntilCommit() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("ehviewer-v4-staging-\(UUID().uuidString)")
@@ -148,27 +148,26 @@ struct DeviceSyncQueueTests {
         let files = DownloadFileStore(root: downloadRoot, minimumFreeBytes: 1)
         let staging = DeviceSyncStagingStore(root: transactionRoot)
         let key = GalleryKey(gid: 9001, token: "staged")
-        let image = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
+        let payload = Data([0x00, 0x01, 0x02, 0x03])
         let sessionID = try await staging.create(plan: [
             DeviceSyncStagingGalleryPlan(
                 key: key,
-                pages: [DeviceSyncStagingPage(pageIndex: 0, byteCount: Int64(image.count))],
+                pages: [DeviceSyncStagingPage(pageIndex: 0, byteCount: Int64(payload.count))],
                 requiresMetadata: false
             )
         ])
         let pageID = try await staging.beginPage(
             for: key,
             pageIndex: 0,
-            byteCount: Int64(image.count),
+            byteCount: Int64(payload.count),
             sessionID: sessionID
         )
-        try await staging.append(image, to: pageID)
+        try await staging.append(payload, to: pageID)
         try await staging.finishPage(pageID)
         try await staging.finishGallery(key, sessionID: sessionID)
 
         #expect(await files.contains(key, pageIndex: 0) == false)
         let stagedURL = await staging.pageURL(for: key, pageIndex: 0, sessionID: sessionID)
-        try DownloadFileStore.validateDeviceSyncStagedFile(at: stagedURL, expectedByteCount: Int64(image.count))
         _ = try await files.commitDeviceSyncStagedFile(at: stagedURL, for: key, pageIndex: 0)
         #expect(await files.contains(key, pageIndex: 0))
 

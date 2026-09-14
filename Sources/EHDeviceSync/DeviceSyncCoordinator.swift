@@ -109,7 +109,6 @@ public enum DeviceSyncPhase: String, Hashable, Sendable {
     case waitingForConfirmation
     case sending
     case receiving
-    case verifying
     case committing
     case comparingResults
 }
@@ -220,7 +219,7 @@ public struct DeviceSyncResult: Hashable, Sendable {
     public let receivedPageCount: Int
     public let sentBytes: Int64
     public let receivedBytes: Int64
-    public let validatedGalleryCount: Int
+    public let committedGalleryCount: Int
     public let deletedGalleryCount: Int
     public let transferMetrics: DeviceSyncTransferMetrics?
 }
@@ -282,6 +281,31 @@ public final class DeviceSyncCoordinator {
     public private(set) var transportInfo: DeviceSyncTransportInfo?
     public private(set) var transferMetrics: DeviceSyncTransferMetrics?
 
+    /// Keeps the synchronization session alive when the settings screen is
+    /// no longer visible. The iOS runtime uses this to distinguish an active
+    /// transfer from discovery, which is intentionally view-scoped.
+    public var hasActiveSession: Bool {
+        switch state {
+        case .connecting,
+             .awaitingRemoteConfirmation,
+             .awaitingConnectionConfirmation,
+             .preparing,
+             .awaitingSyncConfirmation,
+             .syncing:
+            true
+        case .interrupted:
+            interruptionFinalizationTask != nil
+        case .idle,
+             .indexRequired,
+             .discovering,
+             .awaitingPairingCode,
+             .completed,
+             .cancelled,
+             .failed:
+            false
+        }
+    }
+
     /// Opaque per-coordinator identifier used only to filter this process's
     /// own Bonjour advertisement from browser results. It is not user data.
     private let serviceInstanceID = UUID().uuidString
@@ -328,7 +352,7 @@ public final class DeviceSyncCoordinator {
     private var progressReceivedPages = 0
     private var progressSentBytes: Int64 = 0
     private var progressReceivedBytes: Int64 = 0
-    private var progressValidatedGalleries = 0
+    private var progressCommittedGalleries = 0
     private var progressDeletedGalleries = 0
     private var progressLocalTotalGalleries = 0
     private var stagingSessionID: UUID?
@@ -371,7 +395,7 @@ public final class DeviceSyncCoordinator {
         var completed = 0
         var rolledBack = 0
         for sessionID in await staging.pendingSessionIDs() {
-            let beforeCompleted = progressValidatedGalleries
+            let beforeCompleted = progressCommittedGalleries
             let beforeDeleted = progressDeletedGalleries
             do {
                 try await finalizeStagedSession(sessionID, plan: nil, interrupted: true)
@@ -380,7 +404,7 @@ public final class DeviceSyncCoordinator {
                 // and will retry after the next launch.
                 continue
             }
-            completed += progressValidatedGalleries - beforeCompleted
+            completed += progressCommittedGalleries - beforeCompleted
             rolledBack += progressDeletedGalleries - beforeDeleted
         }
 
@@ -623,7 +647,7 @@ public final class DeviceSyncCoordinator {
         progressReceivedPages = 0
         progressSentBytes = 0
         progressReceivedBytes = 0
-        progressValidatedGalleries = 0
+        progressCommittedGalleries = 0
         progressDeletedGalleries = 0
         progressLocalTotalGalleries = 0
         stagingSessionID = nil
@@ -1105,7 +1129,7 @@ public final class DeviceSyncCoordinator {
                 applicationBytes: progressSentBytes + progressReceivedBytes
             )
         }
-        publishProgress(phase: .verifying, force: true)
+        publishProgress(phase: .committing, force: true)
         try await finalizeStagedSession(sessionID, plan: plan, interrupted: false)
         state = .completed(result(for: plan))
         progressPlan = nil
@@ -1336,11 +1360,6 @@ public final class DeviceSyncCoordinator {
         addProgressBytes(await progressBuffer.drain(), direction: .sending)
     }
 
-    private struct StagedValidationResult: Sendable {
-        let gallery: DeviceSyncStagedGallery
-        let errorMessage: String?
-    }
-
     private func finalizeStagedSession(
         _ sessionID: UUID,
         plan: DeviceSyncPlan?,
@@ -1348,43 +1367,11 @@ public final class DeviceSyncCoordinator {
     ) async throws {
         let complete = try await staging.completedGalleries(sessionID: sessionID)
         let incomplete = try await staging.incompleteKeys(sessionID: sessionID)
-        var validationResults: [StagedValidationResult] = []
-        validationResults.reserveCapacity(complete.count)
-        let validationStartedAt = Date()
-
-        try await withThrowingTaskGroup(of: StagedValidationResult.self) { group in
-            var iterator = complete.makeIterator()
-            for _ in 0..<2 {
-                guard let gallery = iterator.next() else { break }
-                group.addTask { try await self.validateStagedGallery(gallery, sessionID: sessionID) }
-            }
-            while let result = try await group.next() {
-                validationResults.append(result)
-                if let gallery = iterator.next() {
-                    group.addTask { try await self.validateStagedGallery(gallery, sessionID: sessionID) }
-                }
-            }
-        }
-        let validationBytes = complete.reduce(Int64(0)) { total, gallery in
-            total + gallery.pages.reduce(Int64(0)) { $0 + $1.byteCount }
-        }
-        let validationDuration = max(0.001, Date().timeIntervalSince(validationStartedAt))
-        deviceSyncLogger.debug(
-            "Device sync local validation: \(validationBytes, privacy: .public) bytes, \(Double(validationBytes) / validationDuration, privacy: .public) B/s"
-        )
 
         var failedKeys = incomplete
         let commitStartedAt = Date()
-        for validation in validationResults {
+        for gallery in complete {
             try Task.checkCancellation()
-            let gallery = validation.gallery
-            if validation.errorMessage != nil {
-                failedKeys.insert(gallery.key)
-                progressLocalTotalGalleries = max(progressLocalTotalGalleries, validationResults.count + incomplete.count)
-                progressDeletedGalleries += 1
-                publishProgress(phase: .verifying, galleryTitle: localRecords[gallery.key]?.stable.title, force: true)
-                continue
-            }
             do {
                 publishProgress(
                     phase: .committing,
@@ -1424,7 +1411,7 @@ public final class DeviceSyncCoordinator {
                 await index.upsertGallery(key: gallery.key, pages: entries, metadata: metadata)
                 localRecords[gallery.key] = record
                 try await staging.markResolved(gallery.key, sessionID: sessionID)
-                progressValidatedGalleries += 1
+                progressCommittedGalleries += 1
                 progressReceivedGalleries += 1
                 progressCompletedGalleries += 1
                 publishProgress(phase: .committing, galleryTitle: record.stable.title, force: true)
@@ -1450,7 +1437,7 @@ public final class DeviceSyncCoordinator {
         }
         let commitDuration = max(0.001, Date().timeIntervalSince(commitStartedAt))
         deviceSyncLogger.debug(
-            "Device sync local commit: \(self.progressValidatedGalleries, privacy: .public) galleries, \(commitDuration, privacy: .public) seconds"
+            "Device sync local commit: \(self.progressCommittedGalleries, privacy: .public) galleries, \(commitDuration, privacy: .public) seconds"
         )
         await staging.removeSession(sessionID)
 
@@ -1458,30 +1445,6 @@ public final class DeviceSyncCoordinator {
             progressRolledBackGalleries += failedKeys.count
         }
         _ = plan
-    }
-
-    @concurrent
-    private func validateStagedGallery(
-        _ gallery: DeviceSyncStagedGallery,
-        sessionID: UUID
-    ) async throws -> StagedValidationResult {
-        do {
-            for page in gallery.pages {
-                try Task.checkCancellation()
-                let url = await staging.pageURL(
-                    for: gallery.key,
-                    pageIndex: page.pageIndex,
-                    sessionID: sessionID
-                )
-                try DownloadFileStore.validateDeviceSyncStagedFile(
-                    at: url,
-                    expectedByteCount: page.byteCount
-                )
-            }
-            return StagedValidationResult(gallery: gallery, errorMessage: nil)
-        } catch {
-            return StagedValidationResult(gallery: gallery, errorMessage: error.localizedDescription)
-        }
     }
 
     private func purgeAbnormalGallery(_ key: GalleryKey) async -> Bool {
@@ -1527,27 +1490,6 @@ public final class DeviceSyncCoordinator {
             localRecords[record.stable.key] = record
         }
         return (manifest, records)
-    }
-
-    /// Performs a cheap index-level completion check for this round. The
-    /// expensive media validation remains in `finishReceive`, where it runs
-    /// once while bytes are already passing through the SHA-256 hasher.
-    private func verifyCompletedTransfer(_ plan: DeviceSyncPlan) async throws {
-        let receivedKeys = Set(plan.receiveMetadata).union(plan.receivePages.map(\.key))
-        let (manifest, records) = try await refreshLocalTransferState(keys: receivedKeys)
-        let galleriesByKey = Dictionary(uniqueKeysWithValues: manifest.galleries.map { ($0.key, $0) })
-        let recordsByKey = Dictionary(uniqueKeysWithValues: records.map { ($0.stable.key, $0) })
-
-        guard receivedKeys.allSatisfy({ galleriesByKey[$0] != nil && recordsByKey[$0] != nil }) else {
-            throw DeviceSyncError.transferNotPlanned
-        }
-        for page in plan.receivePages {
-            guard galleriesByKey[page.key]?.pages.contains(where: {
-                $0.pageIndex == page.pageIndex && $0.byteCount == page.byteCount
-            }) == true else {
-                throw DeviceSyncError.transferNotPlanned
-            }
-        }
     }
 
     private func beginProgress(plan: DeviceSyncPlan) {
@@ -1660,7 +1602,7 @@ public final class DeviceSyncCoordinator {
             bytesPerSecond: progressSpeed,
             estimatedRemainingSeconds: eta,
             transportInfo: transportInfo,
-            locallyProcessedGalleries: progressValidatedGalleries + progressDeletedGalleries,
+            locallyProcessedGalleries: progressCommittedGalleries + progressDeletedGalleries,
             totalLocalGalleries: progressLocalTotalGalleries
         ))
     }
@@ -1675,7 +1617,7 @@ public final class DeviceSyncCoordinator {
             receivedPageCount: progressReceivedPages,
             sentBytes: progressSentBytes,
             receivedBytes: progressReceivedBytes,
-            validatedGalleryCount: progressValidatedGalleries,
+            committedGalleryCount: progressCommittedGalleries,
             deletedGalleryCount: progressDeletedGalleries,
             transferMetrics: transferMetrics
         )
@@ -1691,7 +1633,7 @@ public final class DeviceSyncCoordinator {
             receivedPageCount: 0,
             sentBytes: 0,
             receivedBytes: 0,
-            validatedGalleryCount: 0,
+            committedGalleryCount: 0,
             deletedGalleryCount: 0,
             transferMetrics: nil
         )
@@ -1879,7 +1821,7 @@ public final class DeviceSyncCoordinator {
         draining sessionTaskToDrain: Task<Void, Never>? = nil
     ) {
         guard interruptionFinalizationTask == nil else { return }
-        publishProgress(phase: .verifying, force: true)
+        publishProgress(phase: .committing, force: true)
         interruptionFinalizationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             if let sessionTaskToDrain {
@@ -1918,7 +1860,7 @@ public final class DeviceSyncCoordinator {
             } catch is CancellationError {
                 return
             } catch {
-                finalReason += String(localized: " 中断后的本地校验未能完成：\(error.localizedDescription)")
+                finalReason += String(localized: " 中断后的本地提交未能完成：\(error.localizedDescription)")
             }
             guard Task.isCancelled == false else { return }
             switch termination {

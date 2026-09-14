@@ -12,7 +12,6 @@ import DeviceDiscoveryUI
 
 struct DeviceSyncView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.scenePhase) private var scenePhase
     @State private var pairingInput = ""
 
     var body: some View {
@@ -25,16 +24,19 @@ struct DeviceSyncView: View {
                     }
                 }
             }
-            .onAppear { model.deviceSync.start() }
-            .onDisappear { model.deviceSync.stop() }
+            .onAppear {
+                if model.deviceSync.hasActiveSession == false {
+                    model.deviceSync.start()
+                }
+            }
+            .onDisappear {
+                if model.deviceSync.hasActiveSession == false {
+                    model.deviceSync.stop()
+                }
+            }
             .onChange(of: shouldRefreshDownloads) { _, shouldRefresh in
                 if shouldRefresh {
                     Task { await model.refreshDownloadsAfterDeviceSync() }
-                }
-            }
-            .onChange(of: scenePhase) { _, phase in
-                if phase == .background {
-                    model.deviceSync.interruptForBackground()
                 }
             }
     }
@@ -237,13 +239,13 @@ struct DeviceSyncView: View {
                 Button(
                     "确认并开始同步",
                     systemImage: "arrow.triangle.2.circlepath",
-                    action: model.deviceSync.confirmSync
+                    action: model.confirmDeviceSync
                 )
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
             } footer: {
-                Text("传输期间请保持两台设备位于前台，并连接到同一本地网络。")
+                Text("确认后同步会在锁屏或进入后台时继续进行；请保持两台设备连接到同一本地网络。")
             }
         }
     }
@@ -287,8 +289,8 @@ struct DeviceSyncView: View {
                         .monospacedDigit()
                 }
                 if progress.totalLocalGalleries > 0,
-                   progress.phase == .verifying || progress.phase == .committing {
-                    LabeledContent("本地校验与提交") {
+                   progress.phase == .committing {
+                    LabeledContent("本地提交") {
                         Text("\(progress.locallyProcessedGalleries)/\(progress.totalLocalGalleries) 本")
                             .monospacedDigit()
                     }
@@ -355,7 +357,7 @@ struct DeviceSyncView: View {
                 Text(interruption.reason)
                 Text("计划：发送 \(interruption.result.plannedSentGalleryCount) 本，接收 \(interruption.result.plannedReceivedGalleryCount) 本。")
                 Text("中断前本机进度：发送已读取并排队 \(interruption.result.sentGalleryCount) 本 / \(interruption.result.sentPageCount) 页；接收已提交 \(interruption.result.receivedGalleryCount) 本 / \(interruption.result.receivedPageCount) 页。")
-                Text("本地校验通过 \(interruption.result.validatedGalleryCount) 本；整本清理 \(interruption.result.deletedGalleryCount) 本。重新连接后会重新比对，只补传缺失内容。")
+                Text("本地提交完成 \(interruption.result.committedGalleryCount) 本；整本清理 \(interruption.result.deletedGalleryCount) 本。重新连接后会重新生成清单，只补传缺失内容。")
             }
         } actions: {
             Button("重新搜索设备") { model.deviceSync.start() }
@@ -375,7 +377,7 @@ struct DeviceSyncView: View {
                 Text(description)
                 Text("计划：发送 \(result.plannedSentGalleryCount) 本，接收 \(result.plannedReceivedGalleryCount) 本。")
                 Text("实际完整提交：发送 \(result.sentGalleryCount) 本 / \(result.sentPageCount) 页，接收 \(result.receivedGalleryCount) 本 / \(result.receivedPageCount) 页。")
-                Text("本地校验通过 \(result.validatedGalleryCount) 本；整本清理 \(result.deletedGalleryCount) 本。")
+                Text("本地提交完成 \(result.committedGalleryCount) 本；整本清理 \(result.deletedGalleryCount) 本。")
                 if let metrics = result.transferMetrics {
                     Text("网络阶段 \(metrics.networkDuration.formatted(.number.precision(.fractionLength(1)))) 秒，平均 \(byteString(Int64(metrics.averageBytesPerSecond)))/秒。")
                 }
@@ -401,7 +403,6 @@ struct DeviceSyncView: View {
         case .waitingForConfirmation: "等待确认"
         case .sending: "正在发送"
         case .receiving: "正在接收"
-        case .verifying: "正在校验传输结果"
         case .committing: "正在提交"
         case .comparingResults: "正在再次比对"
         }
@@ -413,7 +414,6 @@ struct DeviceSyncView: View {
         case .waitingForConfirmation: "person.crop.circle.badge.clock"
         case .sending: "arrow.up.circle"
         case .receiving: "arrow.down.circle"
-        case .verifying: "checkmark.shield"
         case .committing: "internaldrive"
         case .comparingResults: "arrow.triangle.2.circlepath"
         }

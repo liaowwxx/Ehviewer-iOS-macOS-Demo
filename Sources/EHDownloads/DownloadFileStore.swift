@@ -391,39 +391,63 @@ public actor DownloadFileStore {
         }
     }
 
-    /// Performs the expensive media parse only after the network stage has
-    /// acknowledged all declared bytes.
-    nonisolated public static func validateDeviceSyncStagedFile(at url: URL, expectedByteCount: Int64) throws {
-        guard expectedByteCount > 0,
-              let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              Int64(size) == expectedByteCount else {
-            throw DownloadReceiveError.byteCountMismatch
-        }
-        guard DownloadMediaValidator.kind(of: url) != nil else {
-            throw DownloadReceiveError.invalidMedia
-        }
-    }
-
-    /// Moves one validated staging file into the download store. Existing
-    /// valid media wins so a concurrent local download is never overwritten.
+    /// Moves one device-sync staging file into the download store without
+    /// re-reading its contents. The staging journal only exposes completed
+    /// pages, so this path deliberately avoids media parsing and hashing.
     public func commitDeviceSyncStagedFile(
         at url: URL,
         for key: GalleryKey,
         pageIndex: Int
     ) async throws -> URL {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else {
+            throw EHError.storageFailed(String(localized: "同步暂存页面不存在。"))
+        }
+
+        let directory = directory(for: key)
+        let finalURL = finalURL(for: key, pageIndex: pageIndex)
+        let partialURL = finalURL.appendingPathExtension("part")
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // Keep the staging link intact until the gallery transaction is
+        // persisted. If the process is interrupted between the file move and
+        // SwiftData save, recovery can still retry the gallery.
+        if fileManager.fileExists(atPath: finalURL.path) {
+            return finalURL
+        }
+
         let commitURL = url.appendingPathExtension("commit-\(UUID().uuidString)")
         do {
-            try FileManager.default.linkItem(at: url, to: commitURL)
+            try fileManager.linkItem(at: url, to: commitURL)
         } catch {
-            try FileManager.default.copyItem(at: url, to: commitURL)
+            try fileManager.copyItem(at: url, to: commitURL)
         }
-        defer { try? FileManager.default.removeItem(at: commitURL) }
-        return try await importFileResult(
-            at: commitURL,
-            for: key,
-            pageIndex: pageIndex,
-            updateIndex: false
-        ).url
+        defer { try? fileManager.removeItem(at: commitURL) }
+
+        do {
+            if fileManager.fileExists(atPath: partialURL.path) {
+                try fileManager.removeItem(at: partialURL)
+            }
+            do {
+                try fileManager.moveItem(at: commitURL, to: partialURL)
+            } catch {
+                // A staging directory on another volume cannot be renamed
+                // into the download directory. Keep the same no-read path by
+                // copying directly, without media parsing or hashing.
+                try fileManager.copyItem(at: commitURL, to: partialURL)
+                try? fileManager.removeItem(at: commitURL)
+            }
+            if fileManager.fileExists(atPath: finalURL.path) {
+                try? fileManager.removeItem(at: partialURL)
+                return finalURL
+            }
+            try fileManager.moveItem(at: partialURL, to: finalURL)
+            return finalURL
+        } catch let error as EHError {
+            throw error
+        } catch {
+            throw EHError.storageFailed(error.localizedDescription)
+        }
     }
 
     /// Streams one page and computes its digest in the same file read. Keeping

@@ -108,7 +108,14 @@ public actor BackgroundDownloadSession {
         orphanCompletion: OrphanCompletion? = nil
     ) {
         let delegate = Delegate()
+#if os(iOS)
         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
+#else
+        // AppKit does not support background URLSession relaunch events. A
+        // default session also avoids requiring the macOS application
+        // identifier entitlement for a feature macOS cannot provide.
+        let configuration = URLSessionConfiguration.default
+#endif
         configuration.waitsForConnectivity = true
         configuration.isDiscretionary = false
 #if os(iOS)

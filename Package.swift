@@ -6,8 +6,8 @@ let package = Package(
     name: "EhViewer",
     defaultLocalization: "zh-Hans",
     platforms: [
-        .iOS(.v18),
-        .macOS(.v15)
+        .iOS(.v26),
+        .macOS(.v26)
     ],
     products: [
         .library(name: "EHDomain", targets: ["EHDomain"]),
@@ -21,7 +21,9 @@ let package = Package(
         .package(url: "https://github.com/scinfu/SwiftSoup.git", exact: "2.9.6")
     ],
     targets: [
-        .target(name: "EHDomain"),
+        .target(
+            name: "EHDomain"
+        ),
         .target(
             name: "EHArchiveSupport",
             path: "Sources/EHArchiveSupport",

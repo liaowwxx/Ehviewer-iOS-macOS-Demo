@@ -227,6 +227,9 @@ final class AppModel {
     let backgroundSession: BackgroundDownloadSession
     let downloadFiles: DownloadFileStore
     let deviceSync: DeviceSyncCoordinator
+#if os(iOS)
+    let deviceSyncRuntime: DeviceSyncRuntime
+#endif
     let deviceSyncIndex: DeviceSyncIndexStore
     let galleryCache: GalleryCacheStore
     let tagSuggestionProvider: TagSuggestionProvider
@@ -347,6 +350,9 @@ final class AppModel {
             index: index,
             transactionRoot: deviceSyncTransactionRoot
         )
+#if os(iOS)
+        self.deviceSyncRuntime = DeviceSyncRuntime(coordinator: self.deviceSync)
+#endif
         self.galleryCache = galleryCache ?? GalleryCacheStore()
         self.galleryCoverLoader = galleryCoverLoader ?? GalleryCoverLoader()
         let expectedProfileID = profileID?.uuidString
@@ -521,6 +527,9 @@ final class AppModel {
         downloadRevisionTask = nil
         await downloads.stopAll()
         await backgroundSession.cancelAll()
+#if os(iOS)
+        deviceSyncRuntime.shutdown()
+#endif
         deviceSync.stop()
         await galleryCoverLoader.removeAll()
     }
@@ -614,6 +623,18 @@ final class AppModel {
         incomingStagingTask?.cancel()
         incomingStagingTask = nil
         migrationProgress = nil
+    }
+
+    func confirmDeviceSync() {
+#if os(iOS)
+        guard deviceSyncRuntime.prepareForUserInitiatedSync() else {
+            errorMessage = String(
+                localized: "系统当前无法为设备同步申请持续后台执行，请保持应用在前台后重试。"
+            )
+            return
+        }
+#endif
+        deviceSync.confirmSync()
     }
 
     func buildDeviceSyncIndex() async {

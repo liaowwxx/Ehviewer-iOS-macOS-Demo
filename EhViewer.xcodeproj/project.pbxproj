@@ -87,6 +87,8 @@
 		EHB00000000000000000060 /* DocumentationHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000060 /* DocumentationHTML.swift */; };
 		EHB00000000000000000063 /* ReadingSettingsForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000063 /* ReadingSettingsForm.swift */; };
 		EHB00000000000000000062 /* Documentation in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */; };
+		EHB0000000000000000006A /* DeviceSyncBackgroundTaskController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000006A /* DeviceSyncBackgroundTaskController.swift */; };
+		EHB0000000000000000006B /* DeviceSyncRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000006B /* DeviceSyncRuntime.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -114,7 +116,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				EHB00000000000000000023 /* EhViewerShare.appex in Embed Foundation Extensions */,
-			);
+		);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -201,6 +203,8 @@
 		EHF00000000000000000060 /* DocumentationHTML.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationHTML.swift; sourceTree = "<group>"; };
 		EHF00000000000000000063 /* ReadingSettingsForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingSettingsForm.swift; sourceTree = "<group>"; };
 		EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Sources/EhViewer/Resources/Documentation; sourceTree = "<group>"; };
+		EHF0000000000000000006A /* DeviceSyncBackgroundTaskController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncBackgroundTaskController.swift; sourceTree = "<group>"; };
+		EHF0000000000000000006B /* DeviceSyncRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncRuntime.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -320,6 +324,8 @@
 				EHF00000000000000000047 /* ShareSheet.swift */,
 				EHF00000000000000000048 /* Info.plist */,
 				EHF00000000000000000049 /* Info-macOS.plist */,
+				EHF0000000000000000006A /* DeviceSyncBackgroundTaskController.swift */,
+				EHF0000000000000000006B /* DeviceSyncRuntime.swift */,
 			);
 			path = Sources/EhViewer;
 			sourceTree = "<group>";
@@ -550,6 +556,8 @@
 				EHB00000000000000000052 /* DocumentationView.swift in Sources */,
 				EHB00000000000000000057 /* DocumentationWebsite.swift in Sources */,
 				EHB00000000000000000060 /* DocumentationHTML.swift in Sources */,
+				EHB0000000000000000006A /* DeviceSyncBackgroundTaskController.swift in Sources */,
+				EHB0000000000000000006B /* DeviceSyncRuntime.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -627,8 +635,8 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "允许 EhViewer 将阅读器图片保存到照片";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -658,8 +666,8 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "允许 EhViewer 将阅读器图片保存到照片";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -676,7 +684,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -692,7 +700,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -712,7 +720,7 @@
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -732,7 +740,7 @@
 				DEVELOPMENT_TEAM = 5Q5YFKTZ68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/EhViewerShare/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.liao.ehviewer.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
