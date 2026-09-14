@@ -26,10 +26,6 @@ struct DeviceSyncPairingView: View {
                 Label("确认附近设备", systemImage: "lock.shield")
                     .font(.title2.bold())
 
-                Text("输入另一台设备显示的 6 位验证码。验证成功前不会交换漫画清单或其他本地数据。")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
                 VStack(alignment: .leading) {
                     Text("验证码")
                         .font(.headline)
@@ -41,16 +37,11 @@ struct DeviceSyncPairingView: View {
                         .accessibilityLabel("6 位数字验证码")
                 }
 
-                HStack {
-                    Text("验证码仅用于本次连接，5 分钟后失效。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("确认设备", systemImage: "checkmark.shield", action: confirmIfReady)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .disabled(code.count != 6)
-                }
+                Button("确认设备", systemImage: "checkmark.shield", action: confirmIfReady)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .disabled(code.count != 6)
             }
             .padding()
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
@@ -76,11 +67,6 @@ struct DeviceSyncPairingView: View {
                     .disabled(code.count != 6)
             }
 
-            Section {
-                Text("验证成功前不会交换漫画清单或其他本地数据。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
         }
         .task {
             isCodeFieldFocused = true

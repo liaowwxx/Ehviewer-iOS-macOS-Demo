@@ -349,7 +349,7 @@ struct SettingsView: View {
             Section("数据与备份") {
                 SettingsActionRow(
                     title: "更新已下载画廊信息",
-                    subtitle: "更新本地下载画廊的元数据"
+                    subtitle: "更新本地已下载漫画列表"
                 ) {
                     Button("更新…") {
                         showingDownloadedMetadataRefreshDialog = true
@@ -379,7 +379,7 @@ struct SettingsView: View {
             }
             Section("导入与导出") {
                 SettingsActionRow(
-                    title: "导入元数据",
+                    title: "导入漫画列表",
                     subtitle: "从 .ehgallery 文件导入"
                 ) {
                     Button("导入…") {
@@ -389,8 +389,8 @@ struct SettingsView: View {
                     .accessibilityIdentifier("import-gallery-metadata-action")
                 }
                 SettingsActionRow(
-                    title: "导入归档",
-                    subtitle: "从 .eharchive 或兼容 ZIP 文件恢复下载项"
+                    title: "导入完整备份",
+                    subtitle: "从 .eharchive 或兼容 ZIP 文件恢复下载内容"
                 ) {
                     Button("导入…") {
                         startFileImport(.downloadArchive)
@@ -399,7 +399,7 @@ struct SettingsView: View {
                     .accessibilityIdentifier("import-download-archive-action")
                 }
                 SettingsActionRow(
-                    title: "导出元数据",
+                    title: "导出漫画列表",
                     subtitle: "导出为 .ehgallery 文件"
                 ) {
                     Button("导出…") {
@@ -418,7 +418,7 @@ struct SettingsView: View {
                     .accessibilityIdentifier("export-gallery-metadata-action")
                 }
                 SettingsActionRow(
-                    title: "导出归档",
+                    title: "导出完整备份",
                     subtitle: "导出为 .eharchive 文件"
                 ) {
                     Button("导出…") {
@@ -439,7 +439,7 @@ struct SettingsView: View {
                 NavigationLink(value: AppRoute.settingsDeviceSync) {
                     SettingsDetailLabel(
                         title: "设备间同步",
-                        subtitle: "在附近的 EhViewer 设备之间合并漫画、阅读进度和元数据"
+                        subtitle: "在附近设备之间同步漫画和阅读进度"
                     )
                 }
                 .accessibilityIdentifier("device-sync-link")
@@ -479,7 +479,7 @@ struct SettingsView: View {
             }
         }
         .confirmationDialog(
-            "删除 \(profilePendingDeletion?.name ?? "Profile")？",
+            "删除 \(profilePendingDeletion?.name ?? "空间")？",
             isPresented: Binding(
                 get: { profilePendingDeletion != nil },
                 set: { if $0 == false { profilePendingDeletion = nil } }
@@ -494,7 +494,7 @@ struct SettingsView: View {
             }
             Button("取消", role: .cancel) { profilePendingDeletion = nil }
         } message: {
-            Text("删除前将再次请求系统认证。此操作仅清理该 Profile 在应用沙盒中的下载、SwiftData、缓存、同步索引、会话和偏好设置；不会影响导出的备份或照片图库。")
+            Text("删除前将再次请求系统认证。此操作仅清理该空间在应用沙盒中的下载、SwiftData、缓存、同步索引、会话和偏好设置；不会影响导出的备份或照片图库。")
         }
 #if os(iOS)
         .sheet(item: $pendingShareFile, onDismiss: discardPendingSharedFileIfAny) { file in

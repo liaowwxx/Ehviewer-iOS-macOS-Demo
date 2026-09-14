@@ -147,13 +147,13 @@ enum ProfileSessionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidName: "Profile 名称不能为空，且不能超过 40 个字符。"
-        case .profileNotFound: "找不到所选 Profile。"
+        case .invalidName: "空间名称不能为空，且不能超过 40 个字符。"
+        case .profileNotFound: "找不到所选空间。"
         case .authenticationUnavailable: "此设备无法使用系统认证。"
         case .authenticationCancelled: "系统认证已取消。"
-        case .lastProfile: "至少需要保留一个 Profile。"
-        case .runtimeUnavailable: "Profile 尚未解锁。"
-        case let .cleanupFailed(detail): "无法完成 Profile 清理：\(detail)"
+        case .lastProfile: "至少需要保留一个空间。"
+        case .runtimeUnavailable: "空间尚未登录。"
+        case let .cleanupFailed(detail): "无法完成空间清理：\(detail)"
         }
     }
 }
@@ -264,7 +264,7 @@ final class ProfileSession {
 
     func unlockSelectedProfile() async {
         guard let selectedProfileID else { return }
-        await activate(profileID: selectedProfileID, reason: "解锁 EhViewer Profile")
+        await activate(profileID: selectedProfileID, reason: "登录 EhViewer 空间")
     }
 
     func selectProfile(_ id: UUID) {
@@ -280,7 +280,7 @@ final class ProfileSession {
         }
         await closeRuntime()
         selectedProfileID = id
-        await activate(profileID: id, reason: "切换 EhViewer Profile")
+        await activate(profileID: id, reason: "切换 EhViewer 空间")
     }
 
     func createProfile(named rawName: String) async {
@@ -291,7 +291,7 @@ final class ProfileSession {
             try persistRegistry()
             await closeRuntime()
             selectedProfileID = profile.id
-            await activate(profileID: profile.id, reason: "进入新的 EhViewer Profile")
+            await activate(profileID: profile.id, reason: "进入新的 EhViewer 空间")
         } catch {
             startupError = error.localizedDescription
         }
@@ -322,7 +322,7 @@ final class ProfileSession {
             guard let index = profiles.firstIndex(where: { $0.id == id }) else {
                 throw ProfileSessionError.profileNotFound
             }
-            guard try await authenticate(reason: "删除 EhViewer Profile 及其本地数据") else {
+            guard try await authenticate(reason: "删除 EhViewer 空间及其本地数据") else {
                 throw ProfileSessionError.authenticationCancelled
             }
             profiles[index].isDeleting = true
@@ -444,7 +444,7 @@ final class ProfileSession {
             ]
         } else {
             guard layout.root.path.hasPrefix(profilesRoot.path + "/") else {
-                throw ProfileSessionError.cleanupFailed("Profile 路径不在受管理目录内。")
+                throw ProfileSessionError.cleanupFailed("空间路径不在受管理目录内。")
             }
             targets = [layout.root]
         }
@@ -532,28 +532,25 @@ private struct ProfileUnlockView: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            Image(systemName: "lock.circle")
-                .font(.system(size: 48))
-                .foregroundStyle(AppTheme.accent)
             if session.isPrepared {
                 if session.isActivatingProfile {
-                    ProgressView(session.isAuthenticating ? "正在验证…" : "正在加载 Profile…")
+                    ProgressView(session.isAuthenticating ? "正在验证…" : "正在加载空间…")
                         .accessibilityIdentifier("profile-activation-loading")
                 } else {
                     Text(session.selectedProfile?.name ?? "EhViewer")
                         .font(.title2.weight(.semibold))
-                    Text("使用 Face ID、Touch ID 或设备密码解锁 Profile。")
+                    Text("使用 Face ID、Touch ID 或设备密码登录空间。")
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
-                    Button("解锁") { Task { await session.unlockSelectedProfile() } }
+                    Button("登录") { Task { await session.unlockSelectedProfile() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(session.isAuthenticating)
                         .accessibilityIdentifier("profile-unlock-action")
-                    Button("切换 Profile") { showingProfiles = true }
+                    Button("切换空间") { showingProfiles = true }
                         .accessibilityIdentifier("profile-switch-action")
                 }
             } else {
-                ProgressView("正在加载 Profile…")
+                ProgressView("正在加载空间…")
                     .accessibilityIdentifier("profile-loading")
             }
             if let error = session.startupError {
@@ -586,7 +583,7 @@ private struct ProfilePickerView: View {
                 .padding(20)
             }
             .scrollIndicators(.hidden)
-            .navigationTitle("Profile")
+            .navigationTitle("空间")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成", action: dismiss)
@@ -633,22 +630,13 @@ private struct ProfilePickerRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(isCurrent ? AppTheme.accent : Color.secondary)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        isCurrent ? AppTheme.accent.opacity(0.14) : Color.primary.opacity(0.07),
-                        in: Circle()
-                    )
-
                 VStack(alignment: .leading, spacing: 4) {
                     Text(profile.name)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.primary)
 
                     Label(
-                        isCurrent ? "当前使用中" : "需要解锁",
+                        isCurrent ? "当前使用中" : "已锁定",
                         systemImage: isCurrent ? "checkmark.circle.fill" : "lock.fill"
                     )
                     .font(.callout)
@@ -679,8 +667,8 @@ private struct ProfilePickerRow: View {
                 .stroke(rowBorder, lineWidth: 1)
         }
         .onHover { isHovered = $0 }
-        .accessibilityValue(isCurrent ? "当前使用中" : "需要解锁")
-        .accessibilityHint("点击切换到此 Profile")
+        .accessibilityValue(isCurrent ? "当前使用中" : "已锁定")
+        .accessibilityHint("点击切换到此空间")
         .accessibilityIdentifier("profile-row-\(profile.id.uuidString)")
     }
 }
@@ -693,7 +681,7 @@ private struct ProfileSummary: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(profile.name)
                 .font(.body.weight(.medium))
-            Text(isCurrent ? "已解锁" : "已锁定")
+            Text(isCurrent ? "已登录" : "已锁定")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -730,7 +718,7 @@ struct ProfileNameEditor: View {
             Text(request.title)
                 .font(.headline)
 
-            TextField("Profile 名称", text: $name)
+            TextField("空间名称", text: $name)
                 .accessibilityIdentifier("profile-name-field")
 
             HStack {
@@ -750,7 +738,7 @@ struct ProfileNameEditor: View {
 #else
         NavigationStack {
             Form {
-                TextField("Profile 名称", text: $name)
+                TextField("空间名称", text: $name)
                     .accessibilityIdentifier("profile-name-field")
             }
             .navigationTitle(request.title)
@@ -777,7 +765,7 @@ struct ProfileManagementSection: View {
     @Binding var profilePendingDeletion: ProfileDescriptor?
 
     var body: some View {
-        Section("配置文件") {
+        Section("空间") {
             ForEach(session.profiles) { profile in
                 HStack(alignment: .center, spacing: 12) {
                     ProfileSummary(
@@ -795,7 +783,7 @@ struct ProfileManagementSection: View {
 
                         Button("重命名") {
                             nameEditor = ProfileNameEditorRequest(
-                                title: "重命名 Profile",
+                                title: "重命名空间",
                                 initialName: profile.name,
                                 action: .rename(profile.id)
                             )
@@ -812,9 +800,9 @@ struct ProfileManagementSection: View {
                     }
                 }
             }
-            Button("新建 Profile", systemImage: "plus") {
+            Button("新建空间", systemImage: "plus") {
                 nameEditor = ProfileNameEditorRequest(
-                    title: "新建 Profile",
+                    title: "新建空间",
                     initialName: "",
                     action: .create
                 )

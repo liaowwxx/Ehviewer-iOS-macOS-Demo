@@ -253,15 +253,15 @@ struct DownloadsView: View {
                 isPresented: $showingShareFormatDialog,
                 titleVisibility: .visible
             ) {
-                Button("元数据(.ehgallery)", systemImage: "doc.text") {
+                Button("漫画列表(.ehgallery)", systemImage: "doc.text") {
                     shareSelectedGalleries(as: .gallerySync)
                 }
-                Button("下载归档(.eharchive)", systemImage: "archivebox") {
+                Button("完整备份(.eharchive)", systemImage: "archivebox") {
                     shareSelectedGalleries(as: .downloadArchive)
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("元数据只包含画廊信息；下载归档包含本地图片。")
+                Text("漫画列表只包含画廊信息；完整备份包含本地图片。")
             }
             .alert("删除下载失败", isPresented: Binding(
                 get: { removalErrorMessage != nil },
@@ -399,11 +399,24 @@ struct DownloadsView: View {
                     ToolbarItem(placement: .primaryAction) {
                         selectionToolbarButton
                     }
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("更多", systemImage: "ellipsis.circle") {
-                            showingDownloadManagementSheet = true
+                    if page == .local {
+                        ToolbarItemGroup(placement: .primaryAction) {
+                            layoutToolbarButton
+                            sortToolbarMenu
+                            downloadAdvancedFilterButton
                         }
-                        .accessibilityIdentifier("download-management-sheet")
+                    } else {
+                        ToolbarItemGroup(placement: .primaryAction) {
+                            startAllDownloadsToolbarButton
+                            stopAllDownloadsToolbarButton
+                            layoutToolbarButton
+                        }
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("更多", systemImage: "ellipsis.circle") {
+                                showingDownloadManagementSheet = true
+                            }
+                            .accessibilityIdentifier("download-management-sheet")
+                        }
                     }
                 }
 #endif
@@ -450,9 +463,7 @@ struct DownloadsView: View {
         }
         .sheet(isPresented: $showingDownloadManagementSheet) {
             DownloadManagementSheet(
-                page: page,
-                canStartAll: canStartAll,
-                canStopAll: canStopAll
+                page: page
             )
         }
         .sheet(isPresented: $showingDownloadCategoryFilter) {
@@ -475,6 +486,28 @@ struct DownloadsView: View {
         .disabled(visibleJobs.isEmpty || bulkRemovalProgress != nil)
     }
 
+    private var startAllDownloadsToolbarButton: some View {
+        Button("开始全部", systemImage: "play.fill", action: startAllDownloads)
+            .accessibilityIdentifier("downloads-start-all")
+            .labelStyle(.titleAndIcon)
+            .disabled(canStartAll == false)
+    }
+
+    private var stopAllDownloadsToolbarButton: some View {
+        Button("暂停全部", systemImage: "pause.fill", action: stopAllDownloads)
+            .accessibilityIdentifier("downloads-stop-all")
+            .labelStyle(.titleAndIcon)
+            .disabled(canStopAll == false)
+    }
+
+    private func startAllDownloads() {
+        Task { await model.startAllDownloads() }
+    }
+
+    private func stopAllDownloads() {
+        Task { await model.downloads.stopAll() }
+    }
+
     private var layoutToolbarButton: some View {
         Button {
             model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
@@ -484,9 +517,11 @@ struct DownloadsView: View {
                 model.downloadLayoutMode == .list
                     ? String(localized: "卡片")
                     : String(localized: "列表"),
-                systemImage: model.downloadLayoutMode == .list
+                systemImage: page == .local
                     ? "square.grid.2x2"
-                    : "list.bullet"
+                    : (model.downloadLayoutMode == .list
+                        ? "square.grid.2x2"
+                        : "list.bullet")
             )
         }
         .accessibilityIdentifier("downloads-layout-toggle")
@@ -937,8 +972,6 @@ private struct DownloadManagementSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let page: DownloadsPage
-    let canStartAll: Bool
-    let canStopAll: Bool
     @State private var showingCategoryFilter = false
 
     private var availableSortOrders: [DownloadSortOrder] {
@@ -981,25 +1014,8 @@ private struct DownloadManagementSheet: View {
     }
 
     var body: some View {
-        @Bindable var model = model
-
         NavigationStack {
             Form {
-                if page == .downloading {
-                    Section("下载任务") {
-                        Button("开始全部") {
-                            Task { await model.startAllDownloads() }
-                        }
-                        .foregroundStyle(.primary)
-                        .disabled(canStartAll == false)
-                        Button("暂停全部") {
-                            Task { await model.downloads.stopAll() }
-                        }
-                        .foregroundStyle(.primary)
-                        .disabled(canStopAll == false)
-                    }
-                }
-
                 Section("筛选") {
                     if page == .downloading {
                         Picker("状态", selection: statusFilterBinding) {
@@ -1019,17 +1035,6 @@ private struct DownloadManagementSheet: View {
                         ForEach(availableSortOrders) { order in
                             Text(order.title).tag(order)
                         }
-                    }
-                }
-
-                Section("显示") {
-                    Picker("布局", selection: $model.downloadLayoutMode) {
-                        ForEach(DownloadsLayoutMode.allCases) { layout in
-                            Text(layout.title).tag(layout)
-                        }
-                    }
-                    .onChange(of: model.downloadLayoutMode) { _, _ in
-                        model.persistDownloadPreferences()
                     }
                 }
 

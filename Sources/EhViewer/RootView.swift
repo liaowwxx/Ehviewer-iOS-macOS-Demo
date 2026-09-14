@@ -59,7 +59,7 @@ struct RootView: View {
             case .deviceSyncIndexSetup:
                 Alert(
                     title: Text("准备设备同步"),
-                    message: Text("首次使用设备间同步需要扫描一次本地下载文件，之后同步会直接读取索引，速度更快。"),
+                    message: Text("首次使用需要建立一次同步索引。"),
                     primaryButton: .default(Text("建立索引")) {
                         model.isDeviceSyncIndexSetupRequired = false
                         model.runFileOperation {

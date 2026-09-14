@@ -57,10 +57,6 @@ struct DeviceSyncView: View {
                     .font(.largeTitle)
                 Text("需要先建立同步索引")
                     .font(.headline)
-                Text("首次建立会扫描本地下载文件。完成后，设备同步将直接读取索引，不再每次扫描全部画廊。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
                 Button("建立索引", systemImage: "arrow.triangle.2.circlepath") {
                     model.runFileOperation {
                         await model.buildDeviceSyncIndex()
@@ -108,9 +104,6 @@ struct DeviceSyncView: View {
                 Image(systemName: "lock.shield")
                     .font(.largeTitle)
                 Text("已建立加密连接")
-                Text("确认后才会交换本地漫画清单。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
                 Button("确认此设备", systemImage: "checkmark.shield") {
                     model.deviceSync.confirmConnection()
                 }
@@ -141,7 +134,7 @@ struct DeviceSyncView: View {
             resultView(
                 title: "同步完成",
                 systemImage: "checkmark.circle",
-                description: "两台设备已完成本地漫画数据并集合并。",
+                description: "两台设备已完成本地漫画数据合并。",
                 result: result
             )
         case let .failed(message):
@@ -180,9 +173,6 @@ struct DeviceSyncView: View {
                                 .foregroundStyle(.secondary)
                         }
                     )
-                    Text("系统会优先使用高吞吐的批量模式。配对或连接失败时，可使用下方兼容连接。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
             }
 #endif
@@ -203,20 +193,11 @@ struct DeviceSyncView: View {
                     }
                 }
             }
-            Section {
-                Text("设备发现只在本页面打开期间运行，不会广播漫画、账号或 Cookie 信息。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 
     private func previewView(_ preview: DeviceSyncPreview) -> some View {
         List {
-            Section {
-                Label("两台设备将合并本地漫画数据，已有内容不会重复传输。", systemImage: "arrow.triangle.2.circlepath")
-                    .foregroundStyle(.secondary)
-            }
             Section {
                 previewSummary(
                     galleries: preview.receiveGalleryCount,
@@ -244,8 +225,6 @@ struct DeviceSyncView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
-            } footer: {
-                Text("确认后同步会在锁屏或进入后台时继续进行；请保持两台设备连接到同一本地网络。")
             }
         }
     }
@@ -355,9 +334,7 @@ struct DeviceSyncView: View {
         } description: {
             VStack(spacing: 8) {
                 Text(interruption.reason)
-                Text("原计划：发送 \(interruption.result.plannedSentGalleryCount) 本，接收 \(interruption.result.plannedReceivedGalleryCount) 本。")
-                Text("本次实际：发送已读取并排队 \(interruption.result.sentGalleryCount) 本 / \(interruption.result.sentPageCount) 页；接收已提交 \(interruption.result.receivedGalleryCount) 本 / \(interruption.result.receivedPageCount) 页。")
-                Text("本地提交完成 \(interruption.result.committedGalleryCount) 本；未开始 \(interruption.result.skippedGalleryCount) 本；中断内容清理 \(interruption.result.deletedGalleryCount) 本。重新连接后会重新生成清单，只补传缺失内容。")
+                Text("已发送 \(interruption.result.sentGalleryCount) 本，接收 \(interruption.result.receivedGalleryCount) 本。")
             }
         } actions: {
             Button("重新搜索设备") { model.deviceSync.start() }
@@ -375,12 +352,7 @@ struct DeviceSyncView: View {
         } description: {
             VStack(spacing: 8) {
                 Text(description)
-                Text("原计划：发送 \(result.plannedSentGalleryCount) 本，接收 \(result.plannedReceivedGalleryCount) 本。")
-                Text("实际完整提交：发送 \(result.sentGalleryCount) 本 / \(result.sentPageCount) 页，接收 \(result.receivedGalleryCount) 本 / \(result.receivedPageCount) 页。")
-                Text("本地提交完成 \(result.committedGalleryCount) 本；未开始 \(result.skippedGalleryCount) 本；中断内容清理 \(result.deletedGalleryCount) 本。")
-                if let metrics = result.transferMetrics {
-                    Text("网络阶段 \(metrics.networkDuration.formatted(.number.precision(.fractionLength(1)))) 秒，平均 \(byteString(Int64(metrics.averageBytesPerSecond)))/秒。")
-                }
+                Text("发送 \(result.sentGalleryCount) 本，接收 \(result.receivedGalleryCount) 本。")
             }
         }
     }
