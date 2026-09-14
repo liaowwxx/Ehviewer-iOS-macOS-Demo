@@ -355,9 +355,9 @@ struct DeviceSyncView: View {
         } description: {
             VStack(spacing: 8) {
                 Text(interruption.reason)
-                Text("计划：发送 \(interruption.result.plannedSentGalleryCount) 本，接收 \(interruption.result.plannedReceivedGalleryCount) 本。")
-                Text("中断前本机进度：发送已读取并排队 \(interruption.result.sentGalleryCount) 本 / \(interruption.result.sentPageCount) 页；接收已提交 \(interruption.result.receivedGalleryCount) 本 / \(interruption.result.receivedPageCount) 页。")
-                Text("本地提交完成 \(interruption.result.committedGalleryCount) 本；整本清理 \(interruption.result.deletedGalleryCount) 本。重新连接后会重新生成清单，只补传缺失内容。")
+                Text("原计划：发送 \(interruption.result.plannedSentGalleryCount) 本，接收 \(interruption.result.plannedReceivedGalleryCount) 本。")
+                Text("本次实际：发送已读取并排队 \(interruption.result.sentGalleryCount) 本 / \(interruption.result.sentPageCount) 页；接收已提交 \(interruption.result.receivedGalleryCount) 本 / \(interruption.result.receivedPageCount) 页。")
+                Text("本地提交完成 \(interruption.result.committedGalleryCount) 本；未开始 \(interruption.result.skippedGalleryCount) 本；中断内容清理 \(interruption.result.deletedGalleryCount) 本。重新连接后会重新生成清单，只补传缺失内容。")
             }
         } actions: {
             Button("重新搜索设备") { model.deviceSync.start() }
@@ -375,9 +375,9 @@ struct DeviceSyncView: View {
         } description: {
             VStack(spacing: 8) {
                 Text(description)
-                Text("计划：发送 \(result.plannedSentGalleryCount) 本，接收 \(result.plannedReceivedGalleryCount) 本。")
+                Text("原计划：发送 \(result.plannedSentGalleryCount) 本，接收 \(result.plannedReceivedGalleryCount) 本。")
                 Text("实际完整提交：发送 \(result.sentGalleryCount) 本 / \(result.sentPageCount) 页，接收 \(result.receivedGalleryCount) 本 / \(result.receivedPageCount) 页。")
-                Text("本地提交完成 \(result.committedGalleryCount) 本；整本清理 \(result.deletedGalleryCount) 本。")
+                Text("本地提交完成 \(result.committedGalleryCount) 本；未开始 \(result.skippedGalleryCount) 本；中断内容清理 \(result.deletedGalleryCount) 本。")
                 if let metrics = result.transferMetrics {
                     Text("网络阶段 \(metrics.networkDuration.formatted(.number.precision(.fractionLength(1)))) 秒，平均 \(byteString(Int64(metrics.averageBytesPerSecond)))/秒。")
                 }

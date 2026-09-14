@@ -175,6 +175,37 @@ struct DeviceSyncQueueTests {
         try await files.remove(key)
     }
 
+    @Test("Unstarted galleries are not treated as incomplete received galleries")
+    func unstartedGalleriesAreExcludedFromCleanup() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-v4-unstarted-\(UUID().uuidString)")
+        let staging = DeviceSyncStagingStore(root: root)
+        let first = GalleryKey(gid: 9002, token: "started")
+        let second = GalleryKey(gid: 9003, token: "unstarted")
+        let sessionID = try await staging.create(plan: [
+            DeviceSyncStagingGalleryPlan(
+                key: first,
+                pages: [DeviceSyncStagingPage(pageIndex: 0, byteCount: 1)],
+                requiresMetadata: false
+            ),
+            DeviceSyncStagingGalleryPlan(key: second, pages: [], requiresMetadata: false)
+        ])
+
+        let pageID = try await staging.beginPage(
+            for: first,
+            pageIndex: 0,
+            byteCount: 1,
+            sessionID: sessionID
+        )
+        try await staging.append(Data([0x01]), to: pageID)
+        try await staging.finishPage(pageID)
+
+        #expect(try await staging.incompleteKeys(sessionID: sessionID) == Set([first]))
+        #expect(try await staging.unstartedKeys(sessionID: sessionID) == Set([second]))
+
+        await staging.removeSession(sessionID)
+    }
+
     @Test("v4 binary control frames survive every stream split without base64 wrapping")
     func binaryFrameFragmentation() throws {
         let payload = Data((0..<251).map(UInt8.init))

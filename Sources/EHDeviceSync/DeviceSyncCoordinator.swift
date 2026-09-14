@@ -221,6 +221,7 @@ public struct DeviceSyncResult: Hashable, Sendable {
     public let receivedBytes: Int64
     public let committedGalleryCount: Int
     public let deletedGalleryCount: Int
+    public let skippedGalleryCount: Int
     public let transferMetrics: DeviceSyncTransferMetrics?
 }
 
@@ -354,6 +355,7 @@ public final class DeviceSyncCoordinator {
     private var progressReceivedBytes: Int64 = 0
     private var progressCommittedGalleries = 0
     private var progressDeletedGalleries = 0
+    private var progressSkippedGalleries = 0
     private var progressLocalTotalGalleries = 0
     private var stagingSessionID: UUID?
     private var networkStartedAt: ContinuousClock.Instant?
@@ -649,6 +651,7 @@ public final class DeviceSyncCoordinator {
         progressReceivedBytes = 0
         progressCommittedGalleries = 0
         progressDeletedGalleries = 0
+        progressSkippedGalleries = 0
         progressLocalTotalGalleries = 0
         stagingSessionID = nil
         networkStartedAt = nil
@@ -1367,6 +1370,8 @@ public final class DeviceSyncCoordinator {
     ) async throws {
         let complete = try await staging.completedGalleries(sessionID: sessionID)
         let incomplete = try await staging.incompleteKeys(sessionID: sessionID)
+        let unstarted = try await staging.unstartedKeys(sessionID: sessionID)
+        progressSkippedGalleries += unstarted.count
 
         var failedKeys = incomplete
         let commitStartedAt = Date()
@@ -1619,6 +1624,7 @@ public final class DeviceSyncCoordinator {
             receivedBytes: progressReceivedBytes,
             committedGalleryCount: progressCommittedGalleries,
             deletedGalleryCount: progressDeletedGalleries,
+            skippedGalleryCount: progressSkippedGalleries,
             transferMetrics: transferMetrics
         )
     }
@@ -1635,6 +1641,7 @@ public final class DeviceSyncCoordinator {
             receivedBytes: 0,
             committedGalleryCount: 0,
             deletedGalleryCount: 0,
+            skippedGalleryCount: 0,
             transferMetrics: nil
         )
     }
@@ -1799,7 +1806,18 @@ public final class DeviceSyncCoordinator {
         let taskToDrain = sessionTask
         sessionTask?.cancel()
         sessionTask = nil
-        let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        let message: String
+        if progressPlan != nil,
+           let syncError = error as? DeviceSyncError,
+           case .network = syncError {
+            // A peer that is manually stopped can close the stream before
+            // the cancel frame reaches the other side. The completed staging
+            // journals are still safe to commit, so do not expose the raw
+            // Network.framework stream error as if the local commit failed.
+            message = String(localized: "设备同步连接已中断，已收到的内容将继续提交。")
+        } else {
+            message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
         wire?.cancel()
         if progressPlan != nil {
             finalizeInterruption(reason: message, draining: taskToDrain)

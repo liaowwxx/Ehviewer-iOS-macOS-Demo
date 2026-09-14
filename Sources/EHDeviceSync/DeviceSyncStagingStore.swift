@@ -32,8 +32,41 @@ struct DeviceSyncStagedGallery: Sendable {
 actor DeviceSyncStagingStore {
     private struct Journal: Codable, Sendable {
         let plan: DeviceSyncStagingPlan
+        var startedKeys: Set<GalleryKey>
         var completedKeys: Set<GalleryKey>
         var resolvedKeys: Set<GalleryKey>
+
+        private enum CodingKeys: String, CodingKey {
+            case plan
+            case startedKeys
+            case completedKeys
+            case resolvedKeys
+        }
+
+        init(
+            plan: DeviceSyncStagingPlan,
+            startedKeys: Set<GalleryKey> = [],
+            completedKeys: Set<GalleryKey> = [],
+            resolvedKeys: Set<GalleryKey> = []
+        ) {
+            self.plan = plan
+            self.startedKeys = startedKeys
+            self.completedKeys = completedKeys
+            self.resolvedKeys = resolvedKeys
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            plan = try container.decode(DeviceSyncStagingPlan.self, forKey: .plan)
+            completedKeys = try container.decode(Set<GalleryKey>.self, forKey: .completedKeys)
+            resolvedKeys = try container.decode(Set<GalleryKey>.self, forKey: .resolvedKeys)
+            // Sessions created before startedKeys was introduced only know
+            // about completed galleries. Treat those as the conservative set
+            // of started galleries; untracked partial files are removed with
+            // the session directory during recovery.
+            startedKeys = try container.decodeIfPresent(Set<GalleryKey>.self, forKey: .startedKeys)
+                ?? completedKeys
+        }
     }
 
     private struct OpenPage {
@@ -54,7 +87,7 @@ actor DeviceSyncStagingStore {
     func create(plan galleries: [DeviceSyncStagingGalleryPlan]) throws -> UUID {
         let id = UUID()
         let plan = DeviceSyncStagingPlan(id: id, galleries: galleries)
-        let journal = Journal(plan: plan, completedKeys: [], resolvedKeys: [])
+        let journal = Journal(plan: plan)
         try FileManager.default.createDirectory(at: sessionURL(id), withIntermediateDirectories: true)
         journals[id] = journal
         try persist(journal)
@@ -65,6 +98,7 @@ actor DeviceSyncStagingStore {
         guard let gallery = try galleryPlan(key, sessionID: sessionID), gallery.requiresMetadata else {
             throw DeviceSyncError.transferNotPlanned
         }
+        try markStarted(key, sessionID: sessionID)
         try FileManager.default.createDirectory(at: galleryURL(key, sessionID: sessionID), withIntermediateDirectories: true)
         try data.write(to: metadataURL(key, sessionID: sessionID), options: .atomic)
     }
@@ -79,6 +113,7 @@ actor DeviceSyncStagingStore {
               gallery.pages.contains(where: { $0.pageIndex == pageIndex && $0.byteCount == byteCount }) else {
             throw DeviceSyncError.transferNotPlanned
         }
+        try markStarted(key, sessionID: sessionID)
         let directory = galleryURL(key, sessionID: sessionID)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = pageURL(key, pageIndex: pageIndex, sessionID: sessionID)
@@ -157,9 +192,15 @@ actor DeviceSyncStagingStore {
 
     func incompleteKeys(sessionID: UUID) throws -> Set<GalleryKey> {
         guard let journal = try load(sessionID) else { return [] }
-        return Set(journal.plan.galleries.map(\.key))
+        return journal.startedKeys
             .subtracting(journal.completedKeys)
             .subtracting(journal.resolvedKeys)
+    }
+
+    func unstartedKeys(sessionID: UUID) throws -> Set<GalleryKey> {
+        guard let journal = try load(sessionID) else { return [] }
+        return Set(journal.plan.galleries.map(\.key))
+            .subtracting(journal.startedKeys)
     }
 
     func markResolved(_ key: GalleryKey, sessionID: UUID) throws {
@@ -189,6 +230,15 @@ actor DeviceSyncStagingStore {
 
     private func galleryPlan(_ key: GalleryKey, sessionID: UUID) throws -> DeviceSyncStagingGalleryPlan? {
         try load(sessionID)?.plan.galleries.first { $0.key == key }
+    }
+
+    private func markStarted(_ key: GalleryKey, sessionID: UUID) throws {
+        guard var journal = try load(sessionID) else {
+            throw DeviceSyncError.transferNotPlanned
+        }
+        guard journal.startedKeys.insert(key).inserted else { return }
+        journals[sessionID] = journal
+        try persist(journal)
     }
 
     private func load(_ id: UUID) throws -> Journal? {
