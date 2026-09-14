@@ -274,3 +274,55 @@ private struct MacReaderSpreadCanvas: View {
     }
 }
 #endif
+
+#if os(iOS)
+import SwiftUI
+import UIKit
+import EHDomain
+
+struct ReaderIOSSpreadView: View {
+    let spread: ReaderSpread
+    let resolution: ImageResolution
+    let source: ReaderContentSource
+    let resetToken: UUID
+
+    var body: some View {
+        HStack(spacing: 0) {
+            pageView(spread.leftPage)
+
+            Rectangle()
+                .fill(Color.secondary.opacity(0.24))
+                .frame(width: 1)
+                .accessibilityHidden(true)
+
+            pageView(spread.rightPage)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemBackground))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(spreadAccessibilityLabel)
+    }
+
+    @ViewBuilder
+    private func pageView(_ descriptor: GalleryPageDescriptor?) -> some View {
+        if let descriptor {
+            ReaderPage(
+                descriptor: descriptor,
+                resolution: resolution,
+                source: source,
+                fitsViewport: true,
+                resetToken: resetToken
+            )
+        } else {
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var spreadAccessibilityLabel: String {
+        let indexes = spread.pageIndexes.map { String($0 + 1) }.joined(separator: "、")
+        return String(localized: "第 \(indexes) 页双页阅读单元")
+    }
+}
+#endif

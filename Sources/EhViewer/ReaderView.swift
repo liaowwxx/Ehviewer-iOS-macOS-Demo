@@ -20,13 +20,19 @@ import SwiftUI
 import EHDomain
 import EHDownloads
 
+#if os(iOS)
+import UIKit
+#endif
+
 #if os(macOS)
 enum MacReaderLayoutMetrics {
     /// The macOS window toolbar is transparent over the reader content.
     static let titleBarClearance: CGFloat = 5
 }
+#endif
 
-struct MacReaderPageLayoutButton: View {
+#if os(macOS) || os(iOS)
+struct ReaderPageLayoutButton: View {
     @Environment(AppModel.self) private var model
     let isEnabled: Bool
 
@@ -133,7 +139,13 @@ struct ReaderView: View {
         .toolbar {
 #if os(macOS)
             ToolbarItem(placement: .primaryAction) {
-                MacReaderPageLayoutButton(isEnabled: readingMode == .paged)
+                ReaderPageLayoutButton(isEnabled: readingMode == .paged)
+            }
+#elseif os(iOS)
+            if supportsDoublePageLayout {
+                ToolbarItem(placement: .primaryAction) {
+                    ReaderPageLayoutButton(isEnabled: readingMode == .paged)
+                }
             }
 #endif
             ToolbarItem(placement: .primaryAction) {
@@ -210,6 +222,7 @@ struct ReaderView: View {
                     pageCount: detail.pages.count,
                     descriptors: detail.pages,
                     source: source,
+                    pageRange: currentPageRange,
                     requestPage: { page in
                         requestPage(page, pageCount: detail.pages.count, animated: false)
                     },
@@ -304,7 +317,7 @@ struct ReaderView: View {
                     pageCount: detail.pages.count,
                     descriptors: detail.pages,
                     source: source,
-                    pageRange: macCurrentPageRange,
+                    pageRange: currentPageRange,
                     requestPage: { page in
                         requestPage(page, pageCount: detail.pages.count, animated: false)
                     },
@@ -447,9 +460,7 @@ struct ReaderView: View {
     }
 
     private func requestAdjacentPage(forLeftDirection: Bool, pageCount: Int) {
-#if os(macOS)
-        if readingMode == .paged, model.readingSettings.pageLayout == .double,
-           let detail {
+        if usesDoublePageLayout, let detail {
             let spreadLayout = ReaderSpreadLayout(
                 descriptors: detail.pages,
                 layout: .double,
@@ -467,7 +478,6 @@ struct ReaderView: View {
             )
             return
         }
-#endif
         requestPage(
             position.page + horizontalPageDelta(forLeftDirection: forLeftDirection),
             pageCount: pageCount
@@ -480,8 +490,7 @@ struct ReaderView: View {
         descriptors: [GalleryPageDescriptor]? = nil
     ) -> Int {
         let clampedPage = min(max(page, 0), max(pageCount - 1, 0))
-#if os(macOS)
-        if readingMode == .paged, model.readingSettings.pageLayout == .double,
+        if usesDoublePageLayout,
            let descriptors = descriptors ?? detail?.pages {
             return ReaderSpreadLayout(
                 descriptors: descriptors,
@@ -489,19 +498,35 @@ struct ReaderView: View {
                 readingDirection: model.readingSettings.readingDirection
             ).anchorPage(for: clampedPage)
         }
-#endif
         return clampedPage
     }
 
-#if os(macOS)
-    private var macCurrentPageRange: ClosedRange<Int>? {
-        guard readingMode == .paged, model.readingSettings.pageLayout == .double,
+    private var currentPageRange: ClosedRange<Int>? {
+        guard usesDoublePageLayout,
               let detail else { return nil }
         return ReaderSpreadLayout(
             descriptors: detail.pages,
             layout: .double,
             readingDirection: model.readingSettings.readingDirection
         ).pageRange(containing: position.page)
+    }
+
+    private var usesDoublePageLayout: Bool {
+        guard readingMode == .paged, model.readingSettings.pageLayout == .double else {
+            return false
+        }
+#if os(macOS)
+        return true
+#elseif os(iOS)
+        return supportsDoublePageLayout
+#else
+        return false
+#endif
+    }
+
+#if os(iOS)
+    private var supportsDoublePageLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
     }
 #endif
 

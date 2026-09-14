@@ -36,16 +36,29 @@ struct ReaderPagedView: View {
 
     var body: some View {
         #if os(iOS)
-        ReaderPagedControllerRepresentable(
-            model: model,
-            descriptors: descriptors,
-            resolution: resolution,
-            resetToken: resetToken,
-            readingDirection: readingDirection,
-            navigationOrientation: .horizontal,
-            source: source,
-            position: $position
-        )
+        if UIDevice.current.userInterfaceIdiom == .pad,
+           model.readingSettings.pageLayout == .double {
+            ReaderSpreadPagedControllerRepresentable(
+                model: model,
+                descriptors: descriptors,
+                resolution: resolution,
+                resetToken: resetToken,
+                readingDirection: readingDirection,
+                source: source,
+                position: $position
+            )
+        } else {
+            ReaderPagedControllerRepresentable(
+                model: model,
+                descriptors: descriptors,
+                resolution: resolution,
+                resetToken: resetToken,
+                readingDirection: readingDirection,
+                navigationOrientation: .horizontal,
+                source: source,
+                position: $position
+            )
+        }
         #else
         macPagedContent
         #endif
@@ -487,6 +500,341 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
         hostingController?.view
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        let canTransferToParent = scrollView.zoomScale <= scrollView.minimumZoomScale + 0.001
+        if navigationOrientation == .horizontal {
+            scrollView.transfersHorizontalScrollingToParent = canTransferToParent
+        } else {
+            scrollView.transfersVerticalScrollingToParent = canTransferToParent
+        }
+    }
+}
+
+struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
+    let model: AppModel
+    let descriptors: [GalleryPageDescriptor]
+    let resolution: ImageResolution
+    let resetToken: UUID
+    let readingDirection: ReadingDirection
+    let source: ReaderContentSource
+    @Binding var position: ReaderPositionState
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(position: $position)
+    }
+
+    func makeUIViewController(context: Context) -> UIPageViewController {
+        context.coordinator.makeController(
+            model: model,
+            descriptors: descriptors,
+            resolution: resolution,
+            resetToken: resetToken,
+            readingDirection: readingDirection,
+            source: source
+        )
+    }
+
+    func updateUIViewController(_ controller: UIPageViewController, context: Context) {
+        context.coordinator.update(
+            controller: controller,
+            model: model,
+            descriptors: descriptors,
+            resolution: resolution,
+            resetToken: resetToken,
+            readingDirection: readingDirection,
+            source: source,
+            position: position
+        )
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
+        private var position: Binding<ReaderPositionState>
+        private weak var controller: UIPageViewController?
+        private var model: AppModel?
+        private var descriptors: [GalleryPageDescriptor] = []
+        private var resolution: ImageResolution = .preview
+        private var readingDirection: ReadingDirection = .rightToLeft
+        private var source: ReaderContentSource = .remote
+        private var resetToken: UUID?
+        private var lastScrollRequestSequence = -1
+        private var layout = ReaderSpreadLayout(
+            descriptors: [],
+            layout: .double,
+            readingDirection: .rightToLeft
+        )
+        private var pages: [Int: ReaderNativeSpreadViewController] = [:]
+
+        init(position: Binding<ReaderPositionState>) {
+            self.position = position
+        }
+
+        func makeController(
+            model: AppModel,
+            descriptors: [GalleryPageDescriptor],
+            resolution: ImageResolution,
+            resetToken: UUID,
+            readingDirection: ReadingDirection,
+            source: ReaderContentSource
+        ) -> UIPageViewController {
+            self.model = model
+            self.descriptors = descriptors
+            self.resolution = resolution
+            self.resetToken = resetToken
+            self.readingDirection = readingDirection
+            self.source = source
+            layout = makeLayout(descriptors: descriptors, readingDirection: readingDirection)
+            lastScrollRequestSequence = position.wrappedValue.scrollRequestSequence
+
+            let controller = UIPageViewController(
+                transitionStyle: .scroll,
+                navigationOrientation: .horizontal
+            )
+            controller.dataSource = self
+            controller.delegate = self
+            self.controller = controller
+
+            let initialAnchor = layout.anchorPage(for: position.wrappedValue.page)
+            controller.setViewControllers(
+                [pageController(for: initialAnchor)],
+                direction: .forward,
+                animated: false
+            )
+            return controller
+        }
+
+        func update(
+            controller: UIPageViewController,
+            model: AppModel,
+            descriptors: [GalleryPageDescriptor],
+            resolution: ImageResolution,
+            resetToken: UUID,
+            readingDirection: ReadingDirection,
+            source: ReaderContentSource,
+            position: ReaderPositionState
+        ) {
+            let descriptorsChanged = self.descriptors.map(\.id) != descriptors.map(\.id)
+            let directionChanged = self.readingDirection != readingDirection
+            self.model = model
+            self.descriptors = descriptors
+            self.resolution = resolution
+            self.readingDirection = readingDirection
+            self.source = source
+            layout = makeLayout(descriptors: descriptors, readingDirection: readingDirection)
+
+            if descriptorsChanged || directionChanged {
+                pages = [:]
+                let currentAnchor = layout.anchorPage(for: position.page)
+                controller.setViewControllers(
+                    [pageController(for: currentAnchor)],
+                    direction: .forward,
+                    animated: false
+                )
+            }
+
+            if self.resetToken != resetToken {
+                self.resetToken = resetToken
+                pages.values.forEach { $0.resetZoom(animated: false) }
+            }
+
+            if lastScrollRequestSequence != position.scrollRequestSequence {
+                lastScrollRequestSequence = position.scrollRequestSequence
+                let target = layout.anchorPage(for: position.scrollTarget ?? position.page)
+                let current = currentAnchorPage ?? layout.anchorPage(for: position.page)
+                let direction = navigationDirection(to: target, from: current)
+                controller.setViewControllers(
+                    [pageController(for: target)],
+                    direction: direction,
+                    animated: position.scrollRequestAnimated
+                )
+            }
+        }
+
+        func pageViewController(
+            _ pageViewController: UIPageViewController,
+            viewControllerBefore viewController: UIViewController
+        ) -> UIViewController? {
+            adjacentPage(from: viewController, offset: -1)
+        }
+
+        func pageViewController(
+            _ pageViewController: UIPageViewController,
+            viewControllerAfter viewController: UIViewController
+        ) -> UIViewController? {
+            adjacentPage(from: viewController, offset: 1)
+        }
+
+        func pageViewController(
+            _ pageViewController: UIPageViewController,
+            didFinishAnimating finished: Bool,
+            previousViewControllers: [UIViewController],
+            transitionCompleted completed: Bool
+        ) {
+            guard finished, completed, let currentAnchorPage else { return }
+            position.wrappedValue.markVisiblePage(
+                from: [currentAnchorPage],
+                displayOrder: layout.displayOrder
+            )
+            prunePages(around: currentAnchorPage)
+        }
+
+        private var currentAnchorPage: Int? {
+            controller?.viewControllers?.first
+                .flatMap { ($0 as? ReaderNativeSpreadViewController)?.anchorPage }
+        }
+
+        private func adjacentPage(from viewController: UIViewController, offset: Int) -> UIViewController? {
+            guard let anchorPage = (viewController as? ReaderNativeSpreadViewController)?.anchorPage,
+                  let currentOffset = layout.spreads.firstIndex(where: { $0.id == anchorPage }) else {
+                return nil
+            }
+            let targetOffset = currentOffset + offset
+            guard layout.spreads.indices.contains(targetOffset) else { return nil }
+            return pageController(for: layout.spreads[targetOffset].id)
+        }
+
+        private func pageController(for anchorPage: Int) -> ReaderNativeSpreadViewController {
+            if let existing = pages[anchorPage] {
+                return existing
+            }
+            guard let spread = layout.spreads.first(where: { $0.id == anchorPage }),
+                  let model else { preconditionFailure("Reader spread is unavailable") }
+            let page = ReaderNativeSpreadViewController(
+                spread: spread,
+                resolution: resolution,
+                source: source,
+                model: model,
+                resetToken: resetToken ?? UUID()
+            )
+            pages[anchorPage] = page
+            prunePages(around: anchorPage)
+            return page
+        }
+
+        private func prunePages(around anchorPage: Int) {
+            guard let currentOffset = layout.spreads.firstIndex(where: { $0.id == anchorPage }) else { return }
+            let retainedIndexes = Set(
+                [currentOffset - 1, currentOffset, currentOffset + 1]
+                    .filter { layout.spreads.indices.contains($0) }
+                    .map { layout.spreads[$0].id }
+            )
+            pages = pages.filter { retainedIndexes.contains($0.key) }
+        }
+
+        private func navigationDirection(
+            to target: Int,
+            from current: Int
+        ) -> UIPageViewController.NavigationDirection {
+            guard let targetOffset = layout.spreads.firstIndex(where: { $0.id == target }),
+                  let currentOffset = layout.spreads.firstIndex(where: { $0.id == current }) else {
+                return .forward
+            }
+            return targetOffset >= currentOffset ? .forward : .reverse
+        }
+
+        private func makeLayout(
+            descriptors: [GalleryPageDescriptor],
+            readingDirection: ReadingDirection
+        ) -> ReaderSpreadLayout {
+            ReaderSpreadLayout(
+                descriptors: descriptors,
+                layout: .double,
+                readingDirection: readingDirection
+            )
+        }
+    }
+}
+
+@MainActor
+private final class ReaderNativeSpreadViewController: UIViewController, UIScrollViewDelegate {
+    let anchorPage: Int
+    private let spread: ReaderSpread
+    private let resolution: ImageResolution
+    private let source: ReaderContentSource
+    private let model: AppModel
+    private let resetToken: UUID
+    private let scrollView = UIScrollView()
+    private var hostingController: UIHostingController<AnyView>?
+
+    init(
+        spread: ReaderSpread,
+        resolution: ImageResolution,
+        source: ReaderContentSource,
+        model: AppModel,
+        resetToken: UUID
+    ) {
+        anchorPage = spread.anchorPage
+        self.spread = spread
+        self.resolution = resolution
+        self.source = source
+        self.model = model
+        self.resetToken = resetToken
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+
+        scrollView.delegate = self
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 10
+        scrollView.zoomScale = 1
+        scrollView.bounces = true
+        scrollView.bouncesZoom = true
+        scrollView.decelerationRate = .normal
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.alwaysBounceVertical = true
+        scrollView.transfersHorizontalScrollingToParent = true
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+
+        let spreadView = ReaderIOSSpreadView(
+            spread: spread,
+            resolution: resolution,
+            source: source,
+            resetToken: resetToken
+        )
+        let hostingController = UIHostingController(rootView: AnyView(spreadView.environment(model)))
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(hostingController.view)
+        NSLayoutConstraint.activate([
+            hostingController.view.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            hostingController.view.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            hostingController.view.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
+            hostingController.view.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor)
+        ])
+        self.hostingController = hostingController
+    }
+
+    func resetZoom(animated: Bool) {
+        scrollView.setZoomScale(1, animated: animated)
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        hostingController?.view
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        scrollView.transfersHorizontalScrollingToParent =
+            scrollView.zoomScale <= scrollView.minimumZoomScale + 0.001
     }
 }
 #endif

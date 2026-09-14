@@ -45,7 +45,6 @@ enum ReaderPageLayout: String, CaseIterable, Identifiable, Codable, Hashable, Se
         }
     }
 
-#if os(macOS)
     var systemImageName: String {
         switch self {
         case .single: "rectangle.portrait"
@@ -59,7 +58,6 @@ enum ReaderPageLayout: String, CaseIterable, Identifiable, Codable, Hashable, Se
         case .double: String(localized: "切换到双页")
         }
     }
-#endif
 }
 
 enum ReadingDirection: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
