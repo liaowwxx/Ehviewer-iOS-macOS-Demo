@@ -25,6 +25,38 @@ enum MacReaderLayoutMetrics {
     /// The macOS window toolbar is transparent over the reader content.
     static let titleBarClearance: CGFloat = 5
 }
+
+struct MacReaderPageLayoutButton: View {
+    @Environment(AppModel.self) private var model
+    let isEnabled: Bool
+
+    var body: some View {
+        Button(action: toggleLayout) {
+            Label(nextLayout.title, systemImage: nextLayout.systemImageName)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .fixedSize()
+        .disabled(isEnabled == false)
+        .accessibilityLabel("页面布局")
+        .accessibilityValue(currentLayout.title)
+        .accessibilityHint(isEnabled ? nextLayout.toggleHint : "上下分页时不可用")
+        .accessibilityIdentifier("reader-page-layout-button")
+        .help(nextLayout.toggleHint)
+    }
+
+    private var currentLayout: ReaderPageLayout {
+        model.readingSettings.pageLayout
+    }
+
+    private var nextLayout: ReaderPageLayout {
+        currentLayout == .single ? .double : .single
+    }
+
+    private func toggleLayout() {
+        model.readingSettings.pageLayout = nextLayout
+    }
+}
 #endif
 
 enum ReaderContentSource: Hashable, Sendable {
@@ -86,12 +118,12 @@ struct ReaderView: View {
         }
         .onKeyPress(.leftArrow) {
             guard let detail else { return .ignored }
-            requestPage(position.page + horizontalPageDelta(forLeftDirection: true), pageCount: detail.pages.count)
+            requestAdjacentPage(forLeftDirection: true, pageCount: detail.pages.count)
             return .handled
         }
         .onKeyPress(.rightArrow) {
             guard let detail else { return .ignored }
-            requestPage(position.page + horizontalPageDelta(forLeftDirection: false), pageCount: detail.pages.count)
+            requestAdjacentPage(forLeftDirection: false, pageCount: detail.pages.count)
             return .handled
         }
         .navigationTitle(readerNavigationTitle)
@@ -99,6 +131,11 @@ struct ReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+#if os(macOS)
+            ToolbarItem(placement: .primaryAction) {
+                MacReaderPageLayoutButton(isEnabled: readingMode == .paged)
+            }
+#endif
             ToolbarItem(placement: .primaryAction) {
                 ReaderSettingsMenu()
             }
@@ -116,10 +153,11 @@ struct ReaderView: View {
         .onChange(of: model.readingSettings) { oldSettings, newSettings in
             model.persistReadingSettings()
             if oldSettings.readingMode != newSettings.readingMode ||
-                oldSettings.readingDirection != newSettings.readingDirection {
+                oldSettings.readingDirection != newSettings.readingDirection ||
+                oldSettings.pageLayout != newSettings.pageLayout {
                 resetZoom()
                 if let detail {
-                    position.requestPage(position.page, pageCount: detail.pages.count)
+                    requestPage(position.page, pageCount: detail.pages.count)
                 }
             }
         }
@@ -181,7 +219,7 @@ struct ReaderView: View {
             }
         }
         #elseif os(macOS)
-        .toolbar(.visible)
+        .toolbar(isShowingControls ? .visible : .hidden)
         #endif
     }
 
@@ -194,7 +232,7 @@ struct ReaderView: View {
             .onAppear { readerContentFocused = true }
             .onKeyPress(.space) {
                 guard let detail else { return .ignored }
-                requestPage(position.page + horizontalPageDelta(forLeftDirection: false), pageCount: detail.pages.count)
+                requestAdjacentPage(forLeftDirection: false, pageCount: detail.pages.count)
                 return .handled
             }
 #else
@@ -243,6 +281,10 @@ struct ReaderView: View {
                 ProgressView("准备阅读器…")
             }
         }
+#if os(macOS)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: toggleControls)
+#endif
     }
 
 #if os(macOS)
@@ -256,12 +298,13 @@ struct ReaderView: View {
             readerContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if let detail {
+            if isShowingControls, let detail {
                 ReaderProgressControl(
                     page: position.page,
                     pageCount: detail.pages.count,
                     descriptors: detail.pages,
                     source: source,
+                    pageRange: macCurrentPageRange,
                     requestPage: { page in
                         requestPage(page, pageCount: detail.pages.count, animated: false)
                     },
@@ -319,7 +362,14 @@ struct ReaderView: View {
             } else {
                 startPage = initialPage
             }
-            position.prepare(page: startPage, pageCount: loadedDetail.pages.count)
+            position.prepare(
+                page: normalizedPage(
+                    startPage,
+                    pageCount: loadedDetail.pages.count,
+                    descriptors: loadedDetail.pages
+                ),
+                pageCount: loadedDetail.pages.count
+            )
             detail = loadedDetail
         } catch is CancellationError {
             return
@@ -389,8 +439,71 @@ struct ReaderView: View {
 
     private func requestPage(_ page: Int, pageCount: Int, animated: Bool = true) {
         resetZoom()
-        position.requestPage(page, pageCount: pageCount, animated: animated)
+        position.requestPage(
+            normalizedPage(page, pageCount: pageCount),
+            pageCount: pageCount,
+            animated: animated
+        )
     }
+
+    private func requestAdjacentPage(forLeftDirection: Bool, pageCount: Int) {
+#if os(macOS)
+        if readingMode == .paged, model.readingSettings.pageLayout == .double,
+           let detail {
+            let spreadLayout = ReaderSpreadLayout(
+                descriptors: detail.pages,
+                layout: .double,
+                readingDirection: model.readingSettings.readingDirection
+            )
+            let movingForward = model.readingSettings.readingDirection == .rightToLeft
+                ? forLeftDirection
+                : forLeftDirection == false
+            requestPage(
+                spreadLayout.adjacentAnchor(
+                    from: position.page,
+                    movingForwardInReadingOrder: movingForward
+                ),
+                pageCount: pageCount
+            )
+            return
+        }
+#endif
+        requestPage(
+            position.page + horizontalPageDelta(forLeftDirection: forLeftDirection),
+            pageCount: pageCount
+        )
+    }
+
+    private func normalizedPage(
+        _ page: Int,
+        pageCount: Int,
+        descriptors: [GalleryPageDescriptor]? = nil
+    ) -> Int {
+        let clampedPage = min(max(page, 0), max(pageCount - 1, 0))
+#if os(macOS)
+        if readingMode == .paged, model.readingSettings.pageLayout == .double,
+           let descriptors = descriptors ?? detail?.pages {
+            return ReaderSpreadLayout(
+                descriptors: descriptors,
+                layout: .double,
+                readingDirection: model.readingSettings.readingDirection
+            ).anchorPage(for: clampedPage)
+        }
+#endif
+        return clampedPage
+    }
+
+#if os(macOS)
+    private var macCurrentPageRange: ClosedRange<Int>? {
+        guard readingMode == .paged, model.readingSettings.pageLayout == .double,
+              let detail else { return nil }
+        return ReaderSpreadLayout(
+            descriptors: detail.pages,
+            layout: .double,
+            readingDirection: model.readingSettings.readingDirection
+        ).pageRange(containing: position.page)
+    }
+#endif
 
     private func horizontalPageDelta(forLeftDirection: Bool) -> Int {
         if model.readingSettings.readingDirection == .rightToLeft {

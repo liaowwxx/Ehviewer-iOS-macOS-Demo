@@ -37,7 +37,7 @@ struct MacReaderMediaScrollView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> MacReaderZoomScrollView {
         let scrollView = MacReaderZoomScrollView()
-        scrollView.mediaAspectRatio = content.aspectRatio
+        scrollView.documentLayout = .single(aspectRatio: content.aspectRatio)
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.borderType = .noBorder
@@ -71,7 +71,7 @@ struct MacReaderMediaScrollView: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: MacReaderZoomScrollView, context: Context) {
-        scrollView.mediaAspectRatio = content.aspectRatio
+        scrollView.documentLayout = .single(aspectRatio: content.aspectRatio)
         context.coordinator.hostingView?.rootView = AnyView(mediaView)
 
         if context.coordinator.resetToken != resetToken {
@@ -106,10 +106,136 @@ struct MacReaderMediaScrollView: NSViewRepresentable {
     }
 }
 
+/// A single native scroll container for one two-page spread.
+///
+/// The hosted SwiftUI content contains both media tiles, while AppKit owns
+/// the scrollable document geometry and magnification for the whole spread.
+struct MacReaderSpreadMediaScrollView<Content: View>: NSViewRepresentable {
+    let leftAspectRatio: CGFloat
+    let rightAspectRatio: CGFloat
+    let resetToken: UUID
+    let content: Content
+
+    init(
+        leftAspectRatio: CGFloat,
+        rightAspectRatio: CGFloat,
+        resetToken: UUID,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.leftAspectRatio = leftAspectRatio
+        self.rightAspectRatio = rightAspectRatio
+        self.resetToken = resetToken
+        self.content = content()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(resetToken: resetToken)
+    }
+
+    func makeNSView(context: Context) -> MacReaderZoomScrollView {
+        let scrollView = MacReaderZoomScrollView()
+        scrollView.documentLayout = .spread(
+            leftAspectRatio: leftAspectRatio,
+            rightAspectRatio: rightAspectRatio,
+            spineWidth: 1
+        )
+        scrollView.drawsBackground = false
+        scrollView.backgroundColor = .clear
+        scrollView.borderType = .noBorder
+        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.allowsMagnification = true
+        scrollView.minMagnification = 1
+        scrollView.maxMagnification = 4
+        scrollView.magnification = 1
+        scrollView.usesPredominantAxisScrolling = false
+        scrollView.scrollsDynamically = true
+        scrollView.horizontalScrollElasticity = .none
+        scrollView.verticalScrollElasticity = .none
+
+        let clipView = MacReaderClipView(frame: scrollView.contentView.frame)
+        clipView.drawsBackground = false
+        scrollView.contentView = clipView
+
+        let documentView = MacReaderDocumentView(frame: .zero)
+        let hostingView = NSHostingView(rootView: AnyView(content))
+        hostingView.frame = documentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        documentView.addSubview(hostingView)
+        scrollView.documentView = documentView
+
+        context.coordinator.hostingView = hostingView
+        context.coordinator.documentView = documentView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: MacReaderZoomScrollView, context: Context) {
+        scrollView.documentLayout = .spread(
+            leftAspectRatio: leftAspectRatio,
+            rightAspectRatio: rightAspectRatio,
+            spineWidth: 1
+        )
+        context.coordinator.hostingView?.rootView = AnyView(content)
+
+        if context.coordinator.resetToken != resetToken {
+            context.coordinator.resetToken = resetToken
+            context.coordinator.reset(scrollView)
+        }
+
+        scrollView.needsLayout = true
+    }
+
+    @MainActor
+    final class Coordinator {
+        var resetToken: UUID
+        weak var documentView: NSView?
+        weak var hostingView: NSHostingView<AnyView>?
+
+        init(resetToken: UUID) {
+            self.resetToken = resetToken
+        }
+
+        func reset(_ scrollView: MacReaderZoomScrollView) {
+            guard let documentView else { return }
+
+            let center = NSPoint(x: documentView.bounds.midX, y: documentView.bounds.midY)
+            scrollView.setMagnification(1, centeredAt: center)
+            scrollView.centerDocumentIfNeeded()
+        }
+    }
+}
+
+enum MacReaderDocumentLayout {
+    case single(aspectRatio: CGFloat)
+    case spread(leftAspectRatio: CGFloat, rightAspectRatio: CGFloat, spineWidth: CGFloat)
+
+    func fittedSize(for viewportSize: NSSize) -> NSSize {
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return .zero }
+
+        switch self {
+        case .single(let aspectRatio):
+            let aspectRatio = max(aspectRatio, .leastNonzeroMagnitude)
+            let width = min(viewportSize.width, viewportSize.height * aspectRatio)
+            return NSSize(width: width, height: width / aspectRatio)
+        case .spread(let leftAspectRatio, let rightAspectRatio, let spineWidth):
+            let leftAspectRatio = max(leftAspectRatio, .leastNonzeroMagnitude)
+            let rightAspectRatio = max(rightAspectRatio, .leastNonzeroMagnitude)
+            let availableWidth = max(viewportSize.width - spineWidth, 0)
+            let height = min(
+                viewportSize.height,
+                availableWidth / (leftAspectRatio + rightAspectRatio)
+            )
+            let width = (leftAspectRatio + rightAspectRatio) * height + spineWidth
+            return NSSize(width: width, height: height)
+        }
+    }
+}
+
 /// Keeps the unscaled document view equal to the actual fitted media size.
 /// Once magnified, `NSScrollView` owns the larger scrollable region.
 final class MacReaderZoomScrollView: NSScrollView, NSGestureRecognizerDelegate {
-    var mediaAspectRatio: CGFloat = 1
+    var documentLayout: MacReaderDocumentLayout = .single(aspectRatio: 1)
 
     private lazy var panGestureRecognizer = NSPanGestureRecognizer(
         target: self,
@@ -142,7 +268,7 @@ final class MacReaderZoomScrollView: NSScrollView, NSGestureRecognizerDelegate {
             return
         }
 
-        let fittedSize = fittedMediaSize(for: contentView.bounds.size)
+        let fittedSize = documentLayout.fittedSize(for: contentView.bounds.size)
         if documentView.frame.size != fittedSize {
             documentView.setFrameSize(fittedSize)
         }
@@ -228,12 +354,6 @@ final class MacReaderZoomScrollView: NSScrollView, NSGestureRecognizerDelegate {
             ancestor = view.superview
         }
         return nil
-    }
-
-    private func fittedMediaSize(for viewportSize: NSSize) -> NSSize {
-        let aspectRatio = max(mediaAspectRatio, .leastNonzeroMagnitude)
-        let width = min(viewportSize.width, viewportSize.height * aspectRatio)
-        return NSSize(width: width, height: width / aspectRatio)
     }
 
     private func configurePanGesture() {

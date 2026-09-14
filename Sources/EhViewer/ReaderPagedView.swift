@@ -25,6 +25,7 @@ import UIKit
 
 struct ReaderPagedView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     let descriptors: [GalleryPageDescriptor]
     let resolution: ImageResolution
     let resetToken: UUID
@@ -46,6 +47,29 @@ struct ReaderPagedView: View {
             position: $position
         )
         #else
+        macPagedContent
+        #endif
+    }
+
+    #if os(macOS)
+    @State private var scrollPosition: Int?
+    #endif
+
+    private var displayDescriptors: [GalleryPageDescriptor] {
+        readingDirection == .rightToLeft ? Array(descriptors.reversed()) : descriptors
+    }
+
+#if os(macOS)
+    @ViewBuilder
+    private var macPagedContent: some View {
+        if model.readingSettings.pageLayout == .double {
+            macDoublePagedContent
+        } else {
+            macSinglePagedContent
+        }
+    }
+
+    private var macSinglePagedContent: some View {
         ScrollView(.horizontal) {
             LazyHStack(spacing: 0) {
                 ForEach(displayDescriptors) { descriptor in
@@ -70,14 +94,7 @@ struct ReaderPagedView: View {
             scrollPosition = position.page
         }
         .onChange(of: position.scrollRequestSequence) {
-            guard let target = position.scrollTarget else { return }
-            if position.scrollRequestAnimated {
-                withAnimation {
-                    scrollPosition = target
-                }
-            } else {
-                scrollPosition = target
-            }
+            updateScrollPosition()
         }
         .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.55) { visiblePages in
             if initialScrollPending {
@@ -89,16 +106,74 @@ struct ReaderPagedView: View {
             }
             position.markVisiblePage(from: visiblePages, displayOrder: descriptors.map(\.index))
         }
-        #endif
     }
 
-    #if os(macOS)
-    @State private var scrollPosition: Int?
-    #endif
+    private var macDoublePagedContent: some View {
+        let spreadLayout = ReaderSpreadLayout(
+            descriptors: descriptors,
+            layout: .double,
+            readingDirection: readingDirection
+        )
+        let reduceMotion = accessibilityReduceMotion
 
-    private var displayDescriptors: [GalleryPageDescriptor] {
-        readingDirection == .rightToLeft ? Array(descriptors.reversed()) : descriptors
+        return ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
+                ForEach(spreadLayout.spreads) { spread in
+                    ReaderSpreadView(
+                        spread: spread,
+                        resolution: resolution,
+                        source: source,
+                        resetToken: resetToken
+                    )
+                    .containerRelativeFrame([.horizontal, .vertical])
+                    .id(spread.id)
+                    .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                        let applyTransition = reduceMotion == false && phase.isIdentity == false
+                        return content
+                            .opacity(applyTransition ? 0.94 : 1)
+                            .scaleEffect(applyTransition ? 0.985 : 1)
+                    }
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollIndicators(.visible)
+        .scrollPosition(id: $scrollPosition, anchor: .center)
+        .task {
+            await Task.yield()
+            scrollPosition = spreadLayout.anchorPage(for: position.page)
+        }
+        .onChange(of: position.scrollRequestSequence) {
+            updateScrollPosition()
+        }
+        .onScrollTargetVisibilityChange(idType: Int.self, threshold: 0.55) { visibleSpreads in
+            if initialScrollPending {
+                let target = spreadLayout.anchorPage(for: position.page)
+                guard visibleSpreads.contains(target) else {
+                    scrollPosition = target
+                    return
+                }
+                initialScrollPending = false
+            }
+            position.markVisiblePage(
+                from: visibleSpreads,
+                displayOrder: spreadLayout.displayOrder
+            )
+        }
     }
+
+    private func updateScrollPosition() {
+        guard let target = position.scrollTarget else { return }
+        if position.scrollRequestAnimated {
+            withAnimation {
+                scrollPosition = target
+            }
+        } else {
+            scrollPosition = target
+        }
+    }
+#endif
 }
 
 #if os(iOS)

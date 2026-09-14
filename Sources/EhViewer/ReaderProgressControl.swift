@@ -25,6 +25,7 @@ struct ReaderProgressControl: View {
     let pageCount: Int
     let descriptors: [GalleryPageDescriptor]
     let source: ReaderContentSource
+    let pageRange: ClosedRange<Int>?
     let requestPage: (Int) -> Void
     let onSeekEnded: () -> Void
     @State private var sliderValue: Double
@@ -35,6 +36,7 @@ struct ReaderProgressControl: View {
         pageCount: Int,
         descriptors: [GalleryPageDescriptor],
         source: ReaderContentSource,
+        pageRange: ClosedRange<Int>? = nil,
         requestPage: @escaping (Int) -> Void,
         onSeekEnded: @escaping () -> Void
     ) {
@@ -42,6 +44,7 @@ struct ReaderProgressControl: View {
         self.pageCount = pageCount
         self.descriptors = descriptors
         self.source = source
+        self.pageRange = pageRange
         self.requestPage = requestPage
         self.onSeekEnded = onSeekEnded
         let clampedPage = min(max(page, 0), max(pageCount - 1, 0))
@@ -122,6 +125,13 @@ struct ReaderProgressControl: View {
 
     private var pageText: String {
         guard pageCount > 0 else { return String(localized: "暂无页面") }
+        if let pageRange {
+            let firstPage = pageRange.lowerBound + 1
+            let lastPage = pageRange.upperBound + 1
+            if firstPage != lastPage {
+                return String(localized: "第 \(firstPage)–\(lastPage)/\(pageCount) 页")
+            }
+        }
         return String(localized: "第 \(currentPage + 1)/\(pageCount) 页")
     }
 

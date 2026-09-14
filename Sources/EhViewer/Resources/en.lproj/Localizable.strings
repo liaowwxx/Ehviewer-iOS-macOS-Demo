@@ -270,6 +270,8 @@
 "正在加载下载内容…" = "Loading Downloads…";
 "正在加载更多…" = "Loading More…";
 "正在加载第 %lld 页…" = "Loading page %lld…";
+"单页" = "Single Page";
+"双页" = "Two Pages";
 "正在合并本地数据…" = "Merging local data…";
 "正在导入图片 %lld/%lld…" = "Importing image %lld/%lld…";
 "正在导出《%@》…" = "Exporting “%@”…";
@@ -336,6 +338,8 @@
 "站点：%@ · %@" = "Site: %@ · %@";
 "第 %lld 页" = "Page %lld";
 "第 %lld/%lld 页" = "Page %lld/%lld";
+"第 %lld–%lld/%lld 页" = "Pages %lld–%lld/%lld";
+"第 %@ 页双页阅读单元" = "%@ two-page reading spread";
 "等待中" = "Queued";
 "筛选状态" = "Filter Status";
 "系统照片未完成保存图片。" = "The system did not finish saving the image.";
@@ -346,6 +350,11 @@
 "网页登录" = "Web Login";
 "网页登录尚未完成，请先在网页中成功登录。" = "Web login is not complete; please log in on the page first.";
 "翻页方向" = "Page Turn Direction";
+"页面布局" = "Page Layout";
+"切换单页或双页阅读" = "Switch between single-page and two-page reading";
+"切换到单页" = "Switch to single-page reading";
+"切换到双页" = "Switch to two-page reading";
+"上下分页时不可用" = "Unavailable in vertical paging";
 "规则模式 %@" = "Rule mode %@";
 "设置标签" = "Set Label";
 "评分" = "Rate";

@@ -32,6 +32,36 @@ enum ReadingMode: String, CaseIterable, Identifiable, Codable, Hashable, Sendabl
     }
 }
 
+enum ReaderPageLayout: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
+    case single
+    case double
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .single: String(localized: "单页")
+        case .double: String(localized: "双页")
+        }
+    }
+
+#if os(macOS)
+    var systemImageName: String {
+        switch self {
+        case .single: "rectangle.portrait"
+        case .double: "book.pages"
+        }
+    }
+
+    var toggleHint: String {
+        switch self {
+        case .single: String(localized: "切换到单页")
+        case .double: String(localized: "切换到双页")
+        }
+    }
+#endif
+}
+
 enum ReadingDirection: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
     case leftToRight
     case rightToLeft

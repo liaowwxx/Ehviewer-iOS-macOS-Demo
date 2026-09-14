@@ -52,6 +52,7 @@ enum ReaderScreenRotation: String, CaseIterable, Codable, Hashable, Sendable, Id
 
 struct ReadingSettings: Codable, Hashable, Sendable {
     var readingMode: ReadingMode = .paged
+    var pageLayout: ReaderPageLayout = .single
     var readingDirection: ReadingDirection = .rightToLeft
     var startPosition: ReaderStartPosition = .lastRead
     var screenRotation: ReaderScreenRotation = .automatic
@@ -67,6 +68,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case readingMode
+        case pageLayout
         case readingDirection
         case startPosition
         case screenRotation
@@ -96,6 +98,8 @@ struct ReadingSettings: Codable, Hashable, Sendable {
             readingMode = .paged
         }
 
+        pageLayout = try container.decodeIfPresent(ReaderPageLayout.self, forKey: .pageLayout) ?? .single
+
         if let direction = try container.decodeIfPresent(ReadingDirection.self, forKey: .readingDirection) {
             readingDirection = direction
         }
@@ -112,6 +116,7 @@ struct ReadingSettings: Codable, Hashable, Sendable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(readingMode, forKey: .readingMode)
+        try container.encode(pageLayout, forKey: .pageLayout)
         try container.encode(readingDirection, forKey: .readingDirection)
         try container.encode(startPosition, forKey: .startPosition)
         try container.encode(screenRotation, forKey: .screenRotation)

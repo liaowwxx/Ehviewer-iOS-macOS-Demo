@@ -132,25 +132,15 @@ struct ReaderPage: View {
         loadErrorMessage = nil
         media = nil
         do {
-            let data: Data
-            switch source {
-            case .remote:
-                let metadata = try await model.pageImage(for: descriptor)
-                if let width = metadata.width, let height = metadata.height, height > 0 {
-                    aspectRatio = CGFloat(width) / CGFloat(height)
-                }
-                data = try await model.imageData(for: metadata, resolution: resolution)
-            case .download:
-                guard let localData = await model.downloadedPageDataIfAvailable(for: descriptor) else {
-                    throw EHError.storageFailed(String(localized: "本地下载文件缺失或无效"))
-                }
-                data = localData
-            }
-            try Task.checkCancellation()
-            let decodedMedia = try ReaderMediaView.Content.decode(data)
-            aspectRatio = decodedMedia.aspectRatio
+            let loadedMedia = try await Self.loadMedia(
+                model: model,
+                descriptor: descriptor,
+                resolution: resolution,
+                source: source
+            )
+            aspectRatio = loadedMedia.aspectRatio
             withAnimation(.easeOut(duration: 0.25)) {
-                media = decodedMedia
+                media = loadedMedia.content
                 failed = false
             }
         } catch is CancellationError {
@@ -159,5 +149,33 @@ struct ReaderPage: View {
             loadErrorMessage = error.localizedDescription
             failed = true
         }
+    }
+
+    @MainActor
+    static func loadMedia(
+        model: AppModel,
+        descriptor: GalleryPageDescriptor,
+        resolution: ImageResolution,
+        source: ReaderContentSource
+    ) async throws -> LoadedMedia {
+        let data: Data
+        switch source {
+        case .remote:
+            let metadata = try await model.pageImage(for: descriptor)
+            data = try await model.imageData(for: metadata, resolution: resolution)
+        case .download:
+            guard let localData = await model.downloadedPageDataIfAvailable(for: descriptor) else {
+                throw EHError.storageFailed(String(localized: "本地下载文件缺失或无效"))
+            }
+            data = localData
+        }
+        try Task.checkCancellation()
+        let content = try ReaderMediaView.Content.decode(data)
+        return LoadedMedia(content: content, aspectRatio: content.aspectRatio)
+    }
+
+    struct LoadedMedia {
+        let content: ReaderMediaView.Content
+        let aspectRatio: CGFloat
     }
 }
