@@ -14,6 +14,16 @@ struct AppModelTests {
         func authenticate(reason: String) async throws -> Bool { false }
     }
 
+    @MainActor
+    private final class RecordingProfileAuthenticator: ProfileAuthenticating {
+        private(set) var reasons: [String] = []
+
+        func authenticate(reason: String) async throws -> Bool {
+            reasons.append(reason)
+            return true
+        }
+    }
+
     @Test("Profile registry creates and persists isolated descriptors")
     func profileRegistryCreatesAndRenamesProfiles() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -23,7 +33,7 @@ struct AppModelTests {
             authenticator: DecliningProfileAuthenticator()
         )
 
-        session.prepare()
+        await session.prepare()
         #expect(session.profiles.count == 1)
         #expect(session.profiles[0].name == "个人")
 
@@ -37,8 +47,29 @@ struct AppModelTests {
             profilesRoot: root,
             authenticator: DecliningProfileAuthenticator()
         )
-        restored.prepare()
+        await restored.prepare()
         #expect(restored.profiles.map(\.name).sorted() == ["个人", "阅读"])
+    }
+
+    @Test("Startup restores the last profile without authentication")
+    func startupRestoresLastProfileWithoutAuthentication() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EhViewerStartupProfileTests-\(UUID().uuidString)", isDirectory: true)
+        let authenticator = RecordingProfileAuthenticator()
+        let session = ProfileSession(profilesRoot: root, authenticator: authenticator)
+
+        await session.prepare()
+        let initialProfileID = try #require(session.runtime?.descriptor.id)
+        #expect(authenticator.reasons.isEmpty)
+
+        await session.createProfile(named: "工作")
+        let workProfileID = try #require(session.runtime?.descriptor.id)
+        #expect(workProfileID != initialProfileID)
+        #expect(authenticator.reasons == ["进入新的 EhViewer 空间"])
+
+        await session.switchProfile(to: initialProfileID)
+        #expect(session.runtime?.descriptor.id == initialProfileID)
+        #expect(authenticator.reasons == ["进入新的 EhViewer 空间", "切换 EhViewer 空间"])
     }
     @Test("批量下载仅保留没有下载任务的画廊")
     func bulkDownloadTargetsSkipExistingJobs() {

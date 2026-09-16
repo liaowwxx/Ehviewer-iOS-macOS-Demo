@@ -238,25 +238,33 @@ final class ProfileSession {
         profiles.first { $0.id == selectedProfileID }
     }
 
-    func prepare() {
+    func prepare() async {
         guard isPrepared == false else { return }
-        defer { isPrepared = true }
+        isPrepared = true
         do {
             try FileManager.default.createDirectory(at: profilesRoot, withIntermediateDirectories: true)
             let registry = try loadRegistry()
             profiles = registry.profiles
             lastUsedProfileID = registry.lastUsedProfileID
             try resumePendingDeletion()
-            Task { await finishPendingDeletions() }
+            await finishPendingDeletions()
             if profiles.isEmpty {
                 let first = ProfileDescriptor(name: "个人", usesLegacyStorage: legacyStorageExists())
                 profiles = [first]
                 lastUsedProfileID = first.id
                 try persistRegistry()
             }
-            selectedProfileID = profiles.contains(where: { $0.id == lastUsedProfileID })
+            let availableProfiles = profiles.filter { $0.isDeleting == false }
+            selectedProfileID = availableProfiles.contains(where: { $0.id == lastUsedProfileID })
                 ? lastUsedProfileID
-                : profiles.first?.id
+                : availableProfiles.first?.id
+
+            if let selectedProfileID {
+                // The application launch itself is not a profile-switch action.
+                // Keep the existing runtime readiness barrier, but do not ask
+                // for system authentication before restoring the last profile.
+                await activate(profileID: selectedProfileID, reason: nil)
+            }
         } catch {
             startupError = error.localizedDescription
         }
@@ -340,13 +348,15 @@ final class ProfileSession {
         }
     }
 
-    private func activate(profileID: UUID, reason: String) async {
+    private func activate(profileID: UUID, reason: String?) async {
         guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
         isActivatingProfile = true
         defer { isActivatingProfile = false }
         do {
-            guard try await authenticate(reason: reason) else {
-                throw ProfileSessionError.authenticationCancelled
+            if let reason {
+                guard try await authenticate(reason: reason) else {
+                    throw ProfileSessionError.authenticationCancelled
+                }
             }
             await migrateLegacySessionIfNeeded(for: profiles[index])
             let newRuntime = try ProfileRuntime(descriptor: profiles[index], profilesRoot: profilesRoot)
@@ -522,7 +532,7 @@ struct ProfileHostView: View {
             reduceMotion ? nil : .easeInOut(duration: 0.2),
             value: session.runtime != nil
         )
-        .task { session.prepare() }
+        .task { await session.prepare() }
     }
 }
 

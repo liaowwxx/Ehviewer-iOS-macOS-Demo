@@ -5,9 +5,9 @@
 在现有单一 `AppModel`、单一 SwiftData 容器和全局文件目录之上增加 profile 运行时层：
 
 - 支持任意多个 profile。
-- 启动时默认选中上次使用的 profile，但必须先完成系统认证。可以切换profile。
+- 启动时默认选中并直接恢复上次使用的 profile；在设置中切换 profile 时仍需完成系统认证。
 - 按最终确认的方案取消应用自定义 PIN，不保存 profile 密码；使用 `LocalAuthentication` 的系统认证流程。iOS 优先使用 Face ID/Touch ID，macOS 使用 Touch ID 或系统设备认证，设备不支持生物识别时由系统回退到设备密码。
-- 不因应用进入后台自动锁定；只有启动进入 profile 或用户切换 profile 时重新认证。
+- 不因应用进入后台自动锁定；启动恢复不需要认证，只有用户切换 profile 时重新认证。
 - 下载、SwiftData、本地缓存、历史、收藏、会话、阅读设置、过滤规则、搜索记录、标签数据库等所有用户状态和设置选项全部按 profile 隔离。
 - 切换 profile 前暂停当前 profile 的下载和设备同步，保留已完成页面、部分下载文件和可恢复状态。
 - 删除 profile 前再次进行系统认证并二次确认；至少保留一个 profile。删除失败时保留待删除状态，下一次启动继续清理，不把未清理完成的 profile 当作已删除。
@@ -98,9 +98,9 @@
 `EhViewerApp` 改为渲染 profile 会话宿主：
 
 - 启动阶段读取 profile 注册表。
-- 若存在上次使用的 profile，自动选中它并显示解锁界面。
+- 若存在上次使用的 profile，自动选中并直接恢复它，不显示启动解锁界面。
 - 解锁界面提供“切换 profile”入口，可返回 profile 列表选择其他 profile。
-- 认证成功后才创建并注入该 profile 的 `AppModel`、`ModelContainer` 和所有依赖。
+- 启动恢复会在现有 readiness barrier 完成后创建并注入该 profile 的 `AppModel`、`ModelContainer` 和所有依赖；设置中的 profile 切换仍需在认证成功后执行同样的创建流程。
 - 主界面使用 profile ID 或 runtime generation 作为 `.id(...)`，确保切换后旧的导航栈、`@Query`、列表缓存和异步任务不会复用到新 profile。
 - macOS 阅读器窗口的 route 必须携带 profile 身份或 runtime generation；旧 profile 的 reader route 在切换后不能重新绑定到新 profile 的同一个 gallery key。
 
@@ -233,7 +233,7 @@
   - 新建 profile 导入后只有归档实际包含的数据，未复制 Cookie、认证状态和偏好；
   - 旧版本归档仍可导入。
 - UI 测试：
-  - 启动显示上次 profile 的解锁界面；
+  - 启动直接进入上次使用的 profile；
   - 可以返回 profile 列表并切换；
   - 设置首页显示当前 profile；
   - 新建、重命名、删除入口具备稳定 accessibility identifier；
@@ -252,7 +252,7 @@ xcodebuild -project EhViewer.xcodeproj -scheme EhViewer -sdk macosx CODE_SIGNING
 ## Assumptions
 
 - 最终锁定方案以最新选择为准：取消应用 PIN，使用系统 Face ID/Touch ID/设备认证；不新增应用级 PIN 恢复流程。
-- 启动自动选择上次 profile，但仍要求认证；用户可以在解锁界面切换到其他 profile。
+- 启动自动选择并直接进入上次 profile；用户仍可以在设置中切换到其他 profile，切换操作需要系统认证。
 - 应用回到前台不会自动重新锁定。
 - 所有用户状态按 profile 隔离；系统语言等真正的应用级设置可以共享。
 - 导入新 profile 时只导入所选备份内容，不复制源 profile 的偏好、历史、收藏、Cookie 或认证信息。
