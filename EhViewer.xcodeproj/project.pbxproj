@@ -14,6 +14,13 @@
 		0DA4185B302C7798007B166F /* EHDeviceSync in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000005 /* EHDeviceSync */; };
 		EHB00000000000000000001 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000001 /* AppModel.swift */; };
 		EHB00000000000000000002 /* BrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000002 /* BrowseView.swift */; };
+		A17C00000000000000000001 /* GalleryLayoutMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000002 /* GalleryLayoutMode.swift */; };
+		A17C00000000000000000003 /* GalleryLayoutMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000004 /* GalleryLayoutMenu.swift */; };
+		A17C00000000000000000005 /* WaterfallLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000006 /* WaterfallLayout.swift */; };
+		A17C00000000000000000007 /* WaterfallGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000008 /* WaterfallGrid.swift */; };
+		A17C00000000000000000009 /* WaterfallHeightPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0000000000000000000A /* WaterfallHeightPreference.swift */; };
+		A17C0000000000000000000B /* DownloadGallerySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0000000000000000000C /* DownloadGallerySummary.swift */; };
+		A17C0000000000000000000D /* WaterfallCoverRatios.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0000000000000000000E /* WaterfallCoverRatios.swift */; };
 		EHB00000000000000000003 /* DownloadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000003 /* DownloadsView.swift */; };
 		EHB00000000000000000004 /* EhViewerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000004 /* EhViewerApp.swift */; };
 		EHB00000000000000000064 /* ProfileSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000064 /* ProfileSession.swift */; };
@@ -128,6 +135,13 @@
 /* Begin PBXFileReference section */
 		EHF00000000000000000001 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		EHF00000000000000000002 /* BrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseView.swift; sourceTree = "<group>"; };
+		A17C00000000000000000002 /* GalleryLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryLayoutMode.swift; sourceTree = "<group>"; };
+		A17C00000000000000000004 /* GalleryLayoutMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryLayoutMenu.swift; sourceTree = "<group>"; };
+		A17C00000000000000000006 /* WaterfallLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallLayout.swift; sourceTree = "<group>"; };
+		A17C00000000000000000008 /* WaterfallGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallGrid.swift; sourceTree = "<group>"; };
+		A17C0000000000000000000A /* WaterfallHeightPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallHeightPreference.swift; sourceTree = "<group>"; };
+		A17C0000000000000000000C /* DownloadGallerySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadGallerySummary.swift; sourceTree = "<group>"; };
+		A17C0000000000000000000E /* WaterfallCoverRatios.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallCoverRatios.swift; sourceTree = "<group>"; };
 		EHF00000000000000000003 /* DownloadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000004 /* EhViewerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EhViewerApp.swift; sourceTree = "<group>"; };
 		EHF00000000000000000064 /* ProfileSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSession.swift; sourceTree = "<group>"; };
@@ -280,6 +294,13 @@
 				EHF0000000000000000005B /* DeviceSyncPairingView.swift */,
 				EHF00000000000000000038 /* AppTheme.swift */,
 				EHF00000000000000000002 /* BrowseView.swift */,
+				A17C00000000000000000002 /* GalleryLayoutMode.swift */,
+				A17C00000000000000000004 /* GalleryLayoutMenu.swift */,
+				A17C00000000000000000006 /* WaterfallLayout.swift */,
+				A17C00000000000000000008 /* WaterfallGrid.swift */,
+				A17C0000000000000000000A /* WaterfallHeightPreference.swift */,
+				A17C0000000000000000000C /* DownloadGallerySummary.swift */,
+				A17C0000000000000000000E /* WaterfallCoverRatios.swift */,
 				EHF0000000000000000005C /* GalleryCardDisplaySettings.swift */,
 				EHF0000000000000000005D /* GalleryCardSettingsSection.swift */,
 				EHF0000000000000000005E /* GalleryRatingView.swift */,
@@ -517,6 +538,13 @@
 				EHB0000000000000000005B /* DeviceSyncPairingView.swift in Sources */,
 				EHB00000000000000000038 /* AppTheme.swift in Sources */,
 				EHB00000000000000000002 /* BrowseView.swift in Sources */,
+				A17C00000000000000000001 /* GalleryLayoutMode.swift in Sources */,
+				A17C00000000000000000003 /* GalleryLayoutMenu.swift in Sources */,
+				A17C00000000000000000005 /* WaterfallLayout.swift in Sources */,
+				A17C00000000000000000007 /* WaterfallGrid.swift in Sources */,
+				A17C00000000000000000009 /* WaterfallHeightPreference.swift in Sources */,
+				A17C0000000000000000000B /* DownloadGallerySummary.swift in Sources */,
+				A17C0000000000000000000D /* WaterfallCoverRatios.swift in Sources */,
 				EHB0000000000000000005C /* GalleryCardDisplaySettings.swift in Sources */,
 				EHB0000000000000000005D /* GalleryCardSettingsSection.swift in Sources */,
 				EHB0000000000000000005E /* GalleryRatingView.swift in Sources */,

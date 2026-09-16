@@ -77,8 +77,25 @@ struct BrowseView: View {
                 .padding(.top, 6)
             }
             LazyVStack(spacing: 4) {
-                ForEach(pageModel.galleries) { gallery in
-                    galleryLink(gallery)
+                if model.readingSettings.galleryCard.layoutMode == .waterfall {
+                    WaterfallGrid(
+                        items: pageModel.galleries, key: \.key,
+                        scale: model.readingSettings.galleryCard.cardScale,
+                        spacing: horizontalSizeClass == .regular ? 16 : 12,
+                        estimatedInformationHeight: model.readingSettings.galleryCard.estimatedInformationHeight
+                    ) { gallery in
+                        galleryLink(gallery)
+                    }
+                } else {
+                    LazyVGrid(
+                        columns: model.readingSettings.galleryCard.columns(isRegularWidth: horizontalSizeClass == .regular),
+                        spacing: model.readingSettings.galleryCard.layoutMode == .grid
+                            ? (horizontalSizeClass == .regular ? 16 : 12) : 8
+                    ) {
+                        ForEach(pageModel.galleries) { gallery in
+                            galleryLink(gallery)
+                        }
+                    }
                 }
                 if pageModel.nextPageURL != nil {
                     if pageModel.shouldAutomaticallyLoadMore {
@@ -95,8 +112,8 @@ struct BrowseView: View {
                     }
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.horizontal, model.readingSettings.galleryCard.layoutMode == .waterfall ? (horizontalSizeClass == .regular ? 16 : 12) : 10)
+            .padding(.vertical, model.readingSettings.galleryCard.layoutMode == .waterfall ? (horizontalSizeClass == .regular ? 16 : 12) : 4)
         }
         .scrollPosition(id: $pageModel.scrollPosition, anchor: .top)
         .overlay {
@@ -179,6 +196,7 @@ struct BrowseView: View {
                 }
             }
             ToolbarItemGroup(placement: .primaryAction) {
+                GalleryLayoutMenu()
                 if kind == .home || kind == .search {
                     Button("高级搜索", systemImage: "slider.horizontal.3") {
                         showingAdvancedSearch = true
@@ -405,6 +423,7 @@ private struct BrowseLoadID: Hashable {
 
 struct GalleryCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.waterfallCoverRatios) private var cachedCoverRatios
     let gallery: GallerySummary
     let displaySettings: GalleryCardDisplaySettings
     let isCompactWidth: Bool
@@ -414,108 +433,63 @@ struct GalleryCard: View {
     var prefersGalleryCache = false
     var showsBackground = true
     var downloadStatus: GalleryCardDownloadStatus?
+    var usesPreferredLayout = true
+    @State private var coverHeightToWidth = 4.0 / 3.0
+    @ScaledMetric(relativeTo: .caption) private var tagRowHeight = 24.0
+
+    private var isWaterfall: Bool {
+        usesPreferredLayout && displaySettings.layoutMode == .waterfall
+    }
+
+    private var isGrid: Bool {
+        usesPreferredLayout && displaySettings.layoutMode == .grid
+    }
+
+    private var displayScale: Double {
+        GalleryCardDisplaySettings.clampedScale(isGrid || isWaterfall ? displaySettings.cardScale : displaySettings.listScale)
+    }
+
+    private var coverSize: CGSize {
+        CGSize(width: 78 * displayScale, height: 108 * displayScale)
+    }
 
     var body: some View {
-        let settings = effectiveDisplaySettings
-        let rating = settings.showsRating ? gallery.rating : nil
-        let showsCompactStarRating = isCompactWidth
-            && settings.ratingDisplayStyle == .stars
-            && rating != nil
-        HStack(spacing: 10) {
-            if let localJob {
-                DownloadCover(
-                    job: localJob,
-                    title: displayTitle,
-                    size: CGSize(width: 78, height: 108),
-                    cornerRadius: 10
-                )
+        Group {
+            if isGrid {
+                Color.clear
+                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .overlay { cover }
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .contentShape(Rectangle())
+            } else if isWaterfall {
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.clear
+                        .aspectRatio(1 / (cachedCoverRatios?.wrappedValue[gallery.key] ?? coverHeightToWidth), contentMode: .fit)
+                        .overlay { cover }
+                        .clipped()
+                    informationContent
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .background(.background)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .contentShape(Rectangle())
             } else {
-                GalleryThumbnail(
-                    url: gallery.thumbnailURL,
-                    key: gallery.key,
-                    isLocalMediaResolved: localMediaResolved,
-                    prefersGalleryCache: prefersGalleryCache
-                )
+                listContent
             }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .top, spacing: 6) {
-                    Text(displayTitle)
-                        .font(.headline)
-                        .lineLimit(2)
-                    Spacer(minLength: 0)
-                    if let downloadStatus {
-                        GalleryCardDownloadStatusBadge(status: downloadStatus)
-                    }
-                }
-                if settings.showsAuthor, let authorText {
-                    Label(authorText, systemImage: "person")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                if showsCompactStarRating, let rating {
-                    GalleryRatingView(rating: rating)
-                        .font(.caption)
-                }
-                if let supplementalText {
-                    Text(supplementalText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                if settings.showsOrdinaryTags {
-                    Group {
-                        if gallery.tags.isEmpty == false {
-                            TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
-                                ForEach(Array(gallery.tags.enumerated()), id: \.offset) { item in
-                                    GalleryTagChip(title: model.displayTag(item.element))
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .frame(height: 48, alignment: .topLeading)
-                    .clipped()
-                }
-                HStack(spacing: 6) {
-                    if settings.showsCategoryBadge, let category = gallery.category {
-                        CategoryBadge(name: category)
-                    }
-                    if settings.showsLanguage, let language = gallery.simpleLanguage {
-                        Text(language)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.quaternary, in: Capsule())
-                            .accessibilityLabel("语言 \(language)")
-                    }
-                    if settings.showsPageCount, let pageCount = gallery.pageCount { Text("\(pageCount) 页") }
-                    if let favoriteCategory = gallery.favoriteCategory, favoriteCategory != 0 {
-                        Image(systemName: "heart.fill")
-                            .foregroundStyle(.pink)
-                            .accessibilityLabel("已收藏")
-                    }
-                    Spacer(minLength: 0)
-                    if let displayedDate {
-                        dateText(displayedDate.date)
-                    }
-                    if showsCompactStarRating == false, let rating {
-                        switch settings.ratingDisplayStyle {
-                        case .numeric:
-                            Text(String(format: "%.1f", rating))
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                        case .stars:
-                            GalleryRatingView(rating: rating)
-                        }
-                    }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(isGrid ? displayTitle : accessibilityTitle)
+    }
+
+    @ViewBuilder
+    private var listContent: some View {
+        HStack(spacing: 10) {
+            cover
+            informationContent
             Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(6)
         .background {
             if showsBackground {
@@ -523,16 +497,140 @@ struct GalleryCard: View {
                     .fill(Color.secondary.opacity(0.12))
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityTitle)
+    }
+
+    @ViewBuilder
+    private var informationContent: some View {
+        let settings = effectiveDisplaySettings
+        let rating = settings.showsRating ? gallery.rating : nil
+        let showsCompactStarRating = isCompactWidth
+            && settings.ratingDisplayStyle == .stars
+            && rating != nil
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 6) {
+                Text(displayTitle)
+                    .font(.headline.scaled(by: displayScale))
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                if let downloadStatus {
+                    GalleryCardDownloadStatusBadge(status: downloadStatus)
+                }
+            }
+            if settings.showsAuthor, let authorText {
+                Label(authorText, systemImage: "person")
+                    .font(.caption.scaled(by: displayScale))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if showsCompactStarRating, let rating {
+                GalleryRatingView(rating: rating)
+                    .font(.caption)
+            }
+            if let supplementalText {
+                Text(supplementalText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if isWaterfall, let localJob, localJob.state != .completed, localJob.state != .cancelled {
+                ProgressView(value: localJob.progress)
+                Text("\(Int((localJob.progress * 100).rounded()))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            if settings.showsOrdinaryTags && (isWaterfall == false || gallery.tags.isEmpty == false) {
+                Group {
+                    if gallery.tags.isEmpty == false {
+                        TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
+                            ForEach(Array(gallery.tags.enumerated()), id: \.offset) { item in
+                                GalleryTagChip(title: model.displayTag(item.element))
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(height: isWaterfall ? 2 * tagRowHeight * displayScale : 48, alignment: .topLeading)
+                .clipped()
+            }
+            let metadataLayout = isWaterfall
+                ? AnyLayout(TagFlowLayout(horizontalSpacing: 6, verticalSpacing: 4))
+                : AnyLayout(HStackLayout(spacing: 6))
+            metadataLayout {
+                if settings.showsCategoryBadge, let category = gallery.category {
+                    CategoryBadge(name: category)
+                }
+                if settings.showsLanguage, let language = gallery.simpleLanguage {
+                    Text(language)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                        .accessibilityLabel("语言 \(language)")
+                }
+                if settings.showsPageCount, let pageCount = gallery.pageCount { Text("\(pageCount) 页") }
+                if let favoriteCategory = gallery.favoriteCategory, favoriteCategory != 0 {
+                    Image(systemName: "heart.fill")
+                        .foregroundStyle(.pink)
+                        .accessibilityLabel("已收藏")
+                }
+                if isWaterfall == false { Spacer(minLength: 0) }
+                if let displayedDate {
+                    dateText(displayedDate.date)
+                }
+                if showsCompactStarRating == false, let rating {
+                    switch settings.ratingDisplayStyle {
+                    case .numeric:
+                        Text(String(format: "%.1f", rating))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    case .stars:
+                        GalleryRatingView(rating: rating)
+                    }
+                }
+            }
+            .font(.caption.scaled(by: displayScale))
+            .foregroundStyle(.secondary)
+        }
     }
 
     private var displayTitle: String {
         gallery.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle)
     }
 
+    @ViewBuilder
+    private var cover: some View {
+        if let localJob {
+            DownloadCover(
+                job: localJob,
+                title: displayTitle,
+                size: isGrid || isWaterfall ? nil : coverSize,
+                cornerRadius: isGrid || isWaterfall ? 14 : 10,
+                onImageSize: updateCoverRatio
+            )
+        } else {
+            GalleryThumbnail(
+                url: gallery.thumbnailURL,
+                key: gallery.key,
+                isLocalMediaResolved: localMediaResolved,
+                prefersGalleryCache: prefersGalleryCache,
+                size: isGrid || isWaterfall ? nil : coverSize,
+                cornerRadius: isGrid || isWaterfall ? 14 : 10,
+                onImageSize: updateCoverRatio
+            )
+        }
+    }
+
     private var effectiveDisplaySettings: GalleryCardDisplaySettings {
         displaySettings.effectiveForDisplay(isCompactWidth: isCompactWidth)
+    }
+
+    private func updateCoverRatio(_ size: CGSize) {
+        let ratio = WaterfallLayout.heightToWidth(width: size.width, height: size.height)
+        coverHeightToWidth = ratio
+        if isWaterfall, let cachedCoverRatios, cachedCoverRatios.wrappedValue[gallery.key] != ratio {
+            cachedCoverRatios.wrappedValue[gallery.key] = ratio
+        }
     }
 
     private var authorText: String? {
@@ -640,6 +738,9 @@ private struct GalleryThumbnail: View {
     let key: GalleryKey
     var isLocalMediaResolved = true
     var prefersGalleryCache = false
+    var size: CGSize? = CGSize(width: 78, height: 108)
+    var cornerRadius: CGFloat = 10
+    var onImageSize: ((CGSize) -> Void)?
     @State private var image: CGImage?
 
     var body: some View {
@@ -652,9 +753,10 @@ private struct GalleryThumbnail: View {
                 PlaceholderThumbnail()
             }
         }
-        .frame(width: 78, height: 108)
+        .frame(width: size?.width, height: size?.height)
+        .frame(maxWidth: size == nil ? .infinity : nil, maxHeight: size == nil ? .infinity : nil)
         .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .task(id: thumbnailTaskID) {
             guard isLocalMediaResolved else { return }
             guard let url else { return }
@@ -665,6 +767,7 @@ private struct GalleryThumbnail: View {
                     prefersGalleryCache: prefersGalleryCache,
                     maxPixelSize: 500
                 )
+                if let image { onImageSize?(CGSize(width: image.width, height: image.height)) }
             } catch is CancellationError {
                 return
             } catch {

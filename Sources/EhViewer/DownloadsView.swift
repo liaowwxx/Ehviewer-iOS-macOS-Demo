@@ -319,6 +319,8 @@ struct DownloadsView: View {
                 } else {
                     if model.downloadLayoutMode == .grid {
                         downloadsGrid
+                    } else if model.downloadLayoutMode == .waterfall {
+                        downloadsWaterfall
                     } else {
                         downloadsList
                     }
@@ -509,23 +511,20 @@ struct DownloadsView: View {
     }
 
     private var layoutToolbarButton: some View {
-        Button {
-            model.downloadLayoutMode = model.downloadLayoutMode == .list ? .grid : .list
+        let current = model.downloadLayoutMode
+        return Button {
+            model.downloadLayoutMode = current.next
             model.persistDownloadPreferences()
         } label: {
             Label(
-                model.downloadLayoutMode == .list
-                    ? String(localized: "卡片")
-                    : String(localized: "列表"),
-                systemImage: page == .local
-                    ? "square.grid.2x2"
-                    : (model.downloadLayoutMode == .list
-                        ? "square.grid.2x2"
-                        : "list.bullet")
+                current.next.title,
+                systemImage: current.next.systemImage
             )
         }
         .accessibilityIdentifier("downloads-layout-toggle")
         .labelStyle(.titleAndIcon)
+        .accessibilityValue(current.title)
+        .accessibilityHint("切换到\(current.next.title)")
     }
 
     private var sortToolbarMenu: some View {
@@ -947,12 +946,55 @@ struct DownloadsView: View {
         .background(.secondary.opacity(0.08))
     }
 
+    private var downloadsWaterfall: some View {
+        ScrollView {
+            WaterfallGrid(
+                items: visibleJobs, key: \.key,
+                scale: model.readingSettings.galleryCard.cardScale,
+                spacing: gridSpacing,
+                estimatedInformationHeight: model.readingSettings.galleryCard.estimatedInformationHeight
+            ) { job in
+                DownloadGridCard(
+                    job: job,
+                    layoutMode: .waterfall,
+                    gallery: DownloadGallerySummary.resolve(job: job, cached: localGallerySummariesByKey[job.key]),
+                    isSelectionMode: isSelectionMode,
+                    isSelected: selectedKeys.contains(job.key),
+                    select: { toggleSelection(job.key) },
+                    requestSelection: { enterSelectionMode(selecting: job.key) },
+                    toggle: {
+                        Task {
+                            if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
+                            else { await model.resumeDownload(job.key) }
+                        }
+                    },
+                    redownload: {
+                        guard bulkRemovalProgress == nil else { return }
+                        jobPendingRedownload = job
+                    },
+                    remove: {
+                        guard bulkRemovalProgress == nil else { return }
+                        deletionConfirmation = .single(job)
+                    },
+                    label: {
+                        labelInput = job.label ?? ""
+                        editingJob = job
+                    }
+                )
+                .equatable()
+            }
+            .padding(gridSpacing)
+        }
+        .background(.secondary.opacity(0.08))
+    }
+
     /// iPadOS 与桌面端使用更大的卡片，紧凑设备保持适中尺寸。
     private var gridColumns: [GridItem] {
+        let scale = GalleryCardDisplaySettings.clampedScale(model.readingSettings.galleryCard.cardScale)
         if horizontalSizeClass == .regular {
-            return [GridItem(.adaptive(minimum: 140, maximum: 190), spacing: 16)]
+            return [GridItem(.adaptive(minimum: 140 * scale, maximum: 190 * scale), spacing: 16)]
         }
-        return [GridItem(.adaptive(minimum: 104, maximum: 140), spacing: 12)]
+        return [GridItem(.adaptive(minimum: 104 * scale, maximum: 140 * scale), spacing: 12)]
     }
 
     private var gridSpacing: CGFloat {
@@ -1381,29 +1423,7 @@ private struct LocalDownloadsList: View {
     }
 
     private func localGallerySummary(for job: DownloadJob) -> GallerySummary {
-        guard var summary = gallerySummariesByKey[job.key] else {
-            return GallerySummary(
-                key: job.key,
-                title: job.title,
-                japaneseTitle: job.japaneseTitle,
-                pageCount: job.pages.isEmpty ? nil : job.pages.count,
-                tags: job.tags
-            )
-        }
-        let completeness = summary.metadataCompleteness
-        if completeness?.title == .notLoaded, job.title.isEmpty == false {
-            summary.title = job.title
-        }
-        if completeness?.japaneseTitle == .notLoaded, summary.japaneseTitle == nil {
-            summary.japaneseTitle = job.japaneseTitle
-        }
-        if completeness?.tags == .notLoaded, summary.tags.isEmpty {
-            summary.tags = job.tags
-        }
-        if completeness?.pageCount == .notLoaded, summary.pageCount == nil, job.pages.isEmpty == false {
-            summary.pageCount = job.pages.count
-        }
-        return summary
+        DownloadGallerySummary.resolve(job: job, cached: gallerySummariesByKey[job.key])
     }
 }
 
@@ -1585,6 +1605,15 @@ enum DownloadSortOrder: String, CaseIterable, Identifiable {
 enum DownloadsLayoutMode: String, CaseIterable, Identifiable {
     case list
     case grid
+    case waterfall
+
+    var next: Self {
+        switch self {
+        case .list: .grid
+        case .grid: .waterfall
+        case .waterfall: .list
+        }
+    }
 
     var id: Self { self }
 
@@ -1592,6 +1621,7 @@ enum DownloadsLayoutMode: String, CaseIterable, Identifiable {
         switch self {
         case .list: String(localized: "列表")
         case .grid: String(localized: "卡片")
+        case .waterfall: String(localized: "瀑布流")
         }
     }
 
@@ -1599,6 +1629,7 @@ enum DownloadsLayoutMode: String, CaseIterable, Identifiable {
         switch self {
         case .list: "list.bullet"
         case .grid: "square.grid.2x2"
+        case .waterfall: "rectangle.grid.2x2"
         }
     }
 }
@@ -1699,7 +1730,8 @@ private struct LocalDownloadCard: View, Equatable {
             displaySettings: displaySettings,
             isCompactWidth: isCompactWidth,
             localJob: job,
-            showsBackground: showsBackground
+            showsBackground: showsBackground,
+            usesPreferredLayout: false
         )
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1915,12 +1947,15 @@ private struct DownloadCard: View {
             DownloadCover(
                 job: job,
                 title: displayTitle,
-                size: CGSize(width: 88, height: 120),
+                size: CGSize(
+                    width: 88 * model.readingSettings.galleryCard.listScale,
+                    height: 120 * model.readingSettings.galleryCard.listScale
+                ),
                 cornerRadius: 12
             )
             VStack(alignment: .leading, spacing: 7) {
                 Text(displayTitle)
-                    .font(.headline)
+                    .font(.headline.scaled(by: model.readingSettings.galleryCard.listScale))
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let authorText {
@@ -2019,7 +2054,10 @@ private struct DownloadCard: View {
 
 private struct DownloadGridCard: View, Equatable {
     @Environment(AppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let job: DownloadJob
+    var layoutMode: DownloadsLayoutMode = .grid
+    var gallery: GallerySummary?
     let isSelectionMode: Bool
     let isSelected: Bool
     let select: () -> Void
@@ -2031,6 +2069,8 @@ private struct DownloadGridCard: View, Equatable {
 
     nonisolated static func == (lhs: DownloadGridCard, rhs: DownloadGridCard) -> Bool {
         lhs.job == rhs.job
+            && lhs.layoutMode == rhs.layoutMode
+            && lhs.gallery == rhs.gallery
             && lhs.isSelectionMode == rhs.isSelectionMode
             && lhs.isSelected == rhs.isSelected
     }
@@ -2072,27 +2112,7 @@ private struct DownloadGridCard: View, Equatable {
     }
 
     private var coverContent: some View {
-        Color.clear
-            .aspectRatio(3.0 / 4.0, contentMode: .fit)
-            .overlay {
-                DownloadCover(job: job, title: displayTitle, size: nil, cornerRadius: 14, allowsTransition: true)
-            }
-            .overlay(alignment: .bottom) {
-                if showsProgress {
-                    VStack(spacing: 3) {
-                        ProgressView(value: job.progress)
-                            .progressViewStyle(.linear)
-                            .tint(.white)
-                        Text("\(Int((job.progress * 100).rounded()))%")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.white)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
-                    .background(.black.opacity(0.45))
-                }
-            }
+        baseContent
             .overlay(alignment: .topLeading) {
                 if isSelectionMode {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -2104,19 +2124,55 @@ private struct DownloadGridCard: View, Equatable {
                         .accessibilityLabel(isSelected ? String(localized: "已选择") : String(localized: "未选择"))
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                if isSelectionMode == false, showsStatusIndicator {
-                    Image(systemName: statusSystemImage)
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(minWidth: 36, minHeight: 36)
-                        .background(statusColor, in: Circle())
-                        .padding(8)
-                        .accessibilityLabel(statusTitle)
+    }
+
+    @ViewBuilder
+    private var baseContent: some View {
+        if layoutMode == .waterfall {
+            GalleryCard(
+                gallery: gallery ?? DownloadGallerySummary.resolve(job: job, cached: nil),
+                displaySettings: waterfallSettings,
+                isCompactWidth: horizontalSizeClass == .compact,
+                supplementalText: showsStatusIndicator ? statusTitle : job.label,
+                localJob: job,
+                downloadStatus: GalleryCardDownloadStatus(job: job)
+            )
+        } else {
+            Color.clear
+                .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                .overlay {
+                    DownloadCover(job: job, title: displayTitle, size: nil, cornerRadius: 14, allowsTransition: true)
                 }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .contentShape(Rectangle())
+                .overlay(alignment: .bottom) {
+                    if showsProgress {
+                        VStack(spacing: 3) {
+                            ProgressView(value: job.progress)
+                                .progressViewStyle(.linear)
+                                .tint(.white)
+                            Text("\(Int((job.progress * 100).rounded()))%")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.white)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(.black.opacity(0.45))
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if isSelectionMode == false, showsStatusIndicator {
+                        Image(systemName: statusSystemImage)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .frame(minWidth: 36, minHeight: 36)
+                            .background(statusColor, in: Circle())
+                            .padding(8)
+                            .accessibilityLabel(statusTitle)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .contentShape(Rectangle())
+        }
     }
 
     private var displayTitle: String {
@@ -2125,6 +2181,12 @@ private struct DownloadGridCard: View, Equatable {
 
     private var showsProgress: Bool {
         job.state != .completed && job.state != .cancelled
+    }
+
+    private var waterfallSettings: GalleryCardDisplaySettings {
+        var settings = model.readingSettings.galleryCard
+        settings.layoutMode = .waterfall
+        return settings
     }
 
     /// Completed local cards already communicate their state through their
@@ -2184,6 +2246,7 @@ struct DownloadCover: View {
     var size: CGSize? = CGSize(width: 72, height: 96)
     var cornerRadius: CGFloat = 10
     var allowsTransition = false
+    var onImageSize: ((CGSize) -> Void)?
     @State private var image: CGImage?
 
     var body: some View {
@@ -2211,6 +2274,7 @@ struct DownloadCover: View {
                     maxPixelSize: 320
                 )
                 guard Task.isCancelled == false, let decoded else { return }
+                onImageSize?(CGSize(width: decoded.width, height: decoded.height))
                 if allowsTransition {
                     withAnimation(.easeOut(duration: 0.2)) { image = decoded }
                 } else {

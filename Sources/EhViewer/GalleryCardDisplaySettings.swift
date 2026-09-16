@@ -39,6 +39,10 @@ enum GalleryRatingDisplayStyle: String, CaseIterable, Codable, Hashable, Sendabl
 }
 
 struct GalleryCardDisplaySettings: Codable, Hashable, Sendable {
+    var layoutMode: GalleryLayoutMode = .list
+    var cardScale = 1.0
+    var listScale = 1.0
+    static let scaleRange = 0.8...1.4
     var showsAuthor = true
     var showsOrdinaryTags = true
     var showsCategoryBadge = true
@@ -53,6 +57,7 @@ struct GalleryCardDisplaySettings: Codable, Hashable, Sendable {
     static let defaults = GalleryCardDisplaySettings()
 
     private enum CodingKeys: String, CodingKey {
+        case layoutMode, cardScale, listScale
         case showsAuthor
         case showsOrdinaryTags
         case showsCategoryBadge
@@ -69,6 +74,9 @@ struct GalleryCardDisplaySettings: Codable, Hashable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        layoutMode = try container.decodeIfPresent(GalleryLayoutMode.self, forKey: .layoutMode) ?? .list
+        cardScale = Self.clampedScale(try container.decodeIfPresent(Double.self, forKey: .cardScale) ?? 1)
+        listScale = Self.clampedScale(try container.decodeIfPresent(Double.self, forKey: .listScale) ?? 1)
         showsAuthor = try container.decodeIfPresent(Bool.self, forKey: .showsAuthor) ?? true
         showsOrdinaryTags = try container.decodeIfPresent(Bool.self, forKey: .showsOrdinaryTags) ?? true
         showsCategoryBadge = try container.decodeIfPresent(Bool.self, forKey: .showsCategoryBadge) ?? true
@@ -81,8 +89,16 @@ struct GalleryCardDisplaySettings: Codable, Hashable, Sendable {
         ratingDisplayStyle = try container.decodeIfPresent(GalleryRatingDisplayStyle.self, forKey: .ratingDisplayStyle) ?? .numeric
     }
 
+    static func clampedScale(_ value: Double) -> Double {
+        guard value.isFinite else { return 1 }
+        return min(scaleRange.upperBound, max(scaleRange.lowerBound, value))
+    }
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(layoutMode, forKey: .layoutMode)
+        try container.encode(Self.clampedScale(cardScale), forKey: .cardScale)
+        try container.encode(Self.clampedScale(listScale), forKey: .listScale)
         try container.encode(showsAuthor, forKey: .showsAuthor)
         try container.encode(showsOrdinaryTags, forKey: .showsOrdinaryTags)
         try container.encode(showsCategoryBadge, forKey: .showsCategoryBadge)

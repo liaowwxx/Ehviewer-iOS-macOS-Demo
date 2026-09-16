@@ -37,30 +37,26 @@ struct ReaderPageLayoutButton: View {
     let isEnabled: Bool
 
     var body: some View {
-        Button(action: toggleLayout) {
-            Label(nextLayout.title, systemImage: nextLayout.systemImageName)
+        @Bindable var model = model
+        Menu {
+            Picker("页面布局", selection: $model.readingSettings.pageLayout) {
+                ForEach(ReaderPageLayout.allCases) { layout in
+                    Label(layout.title, systemImage: layout.systemImageName).tag(layout)
+                }
+            }
+        } label: {
+            Label(currentLayout.title, systemImage: currentLayout.systemImageName)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .fixedSize()
         .disabled(isEnabled == false)
         .accessibilityLabel("页面布局")
         .accessibilityValue(currentLayout.title)
-        .accessibilityHint(isEnabled ? nextLayout.toggleHint : "上下分页时不可用")
+        .accessibilityHint(isEnabled ? "选择单页或双页布局" : "上下分页时不可用")
         .accessibilityIdentifier("reader-page-layout-button")
-        .help(nextLayout.toggleHint)
+        .help("选择单页或双页布局")
     }
 
     private var currentLayout: ReaderPageLayout {
         model.readingSettings.pageLayout
-    }
-
-    private var nextLayout: ReaderPageLayout {
-        currentLayout == .single ? .double : .single
-    }
-
-    private func toggleLayout() {
-        model.readingSettings.pageLayout = nextLayout
     }
 }
 #endif

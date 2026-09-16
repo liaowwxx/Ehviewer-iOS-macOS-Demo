@@ -57,16 +57,35 @@ struct LibraryView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 4)
 
-                ForEach(items) { gallery in
-                    libraryRow(for: gallery)
-                        .equatable()
+                if model.readingSettings.galleryCard.layoutMode == .waterfall {
+                    WaterfallGrid(
+                        items: items, key: \.key, scale: model.readingSettings.galleryCard.cardScale,
+                        spacing: horizontalSizeClass == .regular ? 16 : 12,
+                        estimatedInformationHeight: model.readingSettings.galleryCard.estimatedInformationHeight
+                    ) { gallery in
+                        libraryRow(for: gallery).equatable()
+                    }
+                } else {
+                    LazyVGrid(
+                        columns: model.readingSettings.galleryCard.columns(isRegularWidth: horizontalSizeClass == .regular),
+                        spacing: model.readingSettings.galleryCard.layoutMode == .grid
+                            ? (horizontalSizeClass == .regular ? 16 : 12) : 8
+                    ) {
+                        ForEach(items) { gallery in
+                            libraryRow(for: gallery)
+                                .equatable()
+                        }
+                    }
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.horizontal, model.readingSettings.galleryCard.layoutMode == .waterfall ? (horizontalSizeClass == .regular ? 16 : 12) : 10)
+            .padding(.vertical, model.readingSettings.galleryCard.layoutMode == .waterfall ? (horizontalSizeClass == .regular ? 16 : 12) : 4)
         }
         .navigationTitle(mode == .history ? "history_title" : "favorites_title")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                GalleryLayoutMenu()
+            }
             if isSelectionMode {
 #if os(macOS)
                 ToolbarItem(placement: .navigation) {
@@ -448,12 +467,24 @@ private struct LibraryGalleryRow: View, Equatable {
         Group {
             if isSelectionMode {
                 Button(action: select) {
-                    HStack(alignment: .top, spacing: 10) {
-                        selectionIndicator
+                    if displaySettings.layoutMode != .list {
                         galleryCard
+                            .overlay(alignment: .topLeading) {
+                                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                    .font(.title2)
+                                    .foregroundStyle(isSelected ? Color.white : Color.secondary)
+                                    .padding(8)
+                                    .background(.black.opacity(0.45), in: Circle())
+                                    .padding(8)
+                            }
+                    } else {
+                        HStack(alignment: .top, spacing: 10) {
+                            selectionIndicator
+                            galleryCard
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(

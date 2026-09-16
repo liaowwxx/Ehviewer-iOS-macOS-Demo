@@ -17,6 +17,31 @@ struct GalleryCardSettingsSection: View {
     var body: some View {
         @Bindable var model = model
         Section("漫画卡片") {
+            Picker("显示方式", selection: $model.readingSettings.galleryCard.layoutMode) {
+                ForEach(GalleryLayoutMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            Picker("本地与下载显示方式", selection: $model.downloadLayoutMode) {
+                ForEach(DownloadsLayoutMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .onChange(of: model.downloadLayoutMode) { model.persistDownloadPreferences() }
+            LabeledContent("卡片大小", value: model.readingSettings.galleryCard.cardScale.formatted(.percent.precision(.fractionLength(0))))
+            Slider(value: $model.readingSettings.galleryCard.cardScale, in: GalleryCardDisplaySettings.scaleRange, step: 0.05) {
+                Text("卡片大小")
+            }
+            .accessibilityIdentifier("gallery-card-scale-slider")
+            LabeledContent("列表大小", value: model.readingSettings.galleryCard.listScale.formatted(.percent.precision(.fractionLength(0))))
+            Slider(value: $model.readingSettings.galleryCard.listScale, in: GalleryCardDisplaySettings.scaleRange, step: 0.05) {
+                Text("列表大小")
+            }
+            .accessibilityIdentifier("gallery-list-scale-slider")
+            Button("恢复默认大小") {
+                model.readingSettings.galleryCard.cardScale = 1
+                model.readingSettings.galleryCard.listScale = 1
+            }
             Toggle("作者", isOn: $model.readingSettings.galleryCard.showsAuthor)
                 .accessibilityIdentifier("gallery-card-show-author-toggle")
             Toggle("普通标签", isOn: $model.readingSettings.galleryCard.showsOrdinaryTags)

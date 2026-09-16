@@ -5,6 +5,33 @@ import EHDownloads
 @testable import EhViewerPreview
 
 struct GalleryCardDisplaySettingsTests {
+    @Test("卡片布局和两种大小设置保存后可以恢复")
+    func layoutPreferencesRoundTrip() throws {
+        var settings = GalleryCardDisplaySettings()
+        settings.layoutMode = .grid
+        settings.cardScale = 1.25
+        settings.listScale = 0.85
+        let data = try JSONEncoder().encode(settings)
+        #expect(try JSONDecoder().decode(GalleryCardDisplaySettings.self, from: data) == settings)
+    }
+
+    @Test("旧设置保留列表布局和默认大小")
+    func legacyLayoutDefaults() throws {
+        let settings = try JSONDecoder().decode(GalleryCardDisplaySettings.self, from: Data("{}".utf8))
+        #expect(settings.layoutMode == .list)
+        #expect(settings.cardScale == 1)
+        #expect(settings.listScale == 1)
+    }
+
+    @Test("导入越界缩放值时限制到支持范围")
+    func importedScaleIsClamped() throws {
+        let data = Data(#"{"cardScale":10,"listScale":-2}"#.utf8)
+        let settings = try JSONDecoder().decode(GalleryCardDisplaySettings.self, from: data)
+        #expect(settings.cardScale == 1.4)
+        #expect(settings.listScale == 0.8)
+        #expect(GalleryCardDisplaySettings.clampedScale(.infinity) == 1)
+    }
+
     @Test("旧阅读设置缺少漫画卡片配置时采用当前列表默认值")
     func legacyReadingSettingsUseCardDefaults() throws {
         let data = Data(#"{"readingMode":"rightToLeft","showTagTranslations":false}"#.utf8)
