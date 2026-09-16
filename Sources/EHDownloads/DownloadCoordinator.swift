@@ -214,6 +214,7 @@ public struct DownloadBatchRemovalResult: Sendable, Equatable {
 public actor DownloadCoordinator {
     public typealias PageLoader = @Sendable (GalleryPageDescriptor) async throws -> Data
     public typealias JobPersistence = @Sendable (DownloadJob) async -> Void
+    public typealias BatchJobPersistence = @Sendable ([DownloadJob]) async -> Void
     public typealias JobRemoval = @Sendable (GalleryKey) async throws -> Void
     public typealias BatchJobRemoval = @Sendable (Set<GalleryKey>) async throws -> Void
 
@@ -238,6 +239,7 @@ public actor DownloadCoordinator {
     private let maxConcurrentPages: Int
     private let fileStore: DownloadFileStore?
     private let persistence: JobPersistence?
+    private let batchPersistence: BatchJobPersistence?
     private let removal: JobRemoval?
     private let batchRemoval: BatchJobRemoval?
 
@@ -246,6 +248,7 @@ public actor DownloadCoordinator {
         pageLoader: @escaping PageLoader = DownloadCoordinator.defaultPageLoader,
         fileStore: DownloadFileStore? = nil,
         persistence: JobPersistence? = nil,
+        batchPersistence: BatchJobPersistence? = nil,
         removal: JobRemoval? = nil,
         batchRemoval: BatchJobRemoval? = nil
     ) {
@@ -253,6 +256,7 @@ public actor DownloadCoordinator {
         self.pageLoader = pageLoader
         self.fileStore = fileStore
         self.persistence = persistence
+        self.batchPersistence = batchPersistence
         self.removal = removal
         self.batchRemoval = batchRemoval
     }
@@ -684,6 +688,42 @@ public actor DownloadCoordinator {
         guard jobs[reconciledJob.key] == reconciledJob else { return false }
         emit(.changed(reconciledJob))
         return true
+    }
+
+    /// Reconciles a batch of startup jobs and persists the changes in one
+    /// transaction when the caller provides a batch writer.
+    /// The single-job overload above remains useful for interactive repairs.
+    @discardableResult
+    public func reconcilePersisted(
+        _ reconciliations: [(job: DownloadJob, baseline: DownloadJob)]
+    ) async -> Int {
+        var changedJobs: [DownloadJob] = []
+        changedJobs.reserveCapacity(reconciliations.count)
+
+        for reconciliation in reconciliations {
+            let job = reconciliation.job
+            let baseline = reconciliation.baseline
+            guard removedKeys.contains(job.key) == false,
+                  jobs[baseline.key] == baseline,
+                  job != baseline else { continue }
+            jobs[job.key] = job
+            changedJobs.append(job)
+        }
+        guard changedJobs.isEmpty == false else { return 0 }
+
+        if let batchPersistence {
+            await batchPersistence(changedJobs)
+        } else {
+            for job in changedJobs {
+                await save(job)
+            }
+        }
+
+        // A reset is substantially cheaper for startup than publishing one
+        // event per gallery, and it also makes the UI observe the complete
+        // post-reconciliation snapshot in one update.
+        emit(.reset(snapshot()))
+        return changedJobs.count
     }
 
     public func startRestoredJobs() {

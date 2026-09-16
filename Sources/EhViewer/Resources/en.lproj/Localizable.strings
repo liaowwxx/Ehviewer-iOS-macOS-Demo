@@ -397,6 +397,7 @@
 "适应屏幕" = "Fit Screen";
 "适应高度" = "Fit Height";
 "选择后跳转到此页" = "Jump to this page when selected";
+"部分下载页面信息缺失，请继续下载" = "Some download page metadata is missing; please continue downloading";
 "部分下载文件缺失或无效，请继续下载" = "Some download files are missing or invalid; please continue downloading";
 "重置图片配额" = "Reset image quota";
 "重置所有下载内容的阅读进度？" = "Reset reading progress for all downloads?";

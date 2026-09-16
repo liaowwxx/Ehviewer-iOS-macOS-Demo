@@ -213,6 +213,22 @@ struct GalleryDownloadEnqueueResult: Equatable, Sendable {
     let cancelled: Bool
 }
 
+private func makePersistedDownloadSnapshot(_ job: DownloadJob) -> PersistedDownload {
+    PersistedDownload(
+        key: job.key,
+        title: job.title,
+        japaneseTitle: job.japaneseTitle,
+        tags: job.tags,
+        pages: job.pages,
+        totalPageCount: job.pages.count,
+        createdAt: job.addedAt,
+        label: job.label,
+        completedPageIndexes: job.completedPageIndexes,
+        stateRaw: job.state.rawValue,
+        errorMessage: job.errorMessage
+    )
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -293,6 +309,7 @@ final class AppModel {
     @ObservationIgnored private var fileOperationGeneration = 0
     @ObservationIgnored private var tagTranslationLoadTask: Task<Void, Never>?
     @ObservationIgnored private var tagTranslationImportTask: Task<Void, Never>?
+    @ObservationIgnored private var hasLoadedReferenceTagTranslations = false
     @ObservationIgnored private var downloadRevisionTask: Task<Void, Never>?
     @ObservationIgnored private var readyContinuation: CheckedContinuation<Void, Never>?
 
@@ -445,6 +462,9 @@ final class AppModel {
                     label: job.label
                 )
             },
+            batchPersistence: { jobs in
+                try? await store.upsertDownloads(jobs.map(makePersistedDownloadSnapshot))
+            },
             removal: { key in
                 try await store.deleteDownload(for: key)
             },
@@ -480,17 +500,22 @@ final class AppModel {
         Task.detached(priority: .utility) {
             Self.sweepStaleTemporaryFiles()
         }
-        let tagTranslationLoadTask = Task { @MainActor [weak self] in
+        // The persisted translation lookup and the bundled database decode do
+        // not depend on one another. Start both together, then import only
+        // after the in-memory lookup has established whether the reference
+        // locale is already present. This removes one full 44k-row query on
+        // the warm path while allowing the two cold-start operations to
+        // overlap.
+        let tagTranslationTask = Task { @MainActor [weak self, tagSuggestionProvider] in
             guard let self else { return }
-            await self.loadTagTranslations()
-        }
-        self.tagTranslationLoadTask = tagTranslationLoadTask
-        self.tagTranslationImportTask = Task { @MainActor [weak self, tagSuggestionProvider] in
-            await tagTranslationLoadTask.value
-            guard let self else { return }
-            await tagSuggestionProvider.preload()
+            async let loadTranslations: Void = self.loadTagTranslations()
+            async let preloadDatabase: Void = tagSuggestionProvider.preload()
+            await loadTranslations
+            await preloadDatabase
             await self.importTagTranslationsIfNeeded()
         }
+        self.tagTranslationLoadTask = tagTranslationTask
+        self.tagTranslationImportTask = tagTranslationTask
         let downloads = self.downloads
         self.downloadRevisionTask = Task { @MainActor [weak self, downloads] in
             for await event in await downloads.events() {
@@ -1314,7 +1339,9 @@ final class AppModel {
     }
 
     func loadTagTranslations() async {
-        var loaded = (try? await persistence.tagTranslations(locale: Self.tagTranslationLocale)) ?? [:]
+        let reference = (try? await persistence.tagTranslations(locale: Self.tagTranslationLocale)) ?? [:]
+        hasLoadedReferenceTagTranslations = reference.isEmpty == false
+        var loaded = reference
         if Locale.current.identifier != Self.tagTranslationLocale,
            let local = try? await persistence.tagTranslations(locale: Locale.current.identifier) {
             loaded.merge(local) { _, new in new }
@@ -1328,7 +1355,7 @@ final class AppModel {
     /// same Chinese tag translations as the original client.
     func importTagTranslationsIfNeeded() async {
         let hasImportMarker = defaults.string(forKey: "tagTranslationImportLocale") == Self.tagTranslationLocale
-        let hasReferenceTranslations = ((try? await persistence.tagTranslations(locale: Self.tagTranslationLocale)) ?? [:]).isEmpty == false
+        let hasReferenceTranslations = hasLoadedReferenceTagTranslations
         guard hasImportMarker == false || hasReferenceTranslations == false else { return }
         guard let entries = try? await tagSuggestionProvider.allEntries() else { return }
         let pairs = entries.compactMap { entry -> (tag: String, localizedText: String)? in
@@ -2139,7 +2166,10 @@ final class AppModel {
         progress: ((Int, Int) -> Void)? = nil
     ) async {
         isLoadingDownloads = true
-        guard let persisted = try? await persistence.downloadJobs() else {
+        // Tags live in the downloaded-metadata snapshot and are not needed to
+        // render the initial download baseline. Defer that large JSON decode
+        // so the root view can be published with only the job/page records.
+        guard let persisted = try? await persistence.downloadJobs(includeTags: false) else {
             isLoadingDownloads = false
             markReady()
             return
@@ -2152,6 +2182,12 @@ final class AppModel {
         progress?(0, persisted.count)
 
         let restoreSite = site
+        async let downloadedSummaries = (try? await persistence.downloadedGallerySummaries(
+            for: Set(persisted.map(\.key))
+        )) ?? []
+        var reconciliations: [(job: DownloadJob, baseline: DownloadJob)] = []
+        reconciliations.reserveCapacity(persisted.count)
+
         for (offset, (item, baseline)) in zip(persisted, baselines).enumerated() {
             if Task.isCancelled { return }
             var pages = item.pages
@@ -2175,33 +2211,34 @@ final class AppModel {
                 addedAt: item.createdAt
             )
             let expectedPageIndexes = Set(pages.map(\.index))
-            let persistedPageIndexes = item.completedPageIndexes.intersection(expectedPageIndexes)
-            let readablePageIndexes = await downloadFiles.readablePageIndexes(
-                for: item.key,
-                pageIndexes: Array(persistedPageIndexes)
-            )
-            job.completedPageIndexes = readablePageIndexes
+            // Startup trusts the persisted completion bitmap. Full media
+            // validation is intentionally left to explicit/local-file audit
+            // flows instead of opening every completed page during launch.
+            job.completedPageIndexes = item.completedPageIndexes.intersection(expectedPageIndexes)
             job.state = normalizedRestoredState(item.stateRaw)
             job.label = item.label
             job.errorMessage = item.errorMessage
             if expectedPageIndexes.isEmpty == false,
-               readablePageIndexes == expectedPageIndexes,
+               job.completedPageIndexes == expectedPageIndexes,
                job.state != .cancelled {
                 job.state = .completed
                 job.errorMessage = nil
             } else if job.state == .completed {
                 job.state = .paused
-                job.errorMessage = String(localized: "部分下载文件缺失或无效，请继续下载")
+                job.errorMessage = String(localized: "部分下载页面信息缺失，请继续下载")
             } else if item.inFlightPageIndexes.isEmpty == false {
                 job.state = .paused
                 job.errorMessage = String(localized: "后台下载任务恢复中")
             }
-            _ = await downloads.reconcilePersisted(job, replacing: baseline)
+            reconciliations.append((job: job, baseline: baseline))
             progress?(offset + 1, persisted.count)
         }
+        _ = await downloads.reconcilePersisted(reconciliations)
         if startQueued {
             await downloads.startRestoredJobs()
         }
+        let restoredSummaries = await downloadedSummaries
+        await downloads.mergeMetadataInMemory(restoredSummaries)
     }
 
     private func makePersistedDownloadJob(_ item: PersistedDownload) -> DownloadJob {

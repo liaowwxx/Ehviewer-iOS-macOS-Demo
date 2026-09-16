@@ -360,11 +360,14 @@ final class ProfileSession {
             }
             await migrateLegacySessionIfNeeded(for: profiles[index])
             let newRuntime = try ProfileRuntime(descriptor: profiles[index], profilesRoot: profilesRoot)
+            // Publish the runtime as soon as its synchronous construction has
+            // completed. Download restoration has its own loading state and
+            // must not delay the first root view transaction.
+            runtime = newRuntime
             await newRuntime.model.waitUntilReady()
             profiles[index].lastUsedAt = Date()
             lastUsedProfileID = profileID
             try persistRegistry()
-            runtime = newRuntime
             selectedProfileID = profileID
             startupError = nil
         } catch {

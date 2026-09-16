@@ -1116,6 +1116,46 @@ public actor PersistenceStore {
         errorMessage: String?,
         label: String? = nil
     ) async throws {
+        let job = PersistedDownload(
+            key: key,
+            title: title,
+            japaneseTitle: japaneseTitle,
+            tags: tags,
+            pages: pages,
+            totalPageCount: pages.count,
+            label: label,
+            completedPageIndexes: completedPageIndexes,
+            stateRaw: stateRaw,
+            errorMessage: errorMessage
+        )
+        try applyDownload(job)
+        try modelContext.save()
+        await flushDeviceSyncIndex()
+    }
+
+    /// Applies several download state changes in one SwiftData transaction.
+    /// Startup reconciliation can touch hundreds of jobs; saving each job
+    /// independently makes the store repeatedly rebuild the same indexes and
+    /// flush the device-sync metadata queue.
+    public func upsertDownloads(_ jobs: [PersistedDownload]) async throws {
+        guard jobs.isEmpty == false else { return }
+        for job in jobs {
+            try applyDownload(job)
+        }
+        try modelContext.save()
+        await flushDeviceSyncIndex()
+    }
+
+    private func applyDownload(_ job: PersistedDownload) throws {
+        let key = job.key
+        let title = job.title
+        let japaneseTitle = job.japaneseTitle
+        let tags = job.tags
+        let pages = job.pages
+        let completedPageIndexes = job.completedPageIndexes
+        let stateRaw = job.stateRaw
+        let errorMessage = job.errorMessage
+        let label = job.label
         var completeness = GalleryMetadataCompleteness()
         completeness.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? .loadedEmpty
@@ -1172,23 +1212,26 @@ public actor PersistenceStore {
                 pageRecord.backgroundTaskIdentifier = nil
             }
         }
-        try modelContext.save()
-        await flushDeviceSyncIndex()
     }
 
-    public func downloadJobs() throws -> [PersistedDownload] {
+    public func downloadJobs(includeTags: Bool = true) throws -> [PersistedDownload] {
         var descriptor = FetchDescriptor<DownloadJobRecord>(
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
         descriptor.relationshipKeyPathsForPrefetching = [\.pages]
         let records = try modelContext.fetch(descriptor)
-        let metadataRecords = try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>())
-        let summariesByKey = Dictionary(
-            metadataRecords.compactMap { record in
-                (try? downloadedSummary(from: record)).map { (record.key, $0) }
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let summariesByKey: [GalleryKey: GallerySummary]
+        if includeTags {
+            let metadataRecords = try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>())
+            summariesByKey = Dictionary(
+                metadataRecords.compactMap { record in
+                    (try? downloadedSummary(from: record)).map { (record.key, $0) }
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+        } else {
+            summariesByKey = [:]
+        }
         return records.map { record in
             let key = record.key
             var pages: [GalleryPageDescriptor] = []

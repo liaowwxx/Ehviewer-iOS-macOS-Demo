@@ -109,6 +109,30 @@ struct PersistenceTests {
         #expect(try await store.downloadJobs().isEmpty)
     }
 
+    @Test("Download baseline can skip the separate metadata blob")
+    func downloadBaselineCanSkipMetadataBlob() async throws {
+        let container = try ModelContainerFactory.make(inMemory: true)
+        let store = PersistenceStore(modelContainer: container)
+        let key = GalleryKey(gid: 9, token: "download-baseline")
+        let summary = GallerySummary(key: key, title: "Metadata", tags: ["artist:sample"])
+        try await store.promoteToDownloadedGallery(
+            stable: StableGalleryMetadataSnapshot(summary: summary, sourceSite: .eHentai)
+        )
+        try await store.upsertDownload(
+            key: key,
+            title: summary.title,
+            tags: summary.tags,
+            pages: [],
+            completedPageIndexes: [],
+            stateRaw: "paused",
+            errorMessage: nil
+        )
+
+        let baseline = try await store.downloadJobs(includeTags: false)
+        #expect(baseline.first?.tags.isEmpty == true)
+        #expect(try await store.downloadJobs().first?.tags == summary.tags)
+    }
+
     @MainActor
     @Test("Deleting a download removes all duplicate persisted job rows")
     func deleteDownloadRemovesDuplicateRows() async throws {
