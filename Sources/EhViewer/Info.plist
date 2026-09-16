@@ -44,6 +44,13 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
 	<!-- Wi-Fi Aware is intentionally disabled while using Personal Team signing. -->
 	<key>CFBundleURLTypes</key>
 	<array>

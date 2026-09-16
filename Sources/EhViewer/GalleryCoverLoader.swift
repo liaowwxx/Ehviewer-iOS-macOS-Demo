@@ -4,6 +4,7 @@
  */
 
 import CoreGraphics
+import CryptoKit
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -70,10 +71,16 @@ actor GalleryCoverLoader {
 
         let limiter = decodeLimiter
         let diskURL = Self.diskURL(for: cacheKey, root: diskRoot)
+        let legacyDiskURL = Self.legacyDiskURL(for: cacheKey, root: diskRoot)
         let task = Task<(image: CGImage?, needsDiskWrite: Bool), Error> {
             if let data = try? Data(contentsOf: diskURL),
                let image = await Self.decode(data: data, maxPixelSize: maxPixelSize, limiter: limiter) {
                 return (image, false)
+            }
+            if let legacyDiskURL,
+               let data = try? Data(contentsOf: legacyDiskURL),
+               let image = await Self.decode(data: data, maxPixelSize: maxPixelSize, limiter: limiter) {
+                return (image, true)
             }
 
             try Task.checkCancellation()
@@ -136,9 +143,17 @@ actor GalleryCoverLoader {
 
         let diskRoot = self.diskRoot
         let limiter = decodeLimiter
+        let diskURL = Self.diskURL(for: key, root: diskRoot)
+        let legacyDiskURL = Self.legacyDiskURL(for: key, root: diskRoot)
         let task = Task<CGImage?, Error> {
-            if let data = try? Data(contentsOf: Self.diskURL(for: key, root: diskRoot)),
+            if let data = try? Data(contentsOf: diskURL),
                let image = await Self.decode(data: data, maxPixelSize: maxPixelSize, limiter: limiter) {
+                return image
+            }
+            if let legacyDiskURL,
+               let data = try? Data(contentsOf: legacyDiskURL),
+               let image = await Self.decode(data: data, maxPixelSize: maxPixelSize, limiter: limiter) {
+                Self.write(image: image, to: diskURL)
                 return image
             }
 
@@ -190,11 +205,22 @@ actor GalleryCoverLoader {
     }
 
     private static func diskURL(for key: String, root: URL) -> URL {
+        let digest = SHA256.hash(data: Data(key.utf8))
+        let hex = digest.map { byte -> String in
+            let value = String(byte, radix: 16)
+            return value.count == 1 ? "0\(value)" : value
+        }.joined()
+        let namespace = key.hasPrefix("local-v2|") ? "local" : "remote"
+        return root.appendingPathComponent("v2-\(namespace)-\(hex).png", isDirectory: false)
+    }
+
+    private static func legacyDiskURL(for key: String, root: URL) -> URL? {
         let encoded = Data(key.utf8)
             .base64EncodedString()
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "=", with: "")
+        guard encoded.utf8.count + 4 <= 255 else { return nil }
         return root.appendingPathComponent("\(encoded).png", isDirectory: false)
     }
 
@@ -217,14 +243,16 @@ actor GalleryCoverLoader {
                 at: url.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            guard let destination = CGImageDestinationCreateWithURL(
-                url as CFURL,
+            let data = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                data,
                 UTType.png.identifier as CFString,
                 1,
                 nil
             ) else { return }
             CGImageDestinationAddImage(destination, image, nil)
-            _ = CGImageDestinationFinalize(destination)
+            guard CGImageDestinationFinalize(destination) else { return }
+            try data.write(to: url, options: .atomic)
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
             var writableURL = url

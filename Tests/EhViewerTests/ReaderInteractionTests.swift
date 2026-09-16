@@ -114,4 +114,35 @@ struct ReaderInteractionTests {
         #expect(sequence.frames.count == 2)
         #expect(sequence.totalDuration >= 0.1)
     }
+
+    @Test("Gallery thumbnail cache bounds disk filenames for long cache keys")
+    func galleryThumbnailCacheBoundsDiskFilenames() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ehviewer-thumbnail-cache-\(UUID().uuidString)")
+        let loader = GalleryCoverLoader(diskRoot: root)
+        let png = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
+        let key = "remote|\(String(repeating: "x", count: 16_384))"
+
+        let image = try await loader.image(for: key, maxPixelSize: 64) { png }
+        #expect(image != nil)
+
+        let files = try FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        let cacheFile = try #require(files.first)
+        #expect(cacheFile.lastPathComponent.hasSuffix(".png"))
+        #expect(cacheFile.lastPathComponent.utf8.count < 255)
+
+        let reloadedLoader = GalleryCoverLoader(diskRoot: root)
+        let reloadedImage = try await reloadedLoader.image(for: key, maxPixelSize: 64) {
+            throw GalleryThumbnailCacheTestError.unexpectedFetch
+        }
+        #expect(reloadedImage != nil)
+    }
+}
+
+private enum GalleryThumbnailCacheTestError: Error {
+    case unexpectedFetch
 }

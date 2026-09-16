@@ -21,6 +21,7 @@ release/
 
 # Swift Package Manager build products and local state
 .build/
+.build-ios/
 .swiftpm/configuration/
 .swiftpm/xcode/
 

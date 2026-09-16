@@ -139,6 +139,16 @@ public actor DownloadFileStore {
         var hasher = SHA256()
     }
 
+    private struct ReadablePage: Sendable {
+        let pageIndex: Int
+        let fileSize: Int64
+    }
+
+    private struct ReadablePageScan: Sendable {
+        let readablePages: [ReadablePage]
+        let invalidPageIndexes: [Int]
+    }
+
     public init(
         root: URL? = nil,
         minimumFreeBytes: Int64 = 1_024 * 1_024 * 1_024,
@@ -171,24 +181,68 @@ public actor DownloadFileStore {
         pageIndexes: [Int],
         refreshValidIndexEntries: Bool = true
     ) async -> Set<Int> {
-        var readable: Set<Int> = []
-        for pageIndex in pageIndexes {
-            let url = finalURL(for: key, pageIndex: pageIndex)
-            guard FileManager.default.fileExists(atPath: url.path),
-                  let kind = DownloadMediaValidator.kind(of: url),
-                  let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
-                  let fileSize = values.fileSize,
-                  fileSize > 0 else {
-                await indexSink?.removeMediaPage(key: key, pageIndex: pageIndex)
-                continue
+        guard pageIndexes.isEmpty == false else { return [] }
+        let root = self.root
+        let scanTask = Task.detached(priority: .utility) {
+            Self.scanReadablePageIndexes(for: key, pageIndexes: pageIndexes, root: root)
+        }
+        let scan = await withTaskCancellationHandler {
+            await scanTask.value
+        } onCancel: {
+            scanTask.cancel()
+        }
+
+        guard Task.isCancelled == false else { return [] }
+        let readable = Set(scan.readablePages.map(\.pageIndex))
+        let indexSink = self.indexSink
+        for pageIndex in scan.invalidPageIndexes {
+            guard Task.isCancelled == false else { return readable }
+            await indexSink?.removeMediaPage(key: key, pageIndex: pageIndex)
+        }
+        if refreshValidIndexEntries {
+            for page in scan.readablePages {
+                guard Task.isCancelled == false else { return readable }
+                await indexSink?.upsertMediaPage(
+                    key: key,
+                    pageIndex: page.pageIndex,
+                    byteCount: page.fileSize
+                )
             }
-            readable.insert(pageIndex)
-            if refreshValidIndexEntries {
-                await indexSink?.upsertMediaPage(key: key, pageIndex: pageIndex, byteCount: Int64(fileSize))
-            }
-            _ = kind
         }
         return readable
+    }
+
+    private static func scanReadablePageIndexes(
+        for key: GalleryKey,
+        pageIndexes: [Int],
+        root: URL
+    ) -> ReadablePageScan {
+        let directory = directory(for: key, root: root)
+        var readablePages: [ReadablePage] = []
+        var invalidPageIndexes: [Int] = []
+        readablePages.reserveCapacity(pageIndexes.count)
+        invalidPageIndexes.reserveCapacity(pageIndexes.count)
+
+        for pageIndex in pageIndexes {
+            if Task.isCancelled { break }
+            let url = directory.appendingPathComponent("page-\(pageIndex + 1).bin")
+            guard let values = try? url.resourceValues(
+                forKeys: [.isRegularFileKey, .fileSizeKey]
+            ),
+                  values.isRegularFile == true,
+                  let fileSize = values.fileSize,
+                  fileSize > 0,
+                  DownloadMediaValidator.kind(of: url) != nil else {
+                invalidPageIndexes.append(pageIndex)
+                continue
+            }
+            readablePages.append(ReadablePage(pageIndex: pageIndex, fileSize: Int64(fileSize)))
+        }
+
+        return ReadablePageScan(
+            readablePages: readablePages,
+            invalidPageIndexes: invalidPageIndexes
+        )
     }
 
     /// Enumerates only real, final page files. Incomplete `.part` files and
