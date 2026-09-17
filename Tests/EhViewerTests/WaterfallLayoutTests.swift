@@ -2,9 +2,118 @@ import Foundation
 import Testing
 import EHDomain
 import EHDownloads
+import Observation
+import Synchronization
 @testable import EhViewerPreview
 
 struct WaterfallLayoutTests {
+    @Test("两行标签填满后不再测量其余标签")
+    func tagMeasurementIsBounded() {
+        let layout = TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4, maximumRows: 2)
+        var measured = 0
+        let result = layout.measure(count: 200, width: 70) { _ in
+            measured += 1
+            return CGSize(width: 30, height: 22)
+        }
+        #expect(measured == 5)
+        #expect(result.rows == [[0, 1], [2, 3]])
+        #expect(result.size == CGSize(width: 70, height: 48))
+        let unconstrained = layout.measure(count: 3, width: nil) { _ in CGSize(width: 30, height: 22) }
+        #expect(unconstrained.size == CGSize(width: 100, height: 22))
+        #expect(layout.measure(count: 0, width: 70) { _ in .zero }.size.height == 0)
+    }
+
+    @Test("分列缓存复用并在分页、排序和列数变化时失效")
+    func columnCacheInvalidation() {
+        let a = GalleryKey(gid: 1, token: "a")
+        let b = GalleryKey(gid: 2, token: "b")
+        let c = GalleryKey(gid: 3, token: "c")
+        let cache = WaterfallColumnCache()
+        let placement = [a: 0, b: 1, c: 0]
+        #expect(cache.indices(keys: [a, b], placement: placement, count: 2) == [[0], [1]])
+        for _ in 0..<100 {
+            #expect(cache.indices(keys: [a, b], placement: placement, count: 2) == [[0], [1]])
+        }
+        #expect(cache.rebuildCount == 1)
+        #expect(cache.indices(keys: [a, b, c], placement: placement, count: 2) == [[0, 2], [1]])
+        #expect(cache.indices(keys: [c, a, b], placement: placement, count: 2) == [[0, 1], [2]])
+        #expect(cache.indices(keys: [a], placement: [a: 0], count: 1) == [[0]])
+        #expect(cache.rebuildCount == 4)
+    }
+
+    @Test("标签布局复用测量结果，宽度、间距和内容变化后重新测量")
+    func tagLayoutCacheInvalidation() {
+        let layout = TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4, maximumRows: 2)
+        var cache = TagFlowLayoutCache()
+        var measured = 0
+        let measure: (Int) -> CGSize = { _ in
+            measured += 1
+            return CGSize(width: 30, height: 22)
+        }
+        for _ in 0..<100 {
+            layout.resolve(count: 200, width: 70, cache: &cache, itemSize: measure)
+        }
+        #expect(measured == 5)
+        layout.resolve(count: 200, width: 35, cache: &cache, itemSize: measure)
+        #expect(measured == 8)
+        let changed = TagFlowLayout(horizontalSpacing: 10, verticalSpacing: 8, maximumRows: 2)
+        changed.resolve(count: 200, width: 35, cache: &cache, itemSize: measure)
+        #expect(measured == 11)
+        changed.resolve(count: 2, width: 35, cache: &cache, itemSize: measure)
+        #expect(measured == 13)
+        // SwiftUI's updateCache resets the cache when chip contents change.
+        cache = TagFlowLayoutCache()
+        changed.resolve(count: 2, width: 35, cache: &cache, itemSize: measure)
+        #expect(measured == 15)
+    }
+
+    @Test("缩放布局同步提供最终高度，不依赖下一轮状态更新")
+    func proportionalHeightIsSynchronous() {
+        let layout = ProportionalCardLayout(referenceWidth: 170, width: 255)
+        #expect(layout.scaledSize(CGSize(width: 170, height: 300)) == CGSize(width: 255, height: 450))
+        let smaller = ProportionalCardLayout(referenceWidth: 170, width: 85)
+        #expect(smaller.scaledSize(CGSize(width: 170, height: 300)) == CGSize(width: 85, height: 150))
+    }
+
+    @Test("瀑布流标签只排两行，缩放间距后仍不绘制第三行")
+    func tagsHaveTwoRows() {
+        let sizes = Array(repeating: CGSize(width: 30, height: 22), count: 7)
+        let limited = TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4, maximumRows: 2)
+        #expect(limited.rows(for: sizes, in: 70) == [[0, 1], [2, 3]])
+        let scaled = TagFlowLayout(horizontalSpacing: 7, verticalSpacing: 5.6, maximumRows: 2)
+        let enlarged = sizes.map { CGSize(width: $0.width * 1.4, height: $0.height * 1.4) }
+        #expect(scaled.rows(for: enlarged, in: 70) == [[0], [1]])
+        let unlimited = TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4)
+        #expect(unlimited.rows(for: sizes, in: 70).count == 4)
+        #expect(limited.rows(for: [], in: 70).isEmpty)
+    }
+
+    @MainActor
+    @Test("单张封面比例和高度更新不会通知其他卡片")
+    func measurementsAreIsolatedPerCover() {
+        let firstKey = GalleryKey(gid: 101, token: "first")
+        let secondKey = GalleryKey(gid: 102, token: "second")
+        let measurements = WaterfallMeasurements()
+        let first = measurements.ratio(for: firstKey)
+        let second = measurements.ratio(for: secondKey)
+        #expect(first === measurements.ratio(for: firstKey))
+        #expect(first !== second)
+        let invalidations = Mutex(0)
+        withObservationTracking {
+            _ = measurements.ratio(for: firstKey).value
+        } onChange: {
+            invalidations.withLock { $0 += 1 }
+        }
+        second.value = 1
+        measurements.heights[secondKey] = 400
+        #expect(invalidations.withLock { $0 } == 0)
+        first.value = 1
+        #expect(invalidations.withLock { $0 } == 1)
+        measurements.retain([firstKey])
+        #expect(measurements.heights[secondKey] == nil)
+        #expect(measurements.ratio(for: firstKey) === first)
+    }
+
     @Test("两种布局偏好采用一致的三态循环和目标文字")
     func layoutCycle() {
         #expect(GalleryLayoutMode.list.next == .grid)

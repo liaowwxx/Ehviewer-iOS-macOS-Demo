@@ -350,6 +350,7 @@ private struct SplitRootView: View {
     @Environment(AppModel.self) private var model
     @Binding var selection: AppRoute?
     @Binding var detailPath: [AppRoute]
+    @State private var windowWidth = 0.0
 
     var body: some View {
         NavigationSplitView {
@@ -379,6 +380,10 @@ private struct SplitRootView: View {
             }
         }
         .tint(AppTheme.accent)
+        .environment(\.cardLayoutWindowWidth, windowWidth)
+        .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
+            if abs(windowWidth - width) > 1 { windowWidth = width }
+        }
         .onChange(of: selection) { _, route in
             model.selectedRoute = route
             detailPath.removeAll()

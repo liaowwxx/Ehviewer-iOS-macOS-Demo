@@ -914,32 +914,32 @@ struct DownloadsView: View {
 
     private var downloadsGrid: some View {
         ScrollView {
-            LazyVGrid(
-                columns: gridColumns,
-                spacing: gridSpacing
-            ) {
-                ForEach(visibleJobs) { job in
-                    DownloadGridCard(
-                        job: job,
-                        isSelectionMode: isSelectionMode,
-                        isSelected: selectedKeys.contains(job.key),
-                        select: { toggleSelection(job.key) },
-                        requestSelection: { enterSelectionMode(selecting: job.key) }
-                    ) {
-                        Task {
-                            if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
-                            else { await model.resumeDownload(job.key) }
-                        }
-                    } redownload: {
-                        jobPendingRedownload = job
-                    } remove: {
-                        deletionConfirmation = .single(job)
-                    } label: {
-                        labelInput = job.label ?? ""
-                        editingJob = job
+            StableCardGrid(
+                items: visibleJobs, key: \.key,
+                scale: model.readingSettings.galleryCard.cardScale,
+                spacing: gridSpacing,
+                isRegularWidth: horizontalSizeClass == .regular
+            ) { job in
+                DownloadGridCard(
+                    job: job,
+                    isSelectionMode: isSelectionMode,
+                    isSelected: selectedKeys.contains(job.key),
+                    select: { toggleSelection(job.key) },
+                    requestSelection: { enterSelectionMode(selecting: job.key) }
+                ) {
+                    Task {
+                        if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
+                        else { await model.resumeDownload(job.key) }
                     }
-                    .equatable()
+                } redownload: {
+                    jobPendingRedownload = job
+                } remove: {
+                    deletionConfirmation = .single(job)
+                } label: {
+                    labelInput = job.label ?? ""
+                    editingJob = job
                 }
+                .equatable()
             }
             .padding(gridSpacing)
         }
@@ -986,15 +986,6 @@ struct DownloadsView: View {
             .padding(gridSpacing)
         }
         .background(.secondary.opacity(0.08))
-    }
-
-    /// iPadOS 与桌面端使用更大的卡片，紧凑设备保持适中尺寸。
-    private var gridColumns: [GridItem] {
-        let scale = GalleryCardDisplaySettings.clampedScale(model.readingSettings.galleryCard.cardScale)
-        if horizontalSizeClass == .regular {
-            return [GridItem(.adaptive(minimum: 140 * scale, maximum: 190 * scale), spacing: 16)]
-        }
-        return [GridItem(.adaptive(minimum: 104 * scale, maximum: 140 * scale), spacing: 12)]
     }
 
     private var gridSpacing: CGFloat {

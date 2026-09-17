@@ -21,6 +21,15 @@
 		A17C00000000000000000009 /* WaterfallHeightPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0000000000000000000A /* WaterfallHeightPreference.swift */; };
 		A17C0000000000000000000B /* DownloadGallerySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0000000000000000000C /* DownloadGallerySummary.swift */; };
 		A17C0000000000000000000D /* WaterfallCoverRatios.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0000000000000000000E /* WaterfallCoverRatios.swift */; };
+		A17C0000000000000000000F /* WaterfallCoverRatio.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000010 /* WaterfallCoverRatio.swift */; };
+		A17C00000000000000000011 /* WaterfallMeasurements.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000012 /* WaterfallMeasurements.swift */; };
+		A17C00000000000000000013 /* CardGridSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000014 /* CardGridSizing.swift */; };
+		A17C00000000000000000015 /* CardLayoutWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000016 /* CardLayoutWindow.swift */; };
+		A17C00000000000000000017 /* ProportionalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000018 /* ProportionalCard.swift */; };
+		A17C00000000000000000019 /* StableCardGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0000000000000000001A /* StableCardGrid.swift */; };
+		A17C0000000000000000001B /* ProportionalCardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0000000000000000001C /* ProportionalCardLayout.swift */; };
+		A17C0000000000000000001D /* WaterfallColumnCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C0000000000000000001E /* WaterfallColumnCache.swift */; };
+		A17C0000000000000000001F /* TagFlowLayoutCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17C00000000000000000020 /* TagFlowLayoutCache.swift */; };
 		EHB00000000000000000003 /* DownloadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000003 /* DownloadsView.swift */; };
 		EHB00000000000000000004 /* EhViewerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000004 /* EhViewerApp.swift */; };
 		EHB00000000000000000064 /* ProfileSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000064 /* ProfileSession.swift */; };
@@ -142,6 +151,15 @@
 		A17C0000000000000000000A /* WaterfallHeightPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallHeightPreference.swift; sourceTree = "<group>"; };
 		A17C0000000000000000000C /* DownloadGallerySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadGallerySummary.swift; sourceTree = "<group>"; };
 		A17C0000000000000000000E /* WaterfallCoverRatios.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallCoverRatios.swift; sourceTree = "<group>"; };
+		A17C00000000000000000010 /* WaterfallCoverRatio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallCoverRatio.swift; sourceTree = "<group>"; };
+		A17C00000000000000000012 /* WaterfallMeasurements.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallMeasurements.swift; sourceTree = "<group>"; };
+		A17C00000000000000000014 /* CardGridSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardGridSizing.swift; sourceTree = "<group>"; };
+		A17C00000000000000000016 /* CardLayoutWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLayoutWindow.swift; sourceTree = "<group>"; };
+		A17C00000000000000000018 /* ProportionalCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProportionalCard.swift; sourceTree = "<group>"; };
+		A17C0000000000000000001A /* StableCardGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StableCardGrid.swift; sourceTree = "<group>"; };
+		A17C0000000000000000001C /* ProportionalCardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProportionalCardLayout.swift; sourceTree = "<group>"; };
+		A17C0000000000000000001E /* WaterfallColumnCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterfallColumnCache.swift; sourceTree = "<group>"; };
+		A17C00000000000000000020 /* TagFlowLayoutCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagFlowLayoutCache.swift; sourceTree = "<group>"; };
 		EHF00000000000000000003 /* DownloadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsView.swift; sourceTree = "<group>"; };
 		EHF00000000000000000004 /* EhViewerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EhViewerApp.swift; sourceTree = "<group>"; };
 		EHF00000000000000000064 /* ProfileSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSession.swift; sourceTree = "<group>"; };
@@ -301,6 +319,15 @@
 				A17C0000000000000000000A /* WaterfallHeightPreference.swift */,
 				A17C0000000000000000000C /* DownloadGallerySummary.swift */,
 				A17C0000000000000000000E /* WaterfallCoverRatios.swift */,
+				A17C00000000000000000010 /* WaterfallCoverRatio.swift */,
+				A17C00000000000000000012 /* WaterfallMeasurements.swift */,
+				A17C00000000000000000014 /* CardGridSizing.swift */,
+				A17C00000000000000000016 /* CardLayoutWindow.swift */,
+				A17C00000000000000000018 /* ProportionalCard.swift */,
+				A17C0000000000000000001A /* StableCardGrid.swift */,
+				A17C0000000000000000001C /* ProportionalCardLayout.swift */,
+				A17C0000000000000000001E /* WaterfallColumnCache.swift */,
+				A17C00000000000000000020 /* TagFlowLayoutCache.swift */,
 				EHF0000000000000000005C /* GalleryCardDisplaySettings.swift */,
 				EHF0000000000000000005D /* GalleryCardSettingsSection.swift */,
 				EHF0000000000000000005E /* GalleryRatingView.swift */,
@@ -545,6 +572,15 @@
 				A17C00000000000000000009 /* WaterfallHeightPreference.swift in Sources */,
 				A17C0000000000000000000B /* DownloadGallerySummary.swift in Sources */,
 				A17C0000000000000000000D /* WaterfallCoverRatios.swift in Sources */,
+				A17C0000000000000000000F /* WaterfallCoverRatio.swift in Sources */,
+				A17C00000000000000000011 /* WaterfallMeasurements.swift in Sources */,
+				A17C00000000000000000013 /* CardGridSizing.swift in Sources */,
+				A17C00000000000000000015 /* CardLayoutWindow.swift in Sources */,
+				A17C00000000000000000017 /* ProportionalCard.swift in Sources */,
+				A17C00000000000000000019 /* StableCardGrid.swift in Sources */,
+				A17C0000000000000000001B /* ProportionalCardLayout.swift in Sources */,
+				A17C0000000000000000001D /* WaterfallColumnCache.swift in Sources */,
+				A17C0000000000000000001F /* TagFlowLayoutCache.swift in Sources */,
 				EHB0000000000000000005C /* GalleryCardDisplaySettings.swift in Sources */,
 				EHB0000000000000000005D /* GalleryCardSettingsSection.swift in Sources */,
 				EHB0000000000000000005E /* GalleryRatingView.swift in Sources */,

@@ -65,6 +65,15 @@ struct LibraryView: View {
                     ) { gallery in
                         libraryRow(for: gallery).equatable()
                     }
+                } else if model.readingSettings.galleryCard.layoutMode == .grid {
+                    StableCardGrid(
+                        items: items, key: \.key,
+                        scale: model.readingSettings.galleryCard.cardScale,
+                        spacing: horizontalSizeClass == .regular ? 16 : 12,
+                        isRegularWidth: horizontalSizeClass == .regular
+                    ) { gallery in
+                        libraryRow(for: gallery).equatable()
+                    }
                 } else {
                     LazyVGrid(
                         columns: model.readingSettings.galleryCard.columns(isRegularWidth: horizontalSizeClass == .regular),

@@ -86,6 +86,15 @@ struct BrowseView: View {
                     ) { gallery in
                         galleryLink(gallery)
                     }
+                } else if model.readingSettings.galleryCard.layoutMode == .grid {
+                    StableCardGrid(
+                        items: pageModel.galleries, key: \.key,
+                        scale: model.readingSettings.galleryCard.cardScale,
+                        spacing: horizontalSizeClass == .regular ? 16 : 12,
+                        isRegularWidth: horizontalSizeClass == .regular
+                    ) { gallery in
+                        galleryLink(gallery)
+                    }
                 } else {
                     LazyVGrid(
                         columns: model.readingSettings.galleryCard.columns(isRegularWidth: horizontalSizeClass == .regular),
@@ -435,7 +444,7 @@ struct GalleryCard: View {
     var downloadStatus: GalleryCardDownloadStatus?
     var usesPreferredLayout = true
     @State private var coverHeightToWidth = 4.0 / 3.0
-    @ScaledMetric(relativeTo: .caption) private var tagRowHeight = 24.0
+    @ScaledMetric(relativeTo: .caption2) private var tagChipHeight = 22.0
 
     private var isWaterfall: Bool {
         usesPreferredLayout && displaySettings.layoutMode == .waterfall
@@ -464,9 +473,15 @@ struct GalleryCard: View {
             } else if isWaterfall {
                 VStack(alignment: .leading, spacing: 0) {
                     Color.clear
-                        .aspectRatio(1 / (cachedCoverRatios?.wrappedValue[gallery.key] ?? coverHeightToWidth), contentMode: .fit)
+                        .aspectRatio(1 / (cachedCoverRatios?.ratio(for: gallery.key).value ?? coverHeightToWidth), contentMode: .fit)
                         .overlay { cover }
                         .clipped()
+                        .overlay(alignment: .topTrailing) {
+                            if let downloadStatus {
+                                GalleryCardDownloadStatusBadge(status: downloadStatus)
+                                    .padding(8)
+                            }
+                        }
                     informationContent
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -512,7 +527,7 @@ struct GalleryCard: View {
                     .font(.headline.scaled(by: displayScale))
                     .lineLimit(2)
                 Spacer(minLength: 0)
-                if let downloadStatus {
+                if isWaterfall == false, let downloadStatus {
                     GalleryCardDownloadStatusBadge(status: downloadStatus)
                 }
             }
@@ -538,18 +553,22 @@ struct GalleryCard: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            if settings.showsOrdinaryTags && (isWaterfall == false || gallery.tags.isEmpty == false) {
+            if settings.showsOrdinaryTags {
                 Group {
                     if gallery.tags.isEmpty == false {
-                        TagFlowLayout(horizontalSpacing: 5, verticalSpacing: 4) {
+                        TagFlowLayout(
+                            horizontalSpacing: 5 * (isWaterfall ? displayScale : 1),
+                            verticalSpacing: 4 * (isWaterfall ? displayScale : 1),
+                            maximumRows: isWaterfall ? 2 : nil
+                        ) {
                             ForEach(Array(gallery.tags.enumerated()), id: \.offset) { item in
-                                GalleryTagChip(title: model.displayTag(item.element))
+                                GalleryTagChip(title: model.displayTag(item.element), scale: isWaterfall ? displayScale : 1)
                             }
                         }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                .frame(height: isWaterfall ? 2 * tagRowHeight * displayScale : 48, alignment: .topLeading)
+                .frame(height: isWaterfall ? (2 * tagChipHeight + 4) * displayScale : 48, alignment: .topLeading)
                 .clipped()
             }
             let metadataLayout = isWaterfall
@@ -606,7 +625,7 @@ struct GalleryCard: View {
                 title: displayTitle,
                 size: isGrid || isWaterfall ? nil : coverSize,
                 cornerRadius: isGrid || isWaterfall ? 14 : 10,
-                onImageSize: updateCoverRatio
+                onImageSize: coverSizeHandler
             )
         } else {
             GalleryThumbnail(
@@ -616,7 +635,7 @@ struct GalleryCard: View {
                 prefersGalleryCache: prefersGalleryCache,
                 size: isGrid || isWaterfall ? nil : coverSize,
                 cornerRadius: isGrid || isWaterfall ? 14 : 10,
-                onImageSize: updateCoverRatio
+                onImageSize: coverSizeHandler
             )
         }
     }
@@ -625,11 +644,18 @@ struct GalleryCard: View {
         displaySettings.effectiveForDisplay(isCompactWidth: isCompactWidth)
     }
 
+    private var coverSizeHandler: ((CGSize) -> Void)? {
+        guard isWaterfall else { return nil }
+        return { size in updateCoverRatio(size) }
+    }
+
     private func updateCoverRatio(_ size: CGSize) {
         let ratio = WaterfallLayout.heightToWidth(width: size.width, height: size.height)
-        coverHeightToWidth = ratio
-        if isWaterfall, let cachedCoverRatios, cachedCoverRatios.wrappedValue[gallery.key] != ratio {
-            cachedCoverRatios.wrappedValue[gallery.key] = ratio
+        if isWaterfall, let cachedCoverRatios {
+            let cached = cachedCoverRatios.ratio(for: gallery.key)
+            if cached.value != ratio { cached.value = ratio }
+        } else if coverHeightToWidth != ratio {
+            coverHeightToWidth = ratio
         }
     }
 
@@ -717,16 +743,18 @@ private extension Date {
 
 private struct GalleryTagChip: View {
     let title: String
+    var scale = 1.0
+    @ScaledMetric(relativeTo: .caption2) private var chipHeight = 22.0
 
     var body: some View {
         Text(title)
-            .font(.caption2)
+            .font(.caption2.scaled(by: scale))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.tail)
-            .padding(.horizontal, 7)
-            .frame(height: 22)
-            .frame(maxWidth: 160, alignment: .leading)
+            .padding(.horizontal, 7 * scale)
+            .frame(height: chipHeight * scale)
+            .frame(maxWidth: 160 * scale, alignment: .leading)
             .background(Color.secondary.opacity(0.14), in: Capsule())
             .accessibilityLabel("标签 \(title)")
     }
@@ -757,17 +785,19 @@ private struct GalleryThumbnail: View {
         .frame(maxWidth: size == nil ? .infinity : nil, maxHeight: size == nil ? .infinity : nil)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .task(id: thumbnailTaskID) {
+        .task(id: thumbnailTaskID, priority: .utility) {
             guard isLocalMediaResolved else { return }
             guard let url else { return }
             do {
-                image = try await model.coverImage(
+                let decoded = try await model.coverImage(
                     for: key,
                     previewURL: url,
                     prefersGalleryCache: prefersGalleryCache,
                     maxPixelSize: 500
                 )
-                if let image { onImageSize?(CGSize(width: image.width, height: image.height)) }
+                guard Task.isCancelled == false, let decoded else { return }
+                image = decoded
+                onImageSize?(CGSize(width: decoded.width, height: decoded.height))
             } catch is CancellationError {
                 return
             } catch {

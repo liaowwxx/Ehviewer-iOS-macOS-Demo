@@ -93,6 +93,7 @@ actor GalleryCoverLoader {
                     let options: [CFString: Any] = [
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceCreateThumbnailWithTransform: true,
+                        kCGImageSourceShouldCacheImmediately: true,
                         kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
                     ]
                     return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
@@ -197,6 +198,7 @@ actor GalleryCoverLoader {
                 let options: [CFString: Any] = [
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
                     kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
                 ]
                 return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)

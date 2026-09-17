@@ -13,37 +13,40 @@ import EHDomain
 
 struct WaterfallGrid<Item, Content: View>: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.cardLayoutWindowWidth) private var windowWidth
     let items: [Item]
     let key: KeyPath<Item, GalleryKey>
     let scale: Double
     let spacing: Double
     let estimatedInformationHeight: Double
     let content: (Item) -> Content
-    @State private var width = 0.0
-    @State private var heights: [GalleryKey: Double] = [:]
+    @State private var sizing = CardGridSizing()
     @State private var placement: [GalleryKey: Int] = [:]
-    @State private var coverRatios: [GalleryKey: Double] = [:]
+    @State private var measurements = WaterfallMeasurements()
+    @State private var columnCache = WaterfallColumnCache()
 
     private var keys: [GalleryKey] { items.map { $0[keyPath: key] } }
     private var count: Int {
-        WaterfallLayout.columnCount(width: width, spacing: spacing, scale: scale, accessibility: dynamicTypeSize.isAccessibilitySize)
+        dynamicTypeSize.isAccessibilitySize ? 1 : sizing.columns
     }
-    private var columnWidth: Double { max(1, (width - Double(count - 1) * spacing) / Double(count)) }
+    private var columnWidth: Double { max(1, (sizing.referenceWidth - Double(count - 1) * spacing) / Double(count)) }
+    private var currentColumnWidth: Double { max(1, (sizing.currentWidth - Double(count - 1) * spacing) / Double(count)) }
+    private var contentScale: Double { currentColumnWidth / columnWidth }
 
     var body: some View {
         let resolved = placement.isEmpty ? assignments() : placement
+        let columns = columnCache.indices(keys: keys, placement: resolved, count: count)
         HStack(alignment: .top, spacing: spacing) {
             ForEach(0..<count, id: \.self) { column in
-                LazyVStack(spacing: spacing) {
-                    ForEach(items.filter { resolved[$0[keyPath: key]] == column }, id: key) { item in
-                        content(item)
+                LazyVStack(spacing: spacing * contentScale) {
+                    ForEach(columns[column].map { items[$0] }, id: key) { item in
+                        card(item)
                             .frame(maxWidth: .infinity)
-                            .background {
-                                GeometryReader { proxy in
-                                    Color.clear.preference(
-                                        key: WaterfallHeightPreference.self,
-                                        value: [item[keyPath: key]: proxy.size.height]
-                                    )
+                            .onGeometryChange(for: Double.self) { $0.size.height } action: { height in
+                                // Non-observable cache: measuring a visible card must not
+                                // invalidate the grid or reassign existing cards.
+                                if height > 0 {
+                                    measurements.heights[item[keyPath: key]] = height / contentScale
                                 }
                             }
                     }
@@ -52,43 +55,55 @@ struct WaterfallGrid<Item, Content: View>: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .environment(\.waterfallCoverRatios, $coverRatios)
+        .environment(\.waterfallCoverRatios, measurements)
         .onGeometryChange(for: Double.self) { $0.size.width } action: { newWidth in
-            guard abs(width - newWidth) > 1 else { return }
-            width = newWidth
-            heights = [:]
-            placement = assignments()
-        }
-        .onPreferenceChange(WaterfallHeightPreference.self) { measured in
-            var changed = false
-            for (key, height) in measured where height > 0 {
-                if abs((heights[key] ?? 0) - height) > 1 {
-                    heights[key] = height
-                    changed = true
-                }
-            }
-            if changed { placement = assignments() }
+            updateSizing(width: newWidth)
         }
         .onChange(of: keys) { previous, updated in
             let appending = updated.count >= previous.count && Array(updated.prefix(previous.count)) == previous
-            let retained = Set(updated)
-            heights = heights.filter { retained.contains($0.key) }
-            coverRatios = coverRatios.filter { retained.contains($0.key) }
+            measurements.retain(Set(updated))
             placement = assignments(preserving: appending ? placement : [:])
         }
-        .onChange(of: scale) { placement = assignments() }
-        .onChange(of: dynamicTypeSize) { _ , _ in
-            heights = [:]
-            placement = assignments()
+        .onChange(of: scale) {
+            updateSizing(width: sizing.currentWidth, force: true)
         }
+        .onChange(of: dynamicTypeSize) { _ , _ in
+            updateSizing(width: sizing.currentWidth, force: true)
+        }
+        .onChange(of: windowWidth) { updateSizing(width: sizing.currentWidth) }
         .transaction { $0.animation = nil }
     }
 
     private func assignments(preserving: [GalleryKey: Int] = [:]) -> [GalleryKey: Int] {
         WaterfallLayout.assignments(
-            keys: keys, heights: heights, count: count, spacing: spacing,
+            keys: keys, heights: measurements.heights, count: count, spacing: spacing,
             estimatedHeight: columnWidth * 4 / 3 + estimatedInformationHeight,
             preserving: preserving
         )
+    }
+
+    @ViewBuilder
+    private func card(_ item: Item) -> some View {
+        if sizing.referenceWidth > 0 {
+            ProportionalCard(referenceWidth: columnWidth, width: currentColumnWidth) {
+                content(item)
+            }
+        } else {
+            content(item)
+        }
+    }
+
+    private func updateSizing(width: Double, force: Bool = false) {
+        let previousReference = sizing.referenceWidth
+        let previousCount = count
+        sizing.update(
+            width: width, windowWidth: windowWidth,
+            target: 170 * GalleryCardDisplaySettings.clampedScale(scale),
+            spacing: spacing, force: force
+        )
+        if force || abs(previousReference - sizing.referenceWidth) > 1 || previousCount != count {
+            measurements.heights = [:]
+            placement = assignments()
+        }
     }
 }

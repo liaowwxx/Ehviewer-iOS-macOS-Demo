@@ -12,5 +12,5 @@ import SwiftUI
 import EHDomain
 
 extension EnvironmentValues {
-    @Entry var waterfallCoverRatios: Binding<[GalleryKey: Double]>? = nil
+    @Entry var waterfallCoverRatios: WaterfallMeasurements? = nil
 }
