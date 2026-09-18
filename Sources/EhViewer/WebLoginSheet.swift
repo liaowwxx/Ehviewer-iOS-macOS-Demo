@@ -26,6 +26,9 @@ struct WebLoginSheet: View {
     @State private var isCompleting = false
     @State private var isEstablishingSession = false
     @State private var exHentaiRetryCount = 0
+    @State private var loginTask: Task<Void, Never>?
+    @State private var isActive = true
+    @State private var loginError: String?
 
     private let loginURL = URL(string: "https://forums.e-hentai.org/index.php?act=Login&CODE=00")!
     private let eHentaiURL = URL(string: "https://e-hentai.org/")!
@@ -36,13 +39,20 @@ struct WebLoginSheet: View {
             SiteWebView(
                 url: loginURL,
                 onReady: { webView = $0 },
-                onNavigationFinished: { inspectLoginState(in: $0, reportMissingCookies: false) }
+                onNavigationFinished: { inspectLoginState(in: $0, reportMissingCookies: false) },
+                onNavigationFailed: { error in
+                    guard isActive, (error as? URLError)?.code != .cancelled else { return }
+                    loginTask?.cancel()
+                    isCompleting = false
+                    isEstablishingSession = false
+                    loginError = error.localizedDescription
+                }
             )
             .ignoresSafeArea(edges: .bottom)
             .navigationTitle(isEstablishingSession ? "正在连接 ExHentai" : "网页登录")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button("取消") { cancelLogin(); dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isCompleting {
@@ -56,14 +66,29 @@ struct WebLoginSheet: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                if let loginError {
+                    Text(loginError).font(.callout).padding().frame(maxWidth: .infinity)
+                        .background(.regularMaterial)
+                }
+            }
         }
+        .onDisappear { cancelLogin() }
+    }
+
+    private func cancelLogin() {
+        isActive = false
+        loginTask?.cancel()
+        webView?.stopLoading()
     }
 
     private func inspectLoginState(in webView: WKWebView, reportMissingCookies: Bool) {
-        guard isCompleting == false else { return }
+        guard isActive, isCompleting == false else { return }
+        loginError = nil
         isCompleting = true
-        Task { @MainActor in
+        loginTask = Task { @MainActor in
             if let cookieHeader = await WebLoginCookieSupport.exHentaiAuthenticationHeader(from: webView) {
+                guard isActive, !Task.isCancelled else { return }
                 let saved = await model.saveCookie(cookieHeader)
                 isCompleting = false
                 if saved { dismiss() }
@@ -73,26 +98,33 @@ struct WebLoginSheet: View {
             guard await WebLoginCookieSupport.copyBaseAuthenticationCookies(from: webView) else {
                 isCompleting = false
                 if reportMissingCookies {
-                    model.errorMessage = String(localized: "网页登录尚未完成，请先在网页中成功登录。")
+                    loginError = String(localized: "网页登录尚未完成，请先在网页中成功登录。")
                 }
                 return
             }
+            guard isActive, !Task.isCancelled else { return }
 
             isEstablishingSession = true
             let host = webView.url?.host?.lowercased()
             if host == "exhentai.org" {
                 if exHentaiRetryCount < 3 {
                     exHentaiRetryCount += 1
+                    do {
+                        try await Task.sleep(for: .milliseconds(exHentaiRetryCount == 1 ? 1_000 : 1_500))
+                    } catch { return }
+                    guard isActive, !Task.isCancelled else { return }
                     isCompleting = false
-                    try? await Task.sleep(for: .milliseconds(exHentaiRetryCount == 1 ? 1_000 : 1_500))
                     webView.load(URLRequest(url: exHentaiURL))
                 } else {
                     isCompleting = false
-                    if let baseHeader = await WebLoginCookieSupport.baseAuthenticationHeader(from: webView),
-                       await model.saveCookie(baseHeader) {
-                        dismiss()
+                    if let baseHeader = await WebLoginCookieSupport.baseAuthenticationHeader(from: webView) {
+                        guard isActive, !Task.isCancelled else { return }
+                        if await model.saveCookie(baseHeader) {
+                            model.errorMessage = String(localized: "E-Hentai 登录成功，ExHentai 会话尚未建立；访问 ExHentai 时会再次尝试连接。")
+                            dismiss()
+                        }
                     } else {
-                        model.errorMessage = String(localized: "登录 Cookie 已取得，但 ExHentai 没有签发有效的 igneous。请确认账号具备 ExHentai 权限后重试。")
+                        loginError = String(localized: "登录 Cookie 已取得，但 ExHentai 没有签发有效的 igneous。请确认账号具备 ExHentai 权限后重试。")
                     }
                 }
             } else if host == "e-hentai.org" {

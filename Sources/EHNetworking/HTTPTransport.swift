@@ -34,7 +34,7 @@ public struct URLSessionTransport: HTTPTransport, Sendable {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
-        session = URLSession(configuration: configuration)
+        session = URLSession(configuration: configuration, delegate: SiteRedirectDelegate(), delegateQueue: nil)
     }
 
     public init(session: URLSession) {
@@ -77,21 +77,19 @@ extension URLSessionTransport: ExHentaiCookieRefreshing {
             }
         }
 
-        let refreshSession = URLSession(configuration: configuration)
+        let refreshSession = URLSession(configuration: configuration, delegate: SiteRedirectDelegate(), delegateQueue: nil)
         defer { refreshSession.invalidateAndCancel() }
-        _ = try await refreshSession.data(for: Self.bootstrapRequest(
+        let (_, bootstrapResponse) = try await refreshSession.data(for: Self.bootstrapRequest(
             url: URL(string: "https://e-hentai.org/")!
         ))
+        guard let bootstrapResponse = bootstrapResponse as? HTTPURLResponse else { throw EHError.invalidResponse }
+        try Self.validateBootstrapStatus(bootstrapResponse)
 
         let exHentaiURL = URL(string: "https://exhentai.org/")!
         for attempt in 0..<3 {
             let (_, response) = try await refreshSession.data(for: Self.bootstrapRequest(url: exHentaiURL))
             if let response = response as? HTTPURLResponse {
-                switch response.statusCode {
-                case 429: throw EHError.rateLimited
-                case 509: throw EHError.bandwidthLimited
-                default: break
-                }
+                try Self.validateBootstrapStatus(response)
             }
             if let value = cookieStore.cookies(for: exHentaiURL)?
                 .first(where: { $0.name == CookieHeader.igneousName })?.value,
@@ -101,6 +99,15 @@ extension URLSessionTransport: ExHentaiCookieRefreshing {
             if attempt < 2 { try await Task.sleep(for: .milliseconds(500)) }
         }
         return nil
+    }
+
+    private static func validateBootstrapStatus(_ response: HTTPURLResponse) throws {
+        switch response.statusCode {
+        case 429: throw EHError.rateLimited
+        case 509: throw EHError.bandwidthLimited
+        case 500...599: throw EHError.httpStatus(response.statusCode)
+        default: break
+        }
     }
 
     private static func bootstrapRequest(url: URL) -> URLRequest {

@@ -30,6 +30,7 @@ public enum EHError: LocalizedError, Hashable, Sendable {
     case parsingFailed(String)
     case invalidCookie
     case exHentaiAccessDenied
+    case siteAccessLimited
     case diskSpaceLow
     case storageFailed(String)
     case unsupportedFeature(String)
@@ -48,6 +49,7 @@ public enum EHError: LocalizedError, Hashable, Sendable {
         case .parsingFailed(let reason): String(localized: "页面解析失败：\(reason)")
         case .invalidCookie: String(localized: "Cookie 格式无效")
         case .exHentaiAccessDenied: String(localized: "ExHentai 会话无效或无访问权限（igneous 未正确签发）。请重新进行网页登录，并确认账号可访问 ExHentai")
+        case .siteAccessLimited: String(localized: "站点暂时限制了访问，请稍后再试")
         case .diskSpaceLow: String(localized: "磁盘空间不足，下载已暂停")
         case .storageFailed(let reason): String(localized: "本地存储失败：\(reason)")
         case .unsupportedFeature(let feature): String(localized: "当前版本暂不支持：\(feature)")

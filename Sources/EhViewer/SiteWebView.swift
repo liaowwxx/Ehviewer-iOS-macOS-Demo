@@ -24,9 +24,10 @@ struct SiteWebView: UIViewRepresentable {
     let url: URL
     let onReady: @MainActor (WKWebView) -> Void
     let onNavigationFinished: @MainActor (WKWebView) -> Void
+    var onNavigationFailed: @MainActor (Error) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onNavigationFinished: onNavigationFinished)
+        Coordinator(onNavigationFinished: onNavigationFinished, onNavigationFailed: onNavigationFailed)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -45,13 +46,23 @@ struct SiteWebView: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         private let onNavigationFinished: @MainActor (WKWebView) -> Void
+        private let onNavigationFailed: @MainActor (Error) -> Void
 
-        init(onNavigationFinished: @escaping @MainActor (WKWebView) -> Void) {
+        init(onNavigationFinished: @escaping @MainActor (WKWebView) -> Void, onNavigationFailed: @escaping @MainActor (Error) -> Void) {
             self.onNavigationFinished = onNavigationFinished
+            self.onNavigationFailed = onNavigationFailed
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
             onNavigationFinished(webView)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
+            onNavigationFailed(error)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: Error) {
+            onNavigationFailed(error)
         }
     }
 }
@@ -60,9 +71,10 @@ struct SiteWebView: NSViewRepresentable {
     let url: URL
     let onReady: @MainActor (WKWebView) -> Void
     let onNavigationFinished: @MainActor (WKWebView) -> Void
+    var onNavigationFailed: @MainActor (Error) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onNavigationFinished: onNavigationFinished)
+        Coordinator(onNavigationFinished: onNavigationFinished, onNavigationFailed: onNavigationFailed)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -80,13 +92,23 @@ struct SiteWebView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         private let onNavigationFinished: @MainActor (WKWebView) -> Void
+        private let onNavigationFailed: @MainActor (Error) -> Void
 
-        init(onNavigationFinished: @escaping @MainActor (WKWebView) -> Void) {
+        init(onNavigationFinished: @escaping @MainActor (WKWebView) -> Void, onNavigationFailed: @escaping @MainActor (Error) -> Void) {
             self.onNavigationFinished = onNavigationFinished
+            self.onNavigationFailed = onNavigationFailed
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
             onNavigationFinished(webView)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
+            onNavigationFailed(error)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: Error) {
+            onNavigationFailed(error)
         }
     }
 }

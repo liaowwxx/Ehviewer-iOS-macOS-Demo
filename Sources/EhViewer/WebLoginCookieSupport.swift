@@ -38,8 +38,25 @@ enum WebLoginCookieSupport {
         guard let headerValue = await baseAuthenticationHeader(from: webView),
               let header = CookieHeader.parse(headerValue) else { return false }
         let store = webView.configuration.websiteDataStore.httpCookieStore
+        let cookies: [HTTPCookie] = await withCheckedContinuation { continuation in
+            store.getAllCookies { continuation.resume(returning: $0) }
+        }
+        let exCookies = cookies.filter { isExHentaiDomain($0.domain) }
+        let matchesAccount = CookieHeader.requiredAuthenticationNames.allSatisfy { name in
+            let matches = exCookies.filter { $0.name == name }
+            return !matches.isEmpty && matches.allSatisfy { $0.value == header.values[name] }
+        }
+        if !matchesAccount {
+            for cookie in exCookies where cookie.name == CookieHeader.igneousName {
+                guard !Task.isCancelled else { return false }
+                await withCheckedContinuation { continuation in
+                    store.delete(cookie) { continuation.resume() }
+                }
+            }
+        }
         for domain in [".e-hentai.org", ".exhentai.org"] {
             for name in CookieHeader.requiredAuthenticationNames {
+                guard !Task.isCancelled else { return false }
                 guard let value = header.values[name],
                       let cookie = HTTPCookie(properties: [
                         .domain: domain,
@@ -62,26 +79,36 @@ enum WebLoginCookieSupport {
         let cookies: [HTTPCookie] = await withCheckedContinuation { continuation in
             store.getAllCookies { continuation.resume(returning: $0) }
         }
-        var values: [String: String] = [:]
-        for name in CookieHeader.requiredAuthenticationNames {
-            values[name] = cookies.first(where: {
-                isEHDomain($0.domain) && $0.name == name && $0.value.isEmpty == false
-            })?.value
-        }
-        values[CookieHeader.igneousName] = cookies.first(where: {
-            isExHentaiDomain($0.domain)
-                && $0.name == CookieHeader.igneousName
-                && CookieHeader.isValidIgneousValue($0.value)
-        })?.value
-        return values
+        return authenticationValues(from: cookies)
     }
 
-    private static func isEHDomain(_ domain: String) -> Bool {
-        let normalized = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return normalized == "e-hentai.org"
-            || normalized.hasSuffix(".e-hentai.org")
-            || normalized == "exhentai.org"
-            || normalized.hasSuffix(".exhentai.org")
+    static func authenticationValues(from cookies: [HTTPCookie]) -> [String: String] {
+        let valid = cookies.filter { !$0.value.isEmpty && ($0.expiresDate.map { $0 > Date() } ?? true) }
+        let domains = ["forums.e-hentai.org", "e-hentai.org", "exhentai.org"]
+        func normalizedDomain(_ cookie: HTTPCookie) -> String {
+            cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        }
+        for domain in domains {
+            let group = valid.filter { normalizedDomain($0) == domain && $0.path == "/" }
+            var values: [String: String] = [:]
+            for name in CookieHeader.requiredAuthenticationNames {
+                let matches = group.filter { $0.name == name }
+                guard Set(matches.map(\.value)).count == 1 else { continue }
+                values[name] = matches.first?.value
+            }
+            guard CookieHeader(values: values).isAuthenticated else { continue }
+            let exCookies = valid.filter { normalizedDomain($0) == "exhentai.org" && $0.path == "/" }
+            // An igneous belongs to the EX account pair, not just to the domain.
+            if CookieHeader.requiredAuthenticationNames.allSatisfy({ name in
+                let matches = exCookies.filter { $0.name == name }
+                return !matches.isEmpty && matches.allSatisfy { $0.value == values[name] }
+            }) {
+                let matches = exCookies.filter { $0.name == CookieHeader.igneousName && CookieHeader.isValidIgneousValue($0.value) }
+                if Set(matches.map(\.value)).count == 1 { values[CookieHeader.igneousName] = matches.first?.value }
+            }
+            return values
+        }
+        return [:]
     }
 
     private static func isExHentaiDomain(_ domain: String) -> Bool {

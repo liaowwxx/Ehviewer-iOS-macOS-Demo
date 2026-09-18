@@ -18,6 +18,7 @@
 
 import Foundation
 import EHDomain
+import EHNetworking
 
 public enum BackgroundDownloadEvents {
     private final class CompletionBox: @unchecked Sendable {
@@ -53,7 +54,7 @@ public actor BackgroundDownloadSession {
     public typealias OrphanCompletion = @Sendable (_ taskDescription: String, _ data: Data, _ statusCode: Int) async -> Void
 
     private enum Event: Sendable {
-        case finished(taskID: Int, taskDescription: String, data: Data, statusCode: Int)
+        case finished(taskID: Int, taskDescription: String, data: Data, statusCode: Int, siteError: EHError?)
         case completed(taskID: Int, taskDescription: String, statusCode: Int, errorDescription: String?)
     }
 
@@ -64,11 +65,22 @@ public actor BackgroundDownloadSession {
             let taskDescription = downloadTask.taskDescription ?? ""
             let statusCode = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
             do {
+                let data = try Data(contentsOf: location)
+                let response = downloadTask.response as? HTTPURLResponse
+                let siteError: EHError?
+                if response?.value(forHTTPHeaderField: "Content-Disposition")?.contains("sadpanda.jpg") == true {
+                    siteError = .exHentaiAccessDenied
+                } else if String(data: data, encoding: .utf8)?.contains("exhentai.org/img/kokomade.jpg") == true {
+                    siteError = .siteAccessLimited
+                } else {
+                    siteError = nil
+                }
                 onEvent?(.finished(
                     taskID: downloadTask.taskIdentifier,
                     taskDescription: taskDescription,
-                    data: try Data(contentsOf: location),
-                    statusCode: statusCode
+                    data: data,
+                    statusCode: statusCode,
+                    siteError: siteError
                 ))
             } catch {
                 onEvent?(.completed(
@@ -92,6 +104,15 @@ public actor BackgroundDownloadSession {
         func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
             BackgroundDownloadEvents.finish()
         }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            var redirected = request
+            if request.url.map(CookieHeader.isTrustedURL) != true {
+                redirected.setValue(nil, forHTTPHeaderField: "Cookie")
+            }
+            completionHandler(redirected)
+        }
     }
 
     private let session: URLSession
@@ -100,7 +121,7 @@ public actor BackgroundDownloadSession {
     private let orphanCompletion: OrphanCompletion?
     private var continuations: [Int: CheckedContinuation<Data, Error>] = [:]
     private var requestURLs: [Int: URL] = [:]
-    private var finishedData: [Int: (Data, Int, String)] = [:]
+    private var finishedData: [Int: (Data, Int, String, EHError?)] = [:]
 
     public init(
         identifier: String = "com.liao.ehviewer.background-downloads",
@@ -117,6 +138,8 @@ public actor BackgroundDownloadSession {
         let configuration = URLSessionConfiguration.default
 #endif
         configuration.waitsForConnectivity = true
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
         configuration.isDiscretionary = false
 #if os(iOS)
         configuration.sessionSendsLaunchEvents = true
@@ -189,22 +212,24 @@ public actor BackgroundDownloadSession {
 
     private func handle(_ event: Event) {
         switch event {
-        case let .finished(taskID, taskDescription, data, statusCode):
-            finishedData[taskID] = (data, statusCode, taskDescription)
+        case let .finished(taskID, taskDescription, data, statusCode, siteError):
+            finishedData[taskID] = (data, statusCode, taskDescription, siteError)
         case let .completed(taskID, taskDescription, statusCode, errorDescription):
             if let errorDescription {
                 continuations.removeValue(forKey: taskID)?.resume(throwing: EHError.networkFailed(errorDescription))
                 finishedData.removeValue(forKey: taskID)
-            } else if let (data, storedStatus, storedDescription) = finishedData.removeValue(forKey: taskID) {
+            } else if let (data, storedStatus, storedDescription, siteError) = finishedData.removeValue(forKey: taskID) {
                 let status = storedStatus == 0 ? statusCode : storedStatus
                 let description = storedDescription.isEmpty ? taskDescription : storedDescription
                 if let continuation = continuations.removeValue(forKey: taskID) {
-                    if (200..<300).contains(status) {
+                    if let siteError, (200..<300).contains(status) {
+                        continuation.resume(throwing: siteError)
+                    } else if (200..<300).contains(status) {
                         continuation.resume(returning: data)
                     } else {
                         continuation.resume(throwing: EHError.httpStatus(status))
                     }
-                } else if (200..<300).contains(status), let orphanCompletion, description.isEmpty == false {
+                } else if (200..<300).contains(status), siteError == nil, let orphanCompletion, description.isEmpty == false {
                     Task { await orphanCompletion(description, data, status) }
                 }
             } else {

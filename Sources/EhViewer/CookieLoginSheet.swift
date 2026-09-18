@@ -17,22 +17,22 @@
  */
 
 import SwiftUI
+import EHNetworking
 
 struct CookieLoginSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var cookie = ""
+    @State private var values = CookieLoginValues()
+    @State private var isSaving = false
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Cookie") {
-                    TextField("ipb_member_id=…; ipb_pass_hash=…", text: $cookie, axis: .vertical)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                        .autocorrectionDisabled()
-                    Text("必须包含 ipb_member_id 和 ipb_pass_hash；访问 ExHentai 还需要有效的 igneous（不能是 mystery/null）。")
+                    cookieField(CookieHeader.memberIDName, value: $values.memberID, required: true)
+                    cookieField(CookieHeader.passwordHashName, value: $values.passwordHash, required: true)
+                    cookieField(CookieHeader.igneousName, value: $values.igneous, required: false)
+                    Text("只需填写等号后的值；igneous 留空时，应用会在访问 ExHentai 时尝试自动获取。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -42,14 +42,57 @@ struct CookieLoginSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
+                        guard !isSaving, let header = values.cookieHeader else { return }
+                        isSaving = true
                         Task {
-                            if await model.saveCookie(cookie) { dismiss() }
+                            let saved = await model.saveCookie(header)
+                            isSaving = false
+                            if saved { dismiss() }
                         }
                     }
-                    .disabled(cookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isSaving || values.cookieHeader == nil)
+                }
+                ToolbarItem(placement: .status) {
+                    if isSaving { ProgressView().accessibilityLabel(Text("正在保存")) }
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+    }
+
+    private func cookieField(_ name: String, value: Binding<String>, required: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    Text(verbatim: name + " =")
+                    valueInput(name, value: value, required: required)
+                }
+                VStack(alignment: .leading) {
+                    Text(verbatim: name + " =")
+                    valueInput(name, value: value, required: required)
+                }
+            }
+            if let error = values.error(for: name) {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func valueInput(_ name: String, value: Binding<String>, required: Bool) -> some View {
+        TextField(required ? "必填" : "选填", text: value)
+            .accessibilityLabel(Text(verbatim: name))
+            .accessibilityHint(Text(required ? "必填" : "选填"))
+            #if os(iOS)
+            .textInputAutocapitalization(.never)
+            #endif
+            .autocorrectionDisabled()
+            .disabled(isSaving)
+            .onChange(of: value.wrappedValue) { _, input in
+                // Strip only a matching name prefix; keep whitespace while typing.
+                if let equal = input.firstIndex(of: "="),
+                   input[..<equal].trimmingCharacters(in: .whitespaces) == name {
+                    value.wrappedValue = String(input[input.index(after: equal)...])
+                }
+            }
     }
 }

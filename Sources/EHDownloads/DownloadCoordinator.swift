@@ -745,6 +745,11 @@ public actor DownloadCoordinator {
     }
 
     private func run(key: GalleryKey, runToken: UUID) async {
+        guard runTokens[key] == runToken, Task.isCancelled == false,
+              jobs[key]?.state == .queued else {
+            finishRun(key: key, runToken: runToken)
+            return
+        }
         guard var job = jobs[key] else {
             finishRun(key: key, runToken: runToken)
             return
@@ -752,6 +757,11 @@ public actor DownloadCoordinator {
         job.state = .running
         jobs[key] = job
         await save(job)
+        guard runTokens[key] == runToken, Task.isCancelled == false,
+              jobs[key]?.state == .running else {
+            finishRun(key: key, runToken: runToken)
+            return
+        }
         emit(.changed(job))
 
         do {
@@ -764,7 +774,7 @@ public actor DownloadCoordinator {
                     batch.append(next)
                 }
 
-                let completed = try await withThrowingTaskGroup(of: Int.self) { group in
+                try await withThrowingTaskGroup(of: Int.self) { group in
                     for page in batch {
                         group.addTask { [pageLoader, fileStore] in
                             let data = try await Self.loadWithRetry(page, loader: pageLoader)
@@ -774,17 +784,21 @@ public actor DownloadCoordinator {
                             return page.index
                         }
                     }
-                    var indexes: [Int] = []
-                    for try await index in group { indexes.append(index) }
-                    return indexes
+                    for try await index in group {
+                        try Task.checkCancellation()
+                        guard runTokens[key] == runToken,
+                              var current = jobs[key], current.state == .running else {
+                            group.cancelAll()
+                            return
+                        }
+                        current.completedPageIndexes.insert(index)
+                        jobs[key] = current
+                        await save(current)
+                        if runTokens[key] == runToken, jobs[key] == current {
+                            emit(.changed(current))
+                        }
+                    }
                 }
-
-                guard Task.isCancelled == false, runTokens[key] == runToken else { return }
-                guard var current = jobs[key] else { return }
-                current.completedPageIndexes.formUnion(completed)
-                jobs[key] = current
-                await save(current)
-                emit(.changed(current))
             }
 
             guard Task.isCancelled == false, runTokens[key] == runToken else { return }
@@ -833,18 +847,28 @@ public actor DownloadCoordinator {
     }
 
     private static func loadWithRetry(_ page: GalleryPageDescriptor, loader: @escaping PageLoader) async throws -> Data {
-        for attempt in 0..<3 {
+        var attempt = 0
+        while true {
+            try Task.checkCancellation()
             do {
                 return try await loader(page)
             } catch is CancellationError {
                 throw CancellationError()
-            } catch let error as EHError where shouldRetry(error) && attempt < 2 {
-                try await Task.sleep(for: .milliseconds(100 * (1 << attempt)))
+            } catch let error as EHError where shouldRetry(error) {
+                try await Task.sleep(for: .milliseconds(min(30_000, 100 * (1 << attempt))))
+                attempt = min(attempt + 1, 9)
+            } catch let error as URLError where [
+                .timedOut, .cannotFindHost, .cannotConnectToHost,
+                .networkConnectionLost, .dnsLookupFailed, .notConnectedToInternet,
+                .resourceUnavailable, .internationalRoamingOff, .callIsActive, .dataNotAllowed
+            ].contains(error.code) {
+                try await Task.sleep(for: .milliseconds(min(30_000, 100 * (1 << attempt))))
+                attempt = min(attempt + 1, 9)
             } catch {
+                try Task.checkCancellation()
                 throw error
             }
         }
-        throw EHError.networkFailed(String(localized: "重试次数已用尽"))
     }
 
     private static func shouldRetry(_ error: EHError) -> Bool {
@@ -860,7 +884,7 @@ public actor DownloadCoordinator {
 
     private func state(for error: EHError) -> DownloadState {
         switch error {
-        case .authenticationRequired: .authenticationRequired
+        case .authenticationRequired, .exHentaiAccessDenied: .authenticationRequired
         case .rateLimited: .rateLimited
         case .bandwidthLimited: .bandwidthLimited
         case .httpStatus(403): .authenticationRequired

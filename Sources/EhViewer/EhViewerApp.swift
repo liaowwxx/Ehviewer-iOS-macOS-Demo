@@ -32,6 +32,7 @@ final class EhViewerAppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         DeviceSyncBackgroundTaskRegistry.shared.register()
+        DownloadBackgroundTaskRegistry.shared.register()
         return true
     }
 

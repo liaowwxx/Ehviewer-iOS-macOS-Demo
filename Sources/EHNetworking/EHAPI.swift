@@ -192,6 +192,7 @@ public struct EHClient: EHAPI, Sendable {
         guard username.isEmpty == false else { throw EHError.parsingFailed(String(localized: "用户名不能为空")) }
         guard password.isEmpty == false else { throw EHError.parsingFailed(String(localized: "密码不能为空")) }
         try await sessionVault.clear()
+        let loginSession = try await sessionVault.snapshot()
         Self.clearTransientAuthenticationCookies()
         defer { Self.clearTransientAuthenticationCookies() }
         let url = URL(string: "https://forums.e-hentai.org/index.php?act=Login&CODE=01")!
@@ -207,7 +208,8 @@ public struct EHClient: EHAPI, Sendable {
             ]
         )
         request.setValue("https://forums.e-hentai.org", forHTTPHeaderField: "Origin")
-        let (data, response) = try await send(request)
+        let (data, response) = try await send(request, session: loginSession)
+        guard await sessionVault.isCurrent(loginSession) else { throw CancellationError() }
         try validate(response)
 
         let document = try SwiftSoup.parse(String(decoding: data, as: UTF8.self))
@@ -220,7 +222,7 @@ public struct EHClient: EHAPI, Sendable {
             var setCookieHeaders = Self.setCookieHeaders(from: response)
             setCookieHeaders.append(contentsOf: Self.transientAuthenticationCookieHeaders())
             guard setCookieHeaders.isEmpty == false else { throw EHError.invalidCookie }
-            try await sessionVault.saveSetCookieHeaders(setCookieHeaders, url: url)
+            try await sessionVault.saveSetCookieHeaders(setCookieHeaders, url: url, ifCurrent: loginSession)
             guard try await sessionVault.hasAuthenticatedSession() else { throw EHError.invalidCookie }
             return LoginResult(displayName: displayName)
         }
@@ -650,15 +652,22 @@ public struct EHClient: EHAPI, Sendable {
         }
     }
 
-    private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        for attempt in 0..<3 {
+    private func send(_ request: URLRequest, session: SessionVault.Snapshot? = nil) async throws -> (Data, HTTPURLResponse) {
+        let snapshot = try await sessionVault.snapshot()
+        let expected = session ?? snapshot
+        let attempts = isSafeToReplay(request) ? 3 : 1
+        for attempt in 0..<attempts {
             do {
+                try Task.checkCancellation()
+                guard await sessionVault.isCurrent(expected) else { throw CancellationError() }
                 let result = try await transport.send(request)
-                await persistResponseCookies(from: result.1)
+                try Task.checkCancellation()
+                guard await sessionVault.isCurrent(expected) else { throw CancellationError() }
+                await persistResponseCookies(from: result.1, session: expected)
                 if result.1.statusCode >= 400 {
                     EHLog.network.warning("HTTP status \(result.1.statusCode, privacy: .public)")
                 }
-                if shouldRetry(result.1), attempt < 2 {
+                if shouldRetry(result.1), attempt < attempts - 1 {
                     try await Task.sleep(for: .milliseconds(250 * (1 << attempt)))
                     continue
                 }
@@ -672,7 +681,7 @@ public struct EHClient: EHAPI, Sendable {
                     throw CancellationError()
                 }
                 EHLog.network.error("request failed: \(error.localizedDescription, privacy: .public)")
-                guard attempt < 2 else { throw error }
+                guard attempt < attempts - 1 else { throw error }
                 try await Task.sleep(for: .milliseconds(250 * (1 << attempt)))
             }
         }
@@ -684,64 +693,80 @@ public struct EHClient: EHAPI, Sendable {
     }
 
     private func attachSessionCookie(to request: inout URLRequest) async throws {
-        if let cookieHeader = try await sessionVault.loadAuthenticatedCookieHeader() {
+        request.setValue(nil, forHTTPHeaderField: "Cookie")
+        if let url = request.url, CookieHeader.isTrustedURL(url),
+           let cookieHeader = try await sessionVault.loadAuthenticatedCookieHeader() {
             request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         }
     }
 
     private func authorized(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let previousSession = try await sessionVault.loadAuthenticatedCookieHeader()
+        let session = try await sessionVault.snapshot()
         var authorizedRequest = request
-        try await attachSessionCookie(to: &authorizedRequest)
-        let result = try await send(authorizedRequest)
+        if let url = request.url, CookieHeader.isTrustedURL(url) {
+            authorizedRequest.setValue(session.cookieHeader, forHTTPHeaderField: "Cookie")
+        } else {
+            authorizedRequest.setValue(nil, forHTTPHeaderField: "Cookie")
+        }
+        let result = try await send(authorizedRequest, session: session)
+        try classifySiteResponse(result, for: request)
 
-        guard isExHentaiGET(request), isExHentaiAccessFailure(result, for: request) else {
+        guard isExHentaiAccessFailure(result, for: request) else {
             return result
         }
+        guard isSafeToReplay(request) else { throw EHError.exHentaiAccessDenied }
 
         let updatedSession = try await sessionVault.loadAuthenticatedCookieHeader()
-        if updatedSession != previousSession, try await sessionVault.hasExHentaiSession() {
-            return try await replayExHentaiRequest(request)
+        if updatedSession != session.cookieHeader, try await sessionVault.hasExHentaiSession() {
+            return try await replayExHentaiRequest(request, session: session)
         }
 
-        let refreshed = try await exHentaiRefreshGate.run {
-            try await refreshExHentaiSession()
+        let refreshed = try await exHentaiRefreshGate.run(version: session.version) {
+            try await refreshExHentaiSession(session: session)
         }
+        try Task.checkCancellation()
+        guard await sessionVault.isCurrent(session) else { throw CancellationError() }
         guard refreshed else { throw EHError.exHentaiAccessDenied }
-        return try await replayExHentaiRequest(request)
+        return try await replayExHentaiRequest(request, session: session)
     }
 
-    private func replayExHentaiRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    private func replayExHentaiRequest(_ request: URLRequest, session: SessionVault.Snapshot) async throws -> (Data, HTTPURLResponse) {
+        try Task.checkCancellation()
+        guard await sessionVault.isCurrent(session) else { throw CancellationError() }
         var replayRequest = request
         try await attachSessionCookie(to: &replayRequest)
-        let replay = try await send(replayRequest)
+        let replay = try await send(replayRequest, session: session)
+        try classifySiteResponse(replay, for: request)
         guard isExHentaiAccessFailure(replay, for: request) == false else {
             throw EHError.exHentaiAccessDenied
         }
         return replay
     }
 
-    private func refreshExHentaiSession() async throws -> Bool {
+    private func refreshExHentaiSession(session: SessionVault.Snapshot) async throws -> Bool {
+        guard await sessionVault.isCurrent(session) else { throw CancellationError() }
+        // A concurrent response may already have replaced the rejected cookie.
+        if try await sessionVault.loadAuthenticatedCookieHeader() != session.cookieHeader,
+           try await sessionVault.hasExHentaiSession() { return true }
         guard try await sessionVault.hasAuthenticatedSession() else { return false }
-        try await sessionVault.clearIgneous()
+        try await sessionVault.clearIgneous(ifCurrent: session)
 
-        if let refresher = transport as? any ExHentaiCookieRefreshing,
-           let authenticationHeader = try await sessionVault.loadAuthenticatedCookieHeader(),
-           let igneous = try await refresher.refreshExHentaiCookie(
-               authenticationHeader: authenticationHeader
-           ),
-           let base = CookieHeader.parse(authenticationHeader) {
+        if let refresher = transport as? any ExHentaiCookieRefreshing {
+            guard let authenticationHeader = try await sessionVault.loadAuthenticatedCookieHeader(),
+                  let igneous = try await refresher.refreshExHentaiCookie(
+                    authenticationHeader: authenticationHeader
+                  ),
+                  let base = CookieHeader.parse(authenticationHeader) else { return false }
             var values = base.values
             values[CookieHeader.igneousName] = igneous
-            try await sessionVault.saveCookieHeader(CookieHeader(values: values).sessionHeaderValue)
-            return true
+            return try await sessionVault.saveCookieHeader(CookieHeader(values: values).sessionHeaderValue, ifCurrent: session)
         }
 
         var eHentaiRequest = Self.authenticationBootstrapRequest(
             url: URL(string: "https://e-hentai.org/")!
         )
         try await attachSessionCookie(to: &eHentaiRequest)
-        let (_, eHentaiResponse) = try await send(eHentaiRequest)
+        let (_, eHentaiResponse) = try await send(eHentaiRequest, session: session)
         try validate(eHentaiResponse)
 
         for attempt in 0..<3 {
@@ -749,32 +774,64 @@ public struct EHClient: EHAPI, Sendable {
                 url: URL(string: "https://exhentai.org/")!
             )
             try await attachSessionCookie(to: &exHentaiRequest)
-            let (_, response) = try await send(exHentaiRequest)
+            let (_, response) = try await send(exHentaiRequest, session: session)
             if try await sessionVault.hasExHentaiSession() { return true }
-            if [429, 509].contains(response.statusCode) { try validate(response) }
+            if [429, 509].contains(response.statusCode) || response.statusCode >= 500 { try validate(response) }
             if attempt < 2 { try await Task.sleep(for: .milliseconds(500)) }
         }
         return false
     }
 
-    private func isExHentaiGET(_ request: URLRequest) -> Bool {
-        request.httpMethod?.uppercased() == "GET"
-            && request.url?.host?.lowercased() == SiteMode.exHentai.host
+    private func isSafeToReplay(_ request: URLRequest) -> Bool {
+        if request.httpMethod?.uppercased() == "GET" { return true }
+        guard request.httpMethod?.uppercased() == "POST", request.url?.path == "/api.php",
+              let host = request.url?.host, CookieHeader.isTrustedHost(host),
+              let body = request.httpBody,
+              let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return false }
+        return object["method"] as? String == "gdata"
+    }
+
+    private func classifySiteResponse(_ result: (Data, HTTPURLResponse), for request: URLRequest) throws {
+        let (data, response) = result
+        if [429, 509].contains(response.statusCode) || response.statusCode >= 500 {
+            try validate(response)
+        }
+        guard let url = request.url, CookieHeader.isTrustedURL(url) else { return }
+        if String(data: data, encoding: .utf8)?.contains("exhentai.org/img/kokomade.jpg") == true {
+            throw EHError.siteAccessLimited
+        }
+        let accept = request.value(forHTTPHeaderField: "Accept") ?? ""
+        guard accept.contains("text/html") || accept.contains("application/json") else {
+            if (200..<300).contains(response.statusCode), data.isEmpty { throw EHError.invalidResponse }
+            return
+        }
+        if let finalHost = response.url?.host?.lowercased(), finalHost != url.host?.lowercased(),
+           !(finalHost == "forums.e-hentai.org" && response.url?.query?.contains("act=Login") == true) {
+            throw EHError.invalidResponse
+        }
     }
 
     private func isExHentaiAccessFailure(
         _ result: (Data, HTTPURLResponse),
         for request: URLRequest
     ) -> Bool {
-        guard isExHentaiGET(request) else { return false }
+        guard let host = request.url?.host?.lowercased(),
+              host == SiteMode.exHentai.host || host.hasSuffix("." + SiteMode.exHentai.host) else { return false }
         let (data, response) = result
-        if response.url?.host?.lowercased() != SiteMode.exHentai.host { return true }
-        if response.statusCode == 302 || response.statusCode == 403 { return true }
+        if response.statusCode == 403 { return true }
+        if response.url?.host?.lowercased() == "forums.e-hentai.org",
+           response.url?.query?.contains("act=Login") == true { return true }
+        if (300..<400).contains(response.statusCode),
+           let location = response.value(forHTTPHeaderField: "Location"),
+           let url = URL(string: location, relativeTo: request.url)?.absoluteURL,
+           url.host == "forums.e-hentai.org", url.query?.contains("act=Login") == true { return true }
+        guard (200..<300).contains(response.statusCode) else { return false }
         if response.value(forHTTPHeaderField: "Content-Disposition") == "inline; filename=\"sadpanda.jpg\"",
-           response.value(forHTTPHeaderField: "Content-Type") == "image/gif" {
+           response.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("image/gif") == true {
             return true
         }
-        return Self.isBlank(data)
+        let accept = request.value(forHTTPHeaderField: "Accept") ?? ""
+        return (accept.contains("text/html") || accept.contains("application/json")) && Self.isBlank(data)
     }
 
     private static func authenticationBootstrapRequest(url: URL) -> URLRequest {
@@ -791,12 +848,12 @@ public struct EHClient: EHAPI, Sendable {
         return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private func persistResponseCookies(from response: HTTPURLResponse) async {
+    private func persistResponseCookies(from response: HTTPURLResponse, session: SessionVault.Snapshot) async {
         guard let url = response.url else { return }
         let headers = Self.setCookieHeaders(from: response)
         guard headers.isEmpty == false else { return }
         do {
-            try await sessionVault.saveSetCookieHeaders(headers, url: url)
+            try await sessionVault.saveSetCookieHeaders(headers, url: url, ifCurrent: session)
         } catch let error as EHError where error == .invalidCookie {
             // A guest response can set an isolated optional cookie; it is not an authenticated session.
         } catch {
@@ -829,6 +886,7 @@ public struct EHClient: EHAPI, Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = formData(fields)
+        request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer")
         request.setValue("https://\(url.host ?? "")", forHTTPHeaderField: "Origin")
@@ -841,6 +899,7 @@ public struct EHClient: EHAPI, Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = try JSONSerialization.data(withJSONObject: json)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer")
         request.setValue("https://\(site.host)", forHTTPHeaderField: "Origin")
@@ -917,13 +976,13 @@ public struct EHClient: EHAPI, Sendable {
 }
 
 private actor ExHentaiRefreshGate {
-    private var task: Task<Bool, any Error>?
+    private var tasks: [UUID: Task<Bool, any Error>] = [:]
 
-    func run(_ operation: @escaping @Sendable () async throws -> Bool) async throws -> Bool {
-        if let task { return try await task.value }
+    func run(version: UUID, _ operation: @escaping @Sendable () async throws -> Bool) async throws -> Bool {
+        if let task = tasks[version] { return try await task.value }
         let task = Task { try await operation() }
-        self.task = task
-        defer { self.task = nil }
+        tasks[version] = task
+        defer { tasks[version] = nil }
         return try await task.value
     }
 }

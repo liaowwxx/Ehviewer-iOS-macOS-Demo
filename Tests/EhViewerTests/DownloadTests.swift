@@ -359,7 +359,7 @@ struct DownloadTests {
         #expect(await saveProbe.count == 1)
     }
 
-    @Test("Download coordinator retries ordinary network failures at most three times")
+    @Test("Download coordinator retries ordinary network failures")
     func retriesNetworkFailure() async throws {
         let attempts = RetryCounter()
         let key = GalleryKey(gid: 12, token: "retry")
@@ -383,6 +383,76 @@ struct DownloadTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         Issue.record("retrying download did not complete within the test budget")
+    }
+
+    @Test("Transient downloads continue retrying beyond the old three-attempt limit", .timeLimit(.minutes(1)))
+    func retriesBeyondThreeAttempts() async throws {
+        let attempts = RetryCounter()
+        let key = GalleryKey(gid: 120, token: "continued-retry")
+        let page = GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: URL(string: "https://example.invalid/retry")!)
+        let coordinator = DownloadCoordinator { _ in
+            if await attempts.next() < 4 { throw URLError(.timedOut) }
+            return Data([1])
+        }
+        let events = await coordinator.events()
+        await coordinator.enqueue(key: key, title: "Retry", pages: [page])
+        for await event in events {
+            if case .changed(let job) = event, job.state == .completed {
+                #expect(await attempts.value == 4)
+                #expect(job.completedPageIndexes == [0])
+                return
+            }
+        }
+        Issue.record("download event stream ended before completion")
+    }
+
+    @Test("Pausing a transiently failing download stops automatic retry", .timeLimit(.minutes(1)))
+    func pauseStopsAutomaticRetry() async throws {
+        let attempts = RetryCounter()
+        let key = GalleryKey(gid: 121, token: "pause-retry")
+        let page = GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: URL(string: "https://example.invalid/retry")!)
+        let (failures, continuation) = AsyncStream<Void>.makeStream()
+        let coordinator = DownloadCoordinator { _ in
+            _ = await attempts.next()
+            continuation.yield(())
+            throw EHError.networkFailed("temporary")
+        }
+        await coordinator.enqueue(key: key, title: "Retry", pages: [page])
+        for await _ in failures { break }
+        await coordinator.pause(key)
+        let count = await attempts.value
+        try await Task.sleep(for: .milliseconds(350))
+        #expect(await attempts.value == count)
+        #expect(await coordinator.job(for: key)?.state == .paused)
+        continuation.finish()
+    }
+
+    @Test("Completed pages are persisted while another page in the batch is pending", .timeLimit(.minutes(1)))
+    func savesPartialBatchProgress() async throws {
+        let gate = DownloadGate()
+        let key = GalleryKey(gid: 122, token: "partial-batch")
+        let pages = (0..<2).map {
+            GalleryPageDescriptor(galleryKey: key, index: $0, pageURL: URL(string: "https://example.invalid/\($0)")!)
+        }
+        let (saved, continuation) = AsyncStream<DownloadJob>.makeStream()
+        let coordinator = DownloadCoordinator(
+            pageLoader: { page in
+                if page.index == 1 { await gate.wait() }
+                try Task.checkCancellation()
+                return Data([1])
+            },
+            persistence: { job in continuation.yield(job) }
+        )
+        await coordinator.enqueue(key: key, title: "Partial", pages: pages)
+        for await job in saved where job.completedPageIndexes == [0] {
+            #expect(job.state == .running)
+            await coordinator.pause(key)
+            await gate.open()
+            continuation.finish()
+            return
+        }
+        await gate.open()
+        Issue.record("partial batch was not persisted")
     }
 
     @Test("Download coordinator leaves media re-resolution to its page loader")

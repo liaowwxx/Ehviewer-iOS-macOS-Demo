@@ -23,6 +23,12 @@ import Security
 #endif
 
 public actor SessionVault {
+    public struct Snapshot: Sendable {
+        public let version: UUID
+        public let cookieHeader: String?
+    }
+
+    private var version = UUID()
     private let service: String
     private let account: String
 
@@ -62,6 +68,33 @@ public actor SessionVault {
     }
 
     public func saveCookieHeader(_ cookieHeader: String) throws {
+        try Task.checkCancellation()
+        try storeCookieHeader(cookieHeader)
+        version = UUID()
+    }
+
+    public func snapshot() throws -> Snapshot {
+        Snapshot(version: version, cookieHeader: try loadAuthenticatedCookieHeader())
+    }
+
+    public func isCurrent(_ snapshot: Snapshot) -> Bool {
+        version == snapshot.version
+    }
+
+    /// Ends a profile runtime without discarding its saved login.
+    public func invalidatePendingRequests() {
+        version = UUID()
+    }
+
+    @discardableResult
+    public func saveCookieHeader(_ header: String, ifCurrent snapshot: Snapshot) throws -> Bool {
+        try Task.checkCancellation()
+        guard isCurrent(snapshot) else { return false }
+        try storeCookieHeader(header)
+        return true
+    }
+
+    private func storeCookieHeader(_ cookieHeader: String) throws {
         guard let parsed = CookieHeader.parse(cookieHeader), parsed.isAuthenticated else {
             throw EHError.invalidCookie
         }
@@ -88,7 +121,9 @@ public actor SessionVault {
     }
 
     @discardableResult
-    public func saveSetCookieHeaders(_ headers: [String], url: URL) throws -> Bool {
+    public func saveSetCookieHeaders(_ headers: [String], url: URL, ifCurrent snapshot: Snapshot? = nil) throws -> Bool {
+        if let snapshot, !isCurrent(snapshot) { return false }
+        guard CookieHeader.isTrustedURL(url) else { return false }
         let previous = try loadCookieHeader().flatMap(CookieHeader.parse)
         var values = previous?.values ?? [:]
         let previousHeader = previous?.sessionHeaderValue
@@ -99,7 +134,17 @@ public actor SessionVault {
                 for: url
             )
             for cookie in cookies where CookieHeader.persistedCookieNames.contains(cookie.name) {
+                let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                guard let host = url.host?.lowercased(),
+                      host == domain || host.hasSuffix("." + domain),
+                      CookieHeader.isTrustedHost(domain),
+                      cookie.name != CookieHeader.igneousName || domain == "exhentai.org" else { continue }
                 foundSessionCookie = true
+                // A late rejection from the old request must not erase a newly issued cookie.
+                if cookie.name == CookieHeader.igneousName,
+                   CookieHeader.isValidIgneousValue(cookie.value) == false,
+                   let snapshot, snapshot.cookieHeader != previousHeader,
+                   previous?.hasValidIgneous == true { continue }
                 if cookie.value.isEmpty
                     || cookie.expiresDate.map({ $0 <= Date() }) == true
                     || (cookie.name == CookieHeader.igneousName
@@ -120,12 +165,13 @@ public actor SessionVault {
         let hadRejectedIgneous = previous?.values[CookieHeader.igneousName]
             .map { CookieHeader.isValidIgneousValue($0) == false } == true
         guard merged.sessionHeaderValue != previousHeader || hadRejectedIgneous else { return false }
-        try saveCookieHeader(merged.sessionHeaderValue)
+        try storeCookieHeader(merged.sessionHeaderValue)
         return true
     }
 
     @discardableResult
-    public func clearIgneous() throws -> Bool {
+    public func clearIgneous(ifCurrent snapshot: Snapshot? = nil) throws -> Bool {
+        if let snapshot, !isCurrent(snapshot) { return false }
         guard let storedHeader = try loadCookieHeader(),
               let parsed = CookieHeader.parse(storedHeader),
               parsed.values[CookieHeader.igneousName] != nil else { return false }
@@ -136,7 +182,7 @@ public actor SessionVault {
             try clear()
             return true
         }
-        try saveCookieHeader(updated.sessionHeaderValue)
+        try storeCookieHeader(updated.sessionHeaderValue)
         return true
     }
 
@@ -151,6 +197,7 @@ public actor SessionVault {
             throw EHError.storageFailed(String(localized: "Keychain 删除失败（\(status)）"))
         }
         #endif
+        version = UUID()
     }
 
     #if canImport(Security)
@@ -166,6 +213,15 @@ public actor SessionVault {
 }
 
 public struct CookieHeader: Hashable, Sendable {
+    public static func isTrustedHost(_ host: String) -> Bool {
+        let host = host.lowercased()
+        return ["e-hentai.org", "exhentai.org"].contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    public static func isTrustedURL(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" && url.host.map(isTrustedHost) == true
+    }
+
     public static let memberIDName = "ipb_member_id"
     public static let passwordHashName = "ipb_pass_hash"
     public static let igneousName = "igneous"

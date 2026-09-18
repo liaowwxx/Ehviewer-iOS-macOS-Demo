@@ -23,6 +23,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.liao.ehviewer.device-sync.continued-processing</string>
+		<string>com.liao.ehviewer.downloads.continued-processing</string>
 	</array>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.entertainment</string>

@@ -245,6 +245,7 @@ final class AppModel {
     let deviceSync: DeviceSyncCoordinator
 #if os(iOS)
     let deviceSyncRuntime: DeviceSyncRuntime
+    let downloadBackgroundTask: DownloadBackgroundTaskController
 #endif
     let deviceSyncIndex: DeviceSyncIndexStore
     let galleryCache: GalleryCacheStore
@@ -420,7 +421,8 @@ final class AppModel {
                     request.setValue("image/avif,image/webp,image/apng,video/mp4,video/*,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
                     request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
                     request.setValue(pageDescriptor.pageURL.absoluteString, forHTTPHeaderField: "Referer")
-                    if let cookieHeader = try? await sessionVault.loadAuthenticatedCookieHeader() {
+                    if CookieHeader.isTrustedURL(pageImage.imageURL),
+                       let cookieHeader = try? await sessionVault.loadAuthenticatedCookieHeader() {
                         request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
                     }
 
@@ -472,6 +474,9 @@ final class AppModel {
                 try await store.deleteDownloads(for: keys)
             }
         )
+        #if os(iOS)
+        self.downloadBackgroundTask = DownloadBackgroundTaskController(coordinator: self.downloads)
+        #endif
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.migrateLegacyGalleryCache()
@@ -520,6 +525,9 @@ final class AppModel {
         self.downloadRevisionTask = Task { @MainActor [weak self, downloads] in
             for await event in await downloads.events() {
                 guard let self else { return }
+                #if os(iOS)
+                self.downloadBackgroundTask.update(event)
+                #endif
                 switch event {
                 case .reset, .removed, .removedMany:
                     self.publishLocalLibraryChange()
@@ -536,6 +544,7 @@ final class AppModel {
     /// installed. Every asynchronous callback is invalidated before the
     /// runtime's container can be discarded.
     func shutdown() async {
+        await sessionVault.invalidatePendingRequests()
         markReady()
         activeListRequestID = UUID()
         incomingStagingGeneration &+= 1
@@ -554,6 +563,7 @@ final class AppModel {
         await backgroundSession.cancelAll()
 #if os(iOS)
         deviceSyncRuntime.shutdown()
+        downloadBackgroundTask.shutdown()
 #endif
         deviceSync.stop()
         await galleryCoverLoader.removeAll()
@@ -2268,12 +2278,16 @@ final class AppModel {
 
     func saveCookie(_ cookieHeader: String) async -> Bool {
         do {
+            try Task.checkCancellation()
             try await sessionVault.saveCookieHeader(cookieHeader)
             guard try await sessionVault.hasAuthenticatedSession() else {
                 throw EHError.invalidCookie
             }
+            try Task.checkCancellation()
             completeAuthentication()
             return true
+        } catch is CancellationError {
+            return false
         } catch {
             errorMessage = error.localizedDescription
             return false

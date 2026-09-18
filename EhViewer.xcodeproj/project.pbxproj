@@ -108,6 +108,7 @@
 		EHB00000000000000000062 /* Documentation in Resources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */; };
 		EHB0000000000000000006A /* DeviceSyncBackgroundTaskController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000006A /* DeviceSyncBackgroundTaskController.swift */; };
 		EHB0000000000000000006B /* DeviceSyncRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000006B /* DeviceSyncRuntime.swift */; };
+		EHB00000000000000000070 /* DownloadBackgroundTaskController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000070 /* DownloadBackgroundTaskController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -243,6 +244,7 @@
 		EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Sources/EhViewer/Resources/Documentation; sourceTree = "<group>"; };
 		EHF0000000000000000006A /* DeviceSyncBackgroundTaskController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncBackgroundTaskController.swift; sourceTree = "<group>"; };
 		EHF0000000000000000006B /* DeviceSyncRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncRuntime.swift; sourceTree = "<group>"; };
+		EHF00000000000000000070 /* DownloadBackgroundTaskController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadBackgroundTaskController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -383,6 +385,7 @@
 				EHF00000000000000000049 /* Info-macOS.plist */,
 				EHF0000000000000000006A /* DeviceSyncBackgroundTaskController.swift */,
 				EHF0000000000000000006B /* DeviceSyncRuntime.swift */,
+				EHF00000000000000000070 /* DownloadBackgroundTaskController.swift */,
 			);
 			path = Sources/EhViewer;
 			sourceTree = "<group>";
@@ -634,6 +637,7 @@
 				EHB00000000000000000060 /* DocumentationHTML.swift in Sources */,
 				EHB0000000000000000006A /* DeviceSyncBackgroundTaskController.swift in Sources */,
 				EHB0000000000000000006B /* DeviceSyncRuntime.swift in Sources */,
+				EHB00000000000000000070 /* DownloadBackgroundTaskController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

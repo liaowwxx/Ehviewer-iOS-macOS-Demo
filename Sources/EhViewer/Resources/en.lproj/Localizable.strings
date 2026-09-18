@@ -529,3 +529,13 @@
 "漫画列表只包含画廊信息；完整备份包含本地图片。" = "The gallery list contains gallery information; the full backup includes local images.";
 "需要先建立同步索引" = "A sync index is required first";
 "首次使用需要建立一次同步索引。" = "A sync index must be created the first time.";
+"必填" = "Required";
+"选填" = "Optional";
+"正在保存" = "Saving";
+"请只填写该项的值" = "Enter only the value for this field";
+"igneous 不能是 mystery 或 null，请填写有效值或留空" = "igneous cannot be mystery or null. Enter a valid value or leave it blank.";
+"只需填写等号后的值；igneous 留空时，应用会在访问 ExHentai 时尝试自动获取。" = "Enter only the values after the equals signs. If igneous is left blank, the app will try to obtain it when accessing ExHentai.";
+"站点暂时限制了访问，请稍后再试" = "The site has temporarily restricted access. Please try again later.";
+"E-Hentai 登录成功，ExHentai 会话尚未建立；访问 ExHentai 时会再次尝试连接。" = "Signed in to E-Hentai. An ExHentai session has not been established; the app will try again when accessing ExHentai.";
+"正在下载画廊" = "Downloading galleries";
+"下载会在锁屏或进入后台后继续" = "Downloads continue when locked or in the background";
