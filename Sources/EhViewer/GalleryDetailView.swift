@@ -986,7 +986,8 @@ private struct GalleryPreviewGrid: View {
                 while true {
                     let availableIndexes = Set(availablePages.map(\.index))
                     guard let index = (0..<target).first(where: { !availableIndexes.contains($0) }) else { break }
-                    let batch = try await model.previewPages(for: key, startingAt: index)
+                    let sourceSite = SiteMode.allCases.first { $0.host == pages.first?.pageURL.host?.lowercased() }
+                    let batch = try await model.previewPages(for: key, startingAt: index, sourceSite: sourceSite)
                     try Task.checkCancellation()
                     guard batch.contains(where: { $0.galleryKey == key && $0.index == index }) else {
                         throw EHError.parsingFailed(String(localized: "无法获取第 \(index + 1) 页的页面信息，请重试。"))

@@ -51,12 +51,12 @@ struct ReaderThumbnailView: View {
                 .font(.caption2.monospacedDigit())
                 .fontWeight(isSelected ? .bold : .regular)
         }
-        .frame(width: 82)
+        .frame(width: ReaderPageWindow.thumbnailWidth)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("第 \(descriptor.index + 1) 页")
         .accessibilityValue(isSelected ? "当前页" : "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .task(id: descriptor.id) {
+        .task(id: descriptor.id, priority: .utility) {
             await loadThumbnail()
         }
         .onDisappear {
@@ -73,14 +73,19 @@ struct ReaderThumbnailView: View {
             thumbnail = Image(decorative: image, scale: 1, orientation: .up)
             return
         }
-        guard let data = await model.downloadedPageDataIfAvailable(for: descriptor) else {
+        guard Task.isCancelled == false else { return }
+        let data = await model.downloadedPageDataIfAvailable(for: descriptor)
+        guard Task.isCancelled == false else { return }
+        guard let data else {
             isUnavailable = true
             return
         }
-        guard let image = await ReaderThumbnailLoader.shared.thumbnail(
+        let image = await ReaderThumbnailLoader.shared.thumbnail(
             for: descriptor.id,
             data: data
-        ) else {
+        )
+        guard Task.isCancelled == false else { return }
+        guard let image else {
             isUnavailable = true
             return
         }

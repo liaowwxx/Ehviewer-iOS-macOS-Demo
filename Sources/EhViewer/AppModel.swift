@@ -400,6 +400,7 @@ final class AppModel {
         let downloadSite = selectedSite
         downloads = DownloadCoordinator(
             pageLoader: { descriptor in
+                let pageSite = SiteMode.allCases.first { $0.host == descriptor.pageURL.host?.lowercased() } ?? downloadSite
                 var pageDescriptor = descriptor
                 var lastValidationError: EHError?
 
@@ -407,7 +408,7 @@ final class AppModel {
                     try Task.checkCancellation()
                     let pageImage: GalleryPageImage
                     if pageDescriptor.requiresPageResolution {
-                        pageImage = try await downloadClient.pageImage(for: pageDescriptor, site: downloadSite)
+                        pageImage = try await downloadClient.pageImage(for: pageDescriptor, site: pageSite)
                     } else {
                         pageImage = GalleryPageImage(
                             galleryKey: pageDescriptor.galleryKey,
@@ -450,8 +451,8 @@ final class AppModel {
                 }
                 throw lastValidationError ?? EHError.parsingFailed(String(localized: "下载结果不是有效图片或视频"))
             },
-            pageListLoader: { key, index in
-                try await downloadClient.previewPages(for: key, site: downloadSite, startingAt: index)
+            pageListLoader: { job, index in
+                try await downloadClient.previewPages(for: job.key, site: job.sourceSite ?? downloadSite, startingAt: index)
             },
             pageCompletionPersistence: { key, index in
                 try? await store.markDownloadPageCompleted(for: key, pageIndex: index)
@@ -882,8 +883,8 @@ final class AppModel {
         return stream
     }
 
-    func previewPages(for key: GalleryKey, startingAt index: Int) async throws -> [GalleryPageDescriptor] {
-        try await api.previewPages(for: key, site: site, startingAt: index)
+    func previewPages(for key: GalleryKey, startingAt index: Int, sourceSite: SiteMode? = nil) async throws -> [GalleryPageDescriptor] {
+        try await api.previewPages(for: key, site: sourceSite ?? site, startingAt: index)
     }
 
     /// Builds the detail page exclusively from download-owned metadata and the

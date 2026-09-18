@@ -6,6 +6,7 @@
 #if os(iOS)
 @preconcurrency import BackgroundTasks
 import EHDeviceSync
+import EHDomain
 import Foundation
 import Observation
 import OSLog
@@ -69,7 +70,7 @@ final class DeviceSyncBackgroundTaskController {
     static let identifier = "com.liao.ehviewer.device-sync.continued-processing"
 
     private weak var coordinator: DeviceSyncCoordinator?
-    private var submittedIdentifier: String?
+    private var lifecycle = ContinuedProcessingLifecycle()
     private var task: BGContinuedProcessingTask?
 
     init(coordinator: DeviceSyncCoordinator) {
@@ -79,7 +80,7 @@ final class DeviceSyncBackgroundTaskController {
     }
 
     func prepareForUserInitiatedSync() -> Bool {
-        guard task == nil, submittedIdentifier == nil else { return true }
+        guard lifecycle.canSubmit else { return lifecycle.isProcessing }
         guard DeviceSyncBackgroundTaskRegistry.shared.register() else {
             return false
         }
@@ -89,11 +90,12 @@ final class DeviceSyncBackgroundTaskController {
             subtitle: "同步会在锁屏或进入后台后继续"
         )
         request.strategy = .fail
+        lifecycle.submit()
         do {
             try BGTaskScheduler.shared.submit(request)
-            submittedIdentifier = Self.identifier
             return true
         } catch {
+            lifecycle.submissionFailed()
             deviceSyncBackgroundLogger.error(
                 "Unable to submit continued device sync task: \(error.localizedDescription, privacy: .public)"
             )
@@ -102,10 +104,22 @@ final class DeviceSyncBackgroundTaskController {
     }
 
     func handle(_ task: BGContinuedProcessingTask) {
+        if self.task === task { return }
+        switch lifecycle.launch() {
+        case .complete(let success):
+            complete(task, success: success)
+            return
+        case .duplicate:
+            complete(task, success: false)
+            return
+        case .run:
+            break
+        }
         self.task = task
-        task.expirationHandler = { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.handleExpiration()
+        task.expirationHandler = { [weak self, weak task] in
+            Task { @MainActor [weak self, weak task] in
+                guard let self, let task, self.task === task else { return }
+                self.handleExpiration()
             }
         }
         updateTaskProgress()
@@ -113,12 +127,7 @@ final class DeviceSyncBackgroundTaskController {
     }
 
     func shutdown() {
-        if let submittedIdentifier {
-            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: submittedIdentifier)
-        }
-        submittedIdentifier = nil
-        task?.setTaskCompleted(success: false)
-        task = nil
+        finish(success: false)
     }
 
     private func observe(_ coordinator: DeviceSyncCoordinator) {
@@ -142,7 +151,7 @@ final class DeviceSyncBackgroundTaskController {
         switch state {
         case .completed:
             finish(success: true)
-        case .cancelled, .interrupted, .failed:
+        case .cancelled, .interrupted, .failed, .idle, .discovering, .indexRequired:
             finish(success: false)
         default:
             break
@@ -151,20 +160,35 @@ final class DeviceSyncBackgroundTaskController {
 
     private func handleExpiration() {
         guard task != nil else { return }
+        // A terminal coordinator state can precede its observation callback.
+        if case .completed = coordinator?.state {
+            finish(success: true)
+            return
+        }
         deviceSyncBackgroundLogger.error("Continued device sync task expired")
         coordinator?.interruptForBackground()
         finish(success: false)
     }
 
     private func finish(success: Bool) {
-        if let task {
+        if lifecycle.finish(success: success), let task {
             self.task = nil
-            task.setTaskCompleted(success: success)
+            complete(task, success: success)
         }
-        if let submittedIdentifier {
-            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: submittedIdentifier)
-            self.submittedIdentifier = nil
+    }
+
+    private func complete(_ task: BGContinuedProcessingTask, success: Bool) {
+        task.expirationHandler = nil
+        if success {
+            task.progress.totalUnitCount = 100
+            task.progress.completedUnitCount = 100
+            task.updateTitle("同步已完成", subtitle: coordinator?.remoteDeviceName ?? "")
+        } else {
+            task.updateTitle("同步已停止", subtitle: "请在设备同步页面查看状态")
         }
+        // The coordinator owns the actual sync result. Finish the system UI
+        // session normally, including app-handled cancellation and errors.
+        task.setTaskCompleted(success: true)
     }
 
     private func updateTaskProgress() {

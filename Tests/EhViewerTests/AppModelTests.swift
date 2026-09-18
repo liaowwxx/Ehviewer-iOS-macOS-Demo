@@ -8,6 +8,41 @@ import EHDownloads
 
 @MainActor
 struct AppModelTests {
+    @Test("Download pagination keeps the gallery's site after app preferences change", .timeLimit(.minutes(1)))
+    func downloadPaginationUsesGallerySourceSite() async throws {
+        let requests = AsyncStream<SiteMode>.makeStream()
+        let api = DownloadPaginationSiteAPI(requests: requests.continuation)
+        let suiteName = "EhViewerPaginationSite-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.set(SiteMode.eHentai.rawValue, forKey: "site")
+        let model = AppModel(
+            container: try ModelContainerFactory.make(inMemory: true), api: api,
+            sessionVault: SessionVault(service: suiteName), defaults: defaults
+        )
+        await model.waitUntilReady()
+        model.site = .exHentai
+        let key = GalleryKey(gid: 1006, token: "site-regression")
+        let pages = (0..<20).map {
+            GalleryPageDescriptor(galleryKey: key, index: $0, pageURL: URL(string: "https://exhentai.org/s/page-token/\(key.gid)-\($0 + 1)")!)
+        }
+        var job = DownloadJob(key: key, title: "ExHentai", pages: pages, totalPageCount: 26)
+        job.completedPageIndexes = Set(0..<20)
+        job.state = .paused
+        await model.downloads.restore([job])
+        await model.resumeDownload(key)
+        var iterator = requests.stream.makeAsyncIterator()
+        #expect(await iterator.next() == .exHentai)
+        #expect(await api.requestedIndexes == [20])
+        // A preview request also keeps its source after the browsing site changes.
+        model.site = .eHentai
+        do {
+            _ = try await model.previewPages(for: key, startingAt: 20, sourceSite: .exHentai)
+        } catch {
+            // The mock deliberately stops before media downloads start.
+        }
+        #expect(await iterator.next() == .exHentai)
+        await model.downloads.stopAll()
+    }
 
     @MainActor
     private struct DecliningProfileAuthenticator: ProfileAuthenticating {
@@ -2141,6 +2176,29 @@ struct AppModelTests {
 
     private static var onePixelPNG: Data? {
         Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+    }
+}
+
+private actor DownloadPaginationSiteAPI: EHAPI {
+    let requests: AsyncStream<SiteMode>.Continuation
+    private(set) var requestedIndexes: [Int] = []
+
+    init(requests: AsyncStream<SiteMode>.Continuation) {
+        self.requests = requests
+    }
+
+    func list(query: GalleryListQuery) async throws -> GalleryListPage {
+        GalleryListPage(items: [])
+    }
+
+    func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
+        throw EHError.notFound
+    }
+
+    func previewPages(for key: GalleryKey, site: SiteMode, startingAt index: Int) async throws -> [GalleryPageDescriptor] {
+        requestedIndexes.append(index)
+        requests.yield(site)
+        throw site == .exHentai ? EHError.parsingFailed("Stop before media download") : EHError.notFound
     }
 }
 

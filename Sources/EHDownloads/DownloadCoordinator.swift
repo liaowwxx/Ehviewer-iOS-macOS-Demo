@@ -69,6 +69,13 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
     }
 
     public var id: GalleryKey { key }
+    /// Absolute page URLs retain the task's site across app preference changes
+    /// and persisted restores, including jobs with only the first batch loaded.
+    public var sourceSite: SiteMode? {
+        pages.lazy.compactMap { page in
+            SiteMode.allCases.first { $0.host == page.pageURL.host?.lowercased() }
+        }.first
+    }
     public var progress: Double {
         guard totalPageCount > 0 else { return 0 }
         return min(Double(completedPageIndexes.count) / Double(totalPageCount), 1)
@@ -239,7 +246,7 @@ public actor DownloadCoordinator {
     private var subscribers: [UUID: AsyncStream<DownloadEvent>.Continuation] = [:]
     private var activeKey: GalleryKey?
     private let pageLoader: PageLoader
-    private let pageListLoader: (@Sendable (GalleryKey, Int) async throws -> [GalleryPageDescriptor])?
+    private let pageListLoader: (@Sendable (DownloadJob, Int) async throws -> [GalleryPageDescriptor])?
     private let pageCompletionPersistence: (@Sendable (GalleryKey, Int) async -> Void)?
     private let maxConcurrentPages: Int
     private let fileStore: DownloadFileStore?
@@ -251,7 +258,7 @@ public actor DownloadCoordinator {
     public init(
         maxConcurrentPages: Int = 3,
         pageLoader: @escaping PageLoader = DownloadCoordinator.defaultPageLoader,
-        pageListLoader: (@Sendable (GalleryKey, Int) async throws -> [GalleryPageDescriptor])? = nil,
+        pageListLoader: (@Sendable (DownloadJob, Int) async throws -> [GalleryPageDescriptor])? = nil,
         pageCompletionPersistence: (@Sendable (GalleryKey, Int) async -> Void)? = nil,
         fileStore: DownloadFileStore? = nil,
         persistence: JobPersistence? = nil,
@@ -783,7 +790,7 @@ public actor DownloadCoordinator {
                 if batch.isEmpty {
                     guard let missingIndex = (0..<latest.totalPageCount).first(where: { !latest.completedPageIndexes.contains($0) }) else { break }
                     guard let pageListLoader else { throw EHError.parsingFailed(String(localized: "部分下载页面信息缺失，请继续下载")) }
-                    let loadedPages = try await pageListLoader(key, missingIndex)
+                    let loadedPages = try await pageListLoader(latest, missingIndex)
                     try Task.checkCancellation()
                     guard runTokens[key] == runToken, var current = jobs[key], current.state == .running else { return }
                     guard loadedPages.contains(where: { $0.galleryKey == key && $0.index == missingIndex }) else {

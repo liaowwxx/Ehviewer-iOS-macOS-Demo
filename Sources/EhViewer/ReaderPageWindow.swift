@@ -17,6 +17,36 @@
  */
 
 struct ReaderPageWindow {
+    static let thumbnailWidth: Double = 82
+    static let thumbnailSpacing: Double = 10
+    static let thumbnailPadding: Double = 12
+    static let thumbnailStride = thumbnailWidth + thumbnailSpacing
+
+    static func thumbnailContentWidth(pageCount: Int) -> Double {
+        Double(max(pageCount, 0)) * thumbnailStride
+            - (pageCount > 0 ? thumbnailSpacing : 0) + thumbnailPadding * 2
+    }
+
+    /// Fixed-size cells allow distant seeks without measuring preceding pages.
+    static func thumbnailOffset(target: Int, pageCount: Int, viewportWidth: Double) -> Double {
+        guard pageCount > 0 else { return 0 }
+        let target = min(max(target, 0), pageCount - 1)
+        let centeredOffset = thumbnailPadding + Double(target) * thumbnailStride
+            + thumbnailWidth / 2 - viewportWidth / 2
+        let maximumOffset = max(thumbnailContentWidth(pageCount: pageCount) - viewportWidth, 0)
+        return min(max(centeredOffset, 0), maximumOffset)
+    }
+
+    /// Only instantiate visible cells plus three cells on each side for scrolling.
+    static func thumbnailRange(offset: Double, viewportWidth: Double, pageCount: Int) -> Range<Int> {
+        guard pageCount > 0, viewportWidth > 0 else { return 0..<0 }
+        let maximumOffset = max(thumbnailContentWidth(pageCount: pageCount) - viewportWidth, 0)
+        let offset = min(max(offset, 0), maximumOffset)
+        let first = Int(((offset - thumbnailPadding) / thumbnailStride).rounded(.down))
+        let end = Int(((offset + viewportWidth - thumbnailPadding) / thumbnailStride).rounded(.up))
+        return max(first - 3, 0)..<min(end + 3, pageCount)
+    }
+
     static func indexes(target: Int, pageCount: Int, maximumCount: Int) -> [Int] {
         guard pageCount > 0, maximumCount > 0 else { return [] }
 

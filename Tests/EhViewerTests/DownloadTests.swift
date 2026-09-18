@@ -30,6 +30,15 @@ private actor DemandDownloadProbe {
 }
 
 struct DownloadTests {
+    @Test("Partial download jobs retain their source site from persisted page URLs")
+    func partialDownloadSourceSite() {
+        let key = GalleryKey(gid: 1007, token: "site-source")
+        let page = GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: URL(string: "https://exhentai.org/s/token/1007-1")!)
+        let job = DownloadJob(key: key, title: "Partial", pages: [page], totalPageCount: 1001)
+        #expect(job.sourceSite == .exHentai)
+        #expect(DownloadJob(key: key, title: "Empty", pages: []).sourceSite == nil)
+    }
+
     @Test("Local lists ignore invisible progress but apply completion and redownload transitions")
     func localListDownloadUpdatePolicy() {
         let key = GalleryKey(gid: 1005, token: "local-list")

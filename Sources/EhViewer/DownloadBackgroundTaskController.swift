@@ -54,8 +54,10 @@ final class DownloadBackgroundTaskController {
     private let logger = Logger(subsystem: "com.liao.ehviewer", category: "download-background")
     private var jobs: [GalleryKey: DownloadJob] = [:]
     private var batchKeys: Set<GalleryKey> = []
-    private var submitted = false
+    private var lifecycle = ContinuedProcessingLifecycle()
     private var interrupted = false
+    private var stopping = false
+    private var isShutdown = false
     private var task: BGContinuedProcessingTask?
 
     init(coordinator: DownloadCoordinator) {
@@ -64,6 +66,7 @@ final class DownloadBackgroundTaskController {
     }
 
     func update(_ event: DownloadEvent) {
+        guard isShutdown == false else { return }
         switch event {
         case .reset(let jobs):
             self.jobs = Dictionary(uniqueKeysWithValues: jobs.map { ($0.key, $0) })
@@ -74,12 +77,12 @@ final class DownloadBackgroundTaskController {
         }
         let active = jobs.values.filter { $0.state == .queued || $0.state == .running }
         guard active.isEmpty == false else {
+            guard stopping == false else { return }
             interrupted = false
             finish(success: batchKeys.allSatisfy { jobs[$0]?.state == .completed })
             return
         }
-        batchKeys.formUnion(active.map(\.key))
-        if task == nil, submitted == false, interrupted == false,
+        if lifecycle.canSubmit, interrupted == false,
            UIApplication.shared.applicationState == .active,
            DownloadBackgroundTaskRegistry.shared.register() {
             let request = BGContinuedProcessingTaskRequest(
@@ -88,35 +91,57 @@ final class DownloadBackgroundTaskController {
                 subtitle: String(localized: "下载会在锁屏或进入后台后继续")
             )
             request.strategy = .fail
+            lifecycle.submit()
+            batchKeys.formUnion(active.map(\.key))
             do {
                 try BGTaskScheduler.shared.submit(request)
-                submitted = true
             } catch {
+                lifecycle.submissionFailed()
+                batchKeys.removeAll()
                 logger.error("Unable to start continued downloads: \(error.localizedDescription, privacy: .public)")
             }
+        }
+        if lifecycle.isProcessing {
+            batchKeys.formUnion(active.map(\.key))
         }
         updateProgress()
     }
 
     func handle(_ task: BGContinuedProcessingTask) {
+        if self.task === task { return }
+        switch lifecycle.launch() {
+        case .complete(let success):
+            complete(task, success: success)
+            // A new download may have arrived while the old launch was pending.
+            update(.reset(Array(jobs.values)))
+            return
+        case .duplicate:
+            complete(task, success: false)
+            return
+        case .run:
+            break
+        }
         self.task = task
-        task.expirationHandler = { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.task != nil else { return }
+        task.expirationHandler = { [weak self, weak task] in
+            Task { @MainActor [weak self, weak task] in
+                guard let self, let task, self.task === task else { return }
                 self.interrupted = true
-                // Stop before completing so cancellation cannot restart a queue.
+                self.stopping = true
                 await self.coordinator.stopAll()
+                self.stopping = false
+                guard self.task === task else { return }
                 self.finish(success: false)
             }
         }
         if jobs.values.contains(where: { $0.state == .running || $0.state == .queued }) {
             updateProgress()
         } else {
-            finish(success: false)
+            finish(success: batchKeys.allSatisfy { jobs[$0]?.state == .completed })
         }
     }
 
     func shutdown() {
+        isShutdown = true
         interrupted = true
         finish(success: false)
         jobs.removeAll()
@@ -134,16 +159,26 @@ final class DownloadBackgroundTaskController {
     }
 
     private func finish(success: Bool) {
-        if success, let task {
-            task.progress.completedUnitCount = task.progress.totalUnitCount
+        if lifecycle.finish(success: success), let task {
+            self.task = nil
+            complete(task, success: success)
         }
-        task?.setTaskCompleted(success: success)
-        task = nil
-        if submitted {
-            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.identifier)
-        }
-        submitted = false
         batchKeys.removeAll()
+    }
+
+    private func complete(_ task: BGContinuedProcessingTask, success: Bool) {
+        task.expirationHandler = nil
+        if success {
+            task.progress.totalUnitCount = max(1, task.progress.totalUnitCount)
+            task.progress.completedUnitCount = task.progress.totalUnitCount
+            task.updateTitle(String(localized: "下载已完成"), subtitle: "")
+        } else {
+            task.updateTitle(String(localized: "下载已停止"), subtitle: String(localized: "请在下载列表查看状态"))
+        }
+        // This ends the background execution/UI session. Download failures and
+        // pauses remain in DownloadJob; reporting them as scheduler failures
+        // leaves a system-owned failure card that the app cannot dismiss.
+        task.setTaskCompleted(success: true)
     }
 }
 #endif

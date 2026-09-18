@@ -24,35 +24,57 @@ struct ReaderThumbnailStrip: View {
     let targetPage: Int
     let requestPage: (Int) -> Void
     let onSeekEnded: () -> Void
-    @State private var scrollPosition: Int?
+    @State private var scrollPosition = ScrollPosition(x: 0)
+    @State private var visibleRange = 0..<0
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: 10) {
-                ForEach(descriptors) { descriptor in
-                    Button {
-                        requestPage(descriptor.index)
-                        onSeekEnded()
-                    } label: {
-                        ReaderThumbnailView(
-                            descriptor: descriptor,
-                            isSelected: descriptor.index == targetPage
-                        )
+        GeometryReader { geometry in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: ReaderPageWindow.thumbnailSpacing) {
+                    ForEach(descriptors[renderedRange]) { descriptor in
+                        Button {
+                            requestPage(descriptor.index)
+                            onSeekEnded()
+                        } label: {
+                            ReaderThumbnailView(
+                                descriptor: descriptor,
+                                isSelected: descriptor.index == targetPage
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("选择后跳转到此页")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("选择后跳转到此页")
-                    .id(descriptor.index)
                 }
+                .padding(.leading, ReaderPageWindow.thumbnailPadding
+                    + Double(renderedRange.lowerBound) * ReaderPageWindow.thumbnailStride)
+                .frame(
+                    width: ReaderPageWindow.thumbnailContentWidth(pageCount: descriptors.count),
+                    height: 116,
+                    alignment: .leading
+                )
             }
-            .scrollTargetLayout()
-            .padding(.horizontal, 12)
-        }
-        .scrollPosition(id: $scrollPosition, anchor: .center)
-        .onAppear {
-            synchronizeScrollPosition()
-        }
-        .onChange(of: targetPage) { _, _ in
-            synchronizeScrollPosition()
+            .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: Range<Int>.self) { scrollGeometry in
+                ReaderPageWindow.thumbnailRange(
+                    offset: scrollGeometry.contentOffset.x,
+                    viewportWidth: scrollGeometry.containerSize.width,
+                    pageCount: descriptors.count
+                )
+            } action: { _, range in
+                visibleRange = range
+            }
+            .onAppear {
+                synchronizeScrollPosition(viewportWidth: geometry.size.width)
+            }
+            .onChange(of: targetPage) { _, _ in
+                synchronizeScrollPosition(viewportWidth: geometry.size.width)
+            }
+            .onChange(of: geometry.size.width) { _, width in
+                synchronizeScrollPosition(viewportWidth: width)
+            }
+            .onChange(of: descriptors.count) { _, _ in
+                synchronizeScrollPosition(viewportWidth: geometry.size.width)
+            }
         }
         .frame(height: 116)
         .accessibilityLabel("页面预览")
@@ -60,7 +82,29 @@ struct ReaderThumbnailStrip: View {
         .accessibilityIdentifier("reader-thumbnail-strip")
     }
 
-    private func synchronizeScrollPosition() {
-        scrollPosition = targetPage
+    private var renderedRange: Range<Int> {
+        let lowerBound = min(visibleRange.lowerBound, descriptors.count)
+        let upperBound = min(visibleRange.upperBound, descriptors.count)
+        return lowerBound..<max(lowerBound, upperBound)
+    }
+
+    private func synchronizeScrollPosition(viewportWidth: Double) {
+        let target: Int
+        if descriptors.indices.contains(targetPage), descriptors[targetPage].index == targetPage {
+            target = targetPage
+        } else {
+            target = descriptors.firstIndex { $0.index == targetPage } ?? 0
+        }
+        let offset = ReaderPageWindow.thumbnailOffset(
+            target: target,
+            pageCount: descriptors.count,
+            viewportWidth: viewportWidth
+        )
+        visibleRange = ReaderPageWindow.thumbnailRange(
+            offset: offset,
+            viewportWidth: viewportWidth,
+            pageCount: descriptors.count
+        )
+        scrollPosition.scrollTo(x: offset)
     }
 }

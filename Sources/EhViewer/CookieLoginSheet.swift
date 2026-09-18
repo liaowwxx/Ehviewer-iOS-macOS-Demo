@@ -57,21 +57,14 @@ struct CookieLoginSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
     }
 
     private func cookieField(_ name: String, value: Binding<String>, required: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            ViewThatFits(in: .horizontal) {
-                HStack {
-                    Text(verbatim: name + " =")
-                    valueInput(name, value: value, required: required)
-                }
-                VStack(alignment: .leading) {
-                    Text(verbatim: name + " =")
-                    valueInput(name, value: value, required: required)
-                }
-            }
+            // Keep one stable input as long cookie values and the keyboard change layout.
+            Text(verbatim: name + " =")
+            valueInput(name, value: value, required: required)
             if let error = values.error(for: name) {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
@@ -83,9 +76,11 @@ struct CookieLoginSheet: View {
             .accessibilityLabel(Text(verbatim: name))
             .accessibilityHint(Text(required ? "必填" : "选填"))
             #if os(iOS)
+            .keyboardType(.asciiCapable)
             .textInputAutocapitalization(.never)
             #endif
             .autocorrectionDisabled()
+            .writingToolsBehavior(.disabled)
             .disabled(isSaving)
             .onChange(of: value.wrappedValue) { _, input in
                 // Strip only a matching name prefix; keep whitespace while typing.

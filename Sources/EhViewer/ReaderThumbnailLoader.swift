@@ -35,6 +35,7 @@ actor ReaderThumbnailLoader {
     }
 
     func thumbnail(for key: String, data: Data) async -> CGImage? {
+        guard Task.isCancelled == false else { return nil }
         if let cached = cachedThumbnail(for: key) {
             return cached
         }
