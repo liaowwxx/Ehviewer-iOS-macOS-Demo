@@ -4,6 +4,31 @@ import EHDomain
 import EHNetworking
 
 struct NetworkingTests {
+    @Test("Detail previews request only the first page and respect site pagination capacity", arguments: [13, 20])
+    func detailPreviewLoadsOnDemand(capacity: Int) async throws {
+        let key = GalleryKey(gid: 1_366_222, token: "sample-token")
+        let transport = PreviewPaginationTransport(key: key, firstPreviewCount: capacity)
+        let client = EHClient(transport: transport)
+        let detail = try await client.detailPreview(for: key, site: .eHentai)
+        #expect(detail.pages.map(\.index) == Array(0..<capacity))
+        #expect(await transport.requestURLs().count == 1)
+        let next = try await client.previewPages(for: key, site: .eHentai, startingAt: capacity)
+        #expect(next.map(\.index) == Array(capacity..<26))
+        let urls = await transport.requestURLs()
+        #expect(urls.count == 2)
+        #expect(URLComponents(url: urls[1], resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "p" }?.value == "1")
+    }
+
+    @Test("Restored pagination learns the site's capacity and requests the missing batch")
+    func previewPaginationWithoutInitialDetail() async throws {
+        let key = GalleryKey(gid: 1_366_222, token: "sample-token")
+        let transport = PreviewPaginationTransport(key: key)
+        let client = EHClient(transport: transport)
+        let next = try await client.previewPages(for: key, site: .eHentai, startingAt: 23)
+        #expect(next.map(\.index) == Array(20..<26))
+        #expect(await transport.requestURLs().count == 2)
+    }
+
     @Test("Original tag database format decodes English and localized suggestions")
     func tagSuggestionDatabase() throws {
         let translation = Data("画师测试".utf8).base64EncodedString()
@@ -919,13 +944,15 @@ private extension Array {
 private actor PreviewPaginationTransport: HTTPTransport {
     private let key: GalleryKey
     private let blockAdditionalPage: Bool
+    private let firstPreviewCount: Int
     private var requests: [URLRequest] = []
     private var additionalPageStarted = false
     private var additionalPageRelease: CheckedContinuation<Void, Never>?
 
-    init(key: GalleryKey, blockAdditionalPage: Bool = false) {
+    init(key: GalleryKey, blockAdditionalPage: Bool = false, firstPreviewCount: Int = 20) {
         self.key = key
         self.blockAdditionalPage = blockAdditionalPage
+        self.firstPreviewCount = firstPreviewCount
     }
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -942,8 +969,8 @@ private actor PreviewPaginationTransport: HTTPTransport {
         }
         let data = Self.previewHTML(
             key: key,
-            startIndex: previewPage == 0 ? 0 : 20,
-            count: previewPage == 0 ? 20 : 6,
+            startIndex: previewPage * firstPreviewCount,
+            count: min(firstPreviewCount, 26 - previewPage * firstPreviewCount),
             includeMetadata: previewPage == 0
         )
         let response = HTTPURLResponse(

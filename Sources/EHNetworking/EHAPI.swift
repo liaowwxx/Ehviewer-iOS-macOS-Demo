@@ -25,6 +25,10 @@ public protocol EHAPI: Sendable {
     func list(query: GalleryListQuery) async throws -> GalleryListPage
     func list(query: GalleryListQuery, pageURL: URL?) async throws -> GalleryListPage
     func detail(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail
+    /// Main detail metadata and the first preview pagination batch only.
+    func detailPreview(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail
+    /// One site pagination batch containing the requested zero-based page.
+    func previewPages(for key: GalleryKey, site: SiteMode, startingAt index: Int) async throws -> [GalleryPageDescriptor]
     /// Fetches only the gallery's main detail page. Implementations must not
     /// request preview pagination, images, torrents or archive metadata.
     func detailMetadata(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail
@@ -50,6 +54,13 @@ public protocol EHAPI: Sendable {
 }
 
 public extension EHAPI {
+    func detailPreview(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
+        try await detail(for: key, site: site)
+    }
+
+    func previewPages(for key: GalleryKey, site: SiteMode, startingAt index: Int) async throws -> [GalleryPageDescriptor] {
+        try await detail(for: key, site: site).pages.filter { $0.index >= index }
+    }
     func login(username: String, password: String) async throws -> LoginResult {
         throw EHError.unsupportedFeature(String(localized: "密码登录"))
     }
@@ -173,6 +184,7 @@ public struct EHClient: EHAPI, Sendable {
     private let pageParser: GalleryPageParser
     private let sessionVault: SessionVault
     private let exHentaiRefreshGate: ExHentaiRefreshGate
+    private let previewPageSizes = GalleryPreviewPageSizes()
 
     public init(
         transport: any HTTPTransport = URLSessionTransport(),
@@ -292,6 +304,32 @@ public struct EHClient: EHAPI, Sendable {
         let (data, response) = try await authorized(request)
         try validate(response)
         return try parser.parseDetailMetadata(data: data, key: key, site: site)
+    }
+
+    public func detailPreview(for key: GalleryKey, site: SiteMode) async throws -> GalleryDetail {
+        let request = try SiteRequestBuilder(site: site).galleryRequest(key: key)
+        let (data, response) = try await authorized(request)
+        try validate(response)
+        let detail = try parser.parseDetail(data: data, key: key, site: site)
+        if detail.pages.isEmpty == false {
+            await previewPageSizes.set(detail.pages.count, key: key, site: site)
+        }
+        return detail
+    }
+
+    public func previewPages(for key: GalleryKey, site: SiteMode, startingAt index: Int) async throws -> [GalleryPageDescriptor] {
+        guard index >= 0 else { throw EHError.parsingFailed(String(localized: "页码无效")) }
+        var capacity = await previewPageSizes.value(key: key, site: site)
+        if capacity == nil {
+            let first = try await detailPreview(for: key, site: site)
+            if first.pages.contains(where: { $0.index == index }) { return first.pages }
+            capacity = first.pages.count
+        }
+        guard let capacity, capacity > 0 else { throw EHError.parsingFailed(String(localized: "画廊没有可下载的页面。")) }
+        let request = try SiteRequestBuilder(site: site).galleryRequest(key: key, previewPage: index / capacity)
+        let (data, response) = try await authorized(request)
+        try validate(response)
+        return try parser.parsePreviewPage(data: data, key: key, site: site).pages
     }
 
     public func detailStream(for key: GalleryKey, site: SiteMode) -> AsyncThrowingStream<GalleryDetail, Error> {

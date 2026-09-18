@@ -80,11 +80,12 @@ private final class DownloadVisibleJobsCache {
         guard key != newKey else { return cachedJobs }
 
         key = newKey
+        let includesAllCategories = categoryFilter == Set(GalleryCategory.allCases)
         cachedJobs = jobs
             .filter { page.contains($0) }
             .filter { page == .local || statusFilter.matches($0.state) }
             .filter { job in
-                guard categoryFilter != Set(GalleryCategory.allCases) else { return true }
+                guard includesAllCategories == false else { return true }
                 guard let category = downloadSummaries[job.key]?.category,
                       let galleryCategory = GalleryCategory(rawValue: category) else {
                     return false
@@ -664,12 +665,9 @@ struct DownloadsView: View {
             hasLoadedJobs = true
             didChange = true
         case .changed(let changedJob):
-            if page == .local, changedJob.state != .completed,
-               let index = jobs.firstIndex(where: { $0.key == changedJob.key }) {
-                guard jobs[index].state == .completed else { return }
-                jobs[index] = changedJob
-                didChange = true
-            } else if let index = jobs.firstIndex(where: { $0.key == changedJob.key }) {
+            let index = jobs.firstIndex(where: { $0.key == changedJob.key })
+            guard page.shouldApplyUpdate(changedJob, previous: index.map { jobs[$0] }) else { return }
+            if let index {
                 jobs[index] = changedJob
                 didChange = true
             } else {
@@ -1458,6 +1456,12 @@ enum DownloadsPage: String, CaseIterable, Identifiable, Hashable {
         case .local: job.state == .completed
         }
     }
+
+    /// Unfinished downloads cannot change the local page until they complete,
+    /// except when an existing local item becomes unfinished (redownload).
+    func shouldApplyUpdate(_ job: DownloadJob, previous: DownloadJob?) -> Bool {
+        self != .local || job.state == .completed || previous?.state == .completed
+    }
 }
 
 enum DownloadStatusFilter: String, CaseIterable, Identifiable {
@@ -1984,7 +1988,7 @@ private struct DownloadCard: View {
                     HStack {
                         Text(statusTitle)
                         Spacer()
-                        Text("\(job.completedPageIndexes.count)/\(job.pages.count) 页")
+                        Text("\(job.completedPageIndexes.count)/\(job.totalPageCount) 页")
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)

@@ -114,6 +114,7 @@ struct GalleryDetailView: View {
                                 GalleryPreviewGrid(
                                     key: key,
                                     pages: detail.pages,
+                                    totalPageCount: detail.summary.pageCount ?? detail.pages.count,
                                     prefersLocalMedia: downloadJob != nil
                                 )
                                 if isLoadingMorePreviews {
@@ -513,7 +514,7 @@ struct GalleryDetailView: View {
         case .first:
             return 0
         case .last:
-            return max(detail.pages.count - 1, 0)
+            return max((detail.summary.pageCount ?? detail.pages.count) - 1, 0)
         }
     }
 
@@ -528,8 +529,8 @@ struct GalleryDetailView: View {
     private func downloadStatusTitle(_ job: DownloadJob) -> String {
         switch job.state {
         case .completed: String(localized: "已下载")
-        case .queued, .running: String(localized: "下载中 \(job.completedPageIndexes.count)/\(job.pages.count)")
-        case .paused: String(localized: "下载已暂停 \(job.completedPageIndexes.count)/\(job.pages.count)")
+        case .queued, .running: String(localized: "下载中 \(job.completedPageIndexes.count)/\(job.totalPageCount)")
+        case .paused: String(localized: "下载已暂停 \(job.completedPageIndexes.count)/\(job.totalPageCount)")
         case .failed, .authenticationRequired, .rateLimited, .bandwidthLimited: String(localized: "下载异常，可在下载页重试")
         case .cancelled: String(localized: "下载已取消")
         }
@@ -894,15 +895,21 @@ enum GalleryPreviewLoadPolicy {
 }
 
 /// Preview thumbnail grid with page numbers, mirroring the reference detail
-/// scene's `bindPreviews`: only the first 27 previews render initially. Remote
-/// galleries reveal the rest in batches of 20; a downloaded gallery reveals
-/// all pages at once while the lazy grid still limits view creation to the
-/// pages currently on screen.
+/// scene's `bindPreviews`: up to 27 previews render initially. More previews
+/// are revealed in batches of twenty online. Local galleries expand all
+/// available pages at once without requesting remote pagination.
 private struct GalleryPreviewGrid: View {
+    @Environment(AppModel.self) private var model
     let key: GalleryKey
     let pages: [GalleryPageDescriptor]
+    let totalPageCount: Int
     let prefersLocalMedia: Bool
     @State private var revealState = GalleryPreviewRevealState()
+    @State private var additionalPages: [GalleryPageDescriptor] = []
+    @State private var isLoading = false
+    @State private var loadError: String?
+    @State private var retryToken = 0
+    @State private var hasExpanded = false
 
     private let columns = [GridItem(.adaptive(minimum: 100, maximum: 130), spacing: 8)]
 
@@ -939,19 +946,22 @@ private struct GalleryPreviewGrid: View {
                     .accessibilityLabel("预览第 \(page.index + 1) 页")
                 }
             }
-            if pages.count > GalleryPreviewRevealState.initialCount {
-                if revealState.visibleCount < pages.count {
-                    Button("更多预览（共 \(pages.count)）") {
+            if previewPageCount > min(pages.count, GalleryPreviewRevealState.initialCount) {
+                if revealState.visibleCount < previewPageCount || availablePages.count < previewPageCount {
+                    Button("更多预览（共 \(previewPageCount)）") {
+                        hasExpanded = true
                         revealState.revealNext(
-                            totalCount: pages.count,
+                            totalCount: previewPageCount,
                             revealAll: prefersLocalMedia
                         )
                     }
                     .font(.subheadline)
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("more-previews-action")
+                    .disabled(isLoading)
                 } else {
                     Button("收起预览") {
+                        hasExpanded = false
                         revealState.collapse()
                     }
                     .font(.subheadline)
@@ -959,12 +969,49 @@ private struct GalleryPreviewGrid: View {
                     .accessibilityIdentifier("more-previews-action")
                 }
             }
+            if isLoading { ProgressView("加载中…") }
+            if let loadError {
+                Text(loadError).font(.caption).foregroundStyle(.secondary)
+                Button("重试") { retryToken += 1 }
+            }
         }
         .accessibilityIdentifier("detail-previews-grid")
+        .task(id: "\(hasExpanded)|\(revealState.visibleCount)|\(retryToken)") {
+            guard hasExpanded, prefersLocalMedia == false else { return }
+            isLoading = true
+            loadError = nil
+            defer { isLoading = false }
+            do {
+                let target = min(revealState.visibleCount, totalPageCount)
+                while true {
+                    let availableIndexes = Set(availablePages.map(\.index))
+                    guard let index = (0..<target).first(where: { !availableIndexes.contains($0) }) else { break }
+                    let batch = try await model.previewPages(for: key, startingAt: index)
+                    try Task.checkCancellation()
+                    guard batch.contains(where: { $0.galleryKey == key && $0.index == index }) else {
+                        throw EHError.parsingFailed(String(localized: "无法获取第 \(index + 1) 页的页面信息，请重试。"))
+                    }
+                    additionalPages.append(contentsOf: batch.filter { $0.galleryKey == key && !availableIndexes.contains($0.index) })
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                loadError = error.localizedDescription
+            }
+        }
+    }
+
+    private var availablePages: [GalleryPageDescriptor] {
+        let byIndex = Dictionary((pages + additionalPages).map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+        return byIndex.values.sorted { $0.index < $1.index }
+    }
+
+    private var previewPageCount: Int {
+        prefersLocalMedia ? availablePages.count : totalPageCount
     }
 
     private var visiblePages: [GalleryPageDescriptor] {
-        Array(pages.prefix(revealState.visibleCount))
+        Array(availablePages.prefix(revealState.visibleCount))
     }
 }
 

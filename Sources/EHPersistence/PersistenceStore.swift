@@ -920,13 +920,20 @@ public actor PersistenceStore {
     }
 
     private func applyDownloadedStableSnapshot(
-        _ snapshot: StableGalleryMetadataSnapshot
+        _ snapshot: StableGalleryMetadataSnapshot,
+        accumulatingPages: Bool = false
     ) throws {
         if let record = try downloadedMetadataRecord(for: snapshot.key) {
-            let merged = GallerySnapshotMerger.merge(
-                existing: try decodeStable(from: record),
+            let existing = try decodeStable(from: record)
+            var merged = GallerySnapshotMerger.merge(
+                existing: existing,
                 incoming: snapshot
             )
+            if accumulatingPages {
+                let pagesByIndex = Dictionary((existing.pages + snapshot.pages).map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+                merged.pages = pagesByIndex.values.sorted { $0.index < $1.index }
+                if merged.pages.isEmpty == false { merged.completeness.pages = .loadedWithValue }
+            }
             record.stableData = try JSONEncoder().encode(merged)
             record.updatedAt = Date()
         } else {
@@ -952,10 +959,12 @@ public actor PersistenceStore {
     private func downloadedSummary(
         from record: DownloadedGalleryMetadataRecord
     ) throws -> GallerySummary {
-        let stable = try decodeStable(from: record)
+        let decoder = JSONDecoder()
+        let stable = try decoder.decode(DownloadedGallerySummaryProjection.self, from: record.stableData)
         var summary = stable.summary
         var completeness = stable.completeness
-        if let dynamic = try decodeDynamic(from: record) {
+        if let data = record.dynamicData {
+            let dynamic = try decoder.decode(DownloadedGallerySummaryDynamicProjection.self, from: data)
             summary.rating = dynamic.rating
             summary.ratingCount = dynamic.ratingCount
             summary.favoriteCategory = dynamic.favoriteCategory
@@ -1027,6 +1036,18 @@ public actor PersistenceStore {
         return try modelContext.fetch(descriptor).first?.lastReadPage
     }
 
+    public func readingPages(for keys: Set<GalleryKey>) throws -> [GalleryKey: Int] {
+        guard keys.isEmpty == false else { return [:] }
+        let gids = keys.map(\.gid)
+        let descriptor = FetchDescriptor<GalleryRecord>(predicate: #Predicate {
+            gids.contains($0.gid)
+        })
+        return Dictionary(
+            try modelContext.fetch(descriptor).filter { keys.contains($0.key) }.map { ($0.key, $0.lastReadPage) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
     public func resetReadingProgress(for keys: [GalleryKey]) throws {
         guard keys.isEmpty == false else { return }
         let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
@@ -1084,8 +1105,13 @@ public actor PersistenceStore {
     }
 
     public func recent(limit: Int = 50) throws -> [GallerySummary] {
-        let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>(sortBy: [SortDescriptor(\.lastReadAt, order: .reverse)]))
-        return records.filter { $0.lastReadAt != nil }.prefix(limit).map { record in
+        guard limit > 0 else { return [] }
+        var descriptor = FetchDescriptor<GalleryRecord>(
+            predicate: #Predicate { $0.lastReadAt != nil },
+            sortBy: [SortDescriptor(\.lastReadAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return try modelContext.fetch(descriptor).map { record in
             var summary = record.summary
             summary.postedAt = record.lastReadAt
             return summary
@@ -1093,8 +1119,13 @@ public actor PersistenceStore {
     }
 
     public func favorites(limit: Int = 50) throws -> [GallerySummary] {
-        let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>(sortBy: [SortDescriptor(\.title)]))
-        return records.filter(\.isFavorite).prefix(limit).map(\.summary)
+        guard limit > 0 else { return [] }
+        var descriptor = FetchDescriptor<GalleryRecord>(
+            predicate: #Predicate { $0.isFavorite },
+            sortBy: [SortDescriptor(\.title)]
+        )
+        descriptor.fetchLimit = limit
+        return try modelContext.fetch(descriptor).map(\.summary)
     }
 
     public func gallerySummary(for key: GalleryKey) throws -> GallerySummary? {
@@ -1111,6 +1142,7 @@ public actor PersistenceStore {
         japaneseTitle: String? = nil,
         tags: [String] = [],
         pages: [GalleryPageDescriptor],
+        totalPageCount: Int? = nil,
         completedPageIndexes: Set<Int>,
         stateRaw: String,
         errorMessage: String?,
@@ -1122,7 +1154,7 @@ public actor PersistenceStore {
             japaneseTitle: japaneseTitle,
             tags: tags,
             pages: pages,
-            totalPageCount: pages.count,
+            totalPageCount: totalPageCount,
             label: label,
             completedPageIndexes: completedPageIndexes,
             stateRaw: stateRaw,
@@ -1170,11 +1202,11 @@ public actor PersistenceStore {
             title: title,
             japaneseTitle: japaneseTitle,
             tags: tags,
-            pageCount: pages.isEmpty ? nil : pages.count,
+            pageCount: job.totalPageCount > 0 ? job.totalPageCount : nil,
             pages: pages,
             capturedAt: .distantPast,
             completeness: completeness
-        ))
+        ), accumulatingPages: true)
         var descriptor = FetchDescriptor<DownloadJobRecord>(predicate: #Predicate {
             $0.gid == key.gid && $0.token == key.token
         })
@@ -1188,16 +1220,17 @@ public actor PersistenceStore {
         }
         record.title = title
         record.japaneseTitle = japaneseTitle
-        record.totalPages = pages.count
+        record.totalPages = job.totalPageCount
         record.completedPages = completedPageIndexes.count
         record.stateRaw = stateRaw
         record.errorMessage = errorMessage
         record.label = label
         record.updatedAt = Date()
 
+        let recordsByIndex = Dictionary(record.pages.map { ($0.pageIndex, $0) }, uniquingKeysWith: { first, _ in first })
         for page in pages {
             let pageRecord: DownloadPageRecord
-            if let existing = record.pages.first(where: { $0.pageIndex == page.index }) {
+            if let existing = recordsByIndex[page.index] {
                 pageRecord = existing
             } else {
                 pageRecord = DownloadPageRecord(pageIndex: page.index, fileName: "page-\(page.index + 1).bin")
@@ -1282,18 +1315,21 @@ public actor PersistenceStore {
         try modelContext.save()
     }
 
-    public func markDownloadPageCompleted(for key: GalleryKey, pageIndex: Int, bytes: Int64) throws {
+    public func markDownloadPageCompleted(for key: GalleryKey, pageIndex: Int, bytes: Int64? = nil) throws {
         var descriptor = FetchDescriptor<DownloadJobRecord>(predicate: #Predicate {
             $0.gid == key.gid && $0.token == key.token
         })
         descriptor.fetchLimit = 1
         guard let record = try modelContext.fetch(descriptor).first,
               let page = record.pages.first(where: { $0.pageIndex == pageIndex }) else { return }
+        if page.stateRaw == "completed", page.backgroundTaskIdentifier == nil,
+           bytes == nil || bytes == page.bytes { return }
+        let wasCompleted = page.stateRaw == "completed"
         page.stateRaw = "completed"
-        page.bytes = bytes
+        if let bytes { page.bytes = bytes }
         page.backgroundTaskIdentifier = nil
-        record.completedPages = record.pages.filter { $0.stateRaw == "completed" }.count
-        if record.totalPages > 0, record.completedPages >= record.totalPages {
+        if !wasCompleted { record.completedPages += 1 }
+        if record.stateRaw != "cancelled", record.totalPages > 0, record.completedPages >= record.totalPages {
             record.stateRaw = "completed"
             record.errorMessage = nil
         } else if record.stateRaw == "completed" {
@@ -1523,11 +1559,15 @@ public actor PersistenceStore {
     }
 
     /// Reads only requested entries from the separate downloaded-metadata
-    /// table. Fetching that bounded table once avoids one SwiftData query per
-    /// local-gallery card without touching the ordinary gallery cache.
+    /// table. Fetch only requested galleries and decode card fields without
+    /// constructing their page tables or comments.
     public func localGallerySummaries(for keys: Set<GalleryKey>) throws -> [GallerySummary] {
         guard keys.isEmpty == false else { return [] }
-        return try modelContext.fetch(FetchDescriptor<DownloadedGalleryMetadataRecord>())
+        let gids = keys.map(\.gid)
+        let descriptor = FetchDescriptor<DownloadedGalleryMetadataRecord>(predicate: #Predicate {
+            gids.contains($0.gid)
+        })
+        return try modelContext.fetch(descriptor)
             .compactMap { record in
                 guard keys.contains(record.key) else { return nil }
                 return try downloadedSummary(from: record)

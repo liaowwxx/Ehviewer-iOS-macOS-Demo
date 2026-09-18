@@ -5,6 +5,107 @@ import EHDomain
 import EHPersistence
 
 struct PersistenceTests {
+    @Test("Large local gallery summaries preserve card fields without altering detail payloads", arguments: [false, true])
+    func localGallerySummaryProjectionPreservesData(hasDynamic: Bool) async throws {
+        let key = GalleryKey(gid: 905, token: "large-summary")
+        let pages = (0..<1001).map {
+            GalleryPageDescriptor(galleryKey: key, index: $0, pageURL: URL(string: "https://example.invalid/\($0)")!)
+        }
+        let stable = StableGalleryMetadataSnapshot(
+            key: key, sourceSite: .exHentai, title: "Large", japaneseTitle: "日本語",
+            uploader: "Uploader", tags: ["artist:sample"], category: "Manga", pageCount: 1001,
+            postedAt: Date(timeIntervalSince1970: 123), thumbnailURL: URL(string: "https://example.invalid/cover"),
+            pages: pages, completeness: .complete
+        )
+        let dynamic = hasDynamic ? DownloadedGalleryDynamicSnapshot(
+            key: key, rating: 4.5, ratingCount: 123, favoriteCategory: 2,
+            comments: (0..<100).map { DownloadedGalleryCommentSnapshot(id: String($0), author: "Reader", body: "Comment \($0)") }
+        ) : nil
+        let container = try ModelContainerFactory.make(inMemory: true)
+        let context = ModelContext(container)
+        context.insert(DownloadedGalleryMetadataRecord(
+            key: key, stableData: try JSONEncoder().encode(stable),
+            dynamicData: try dynamic.map { try JSONEncoder().encode($0) }
+        ))
+        let otherKey = GalleryKey(gid: key.gid, token: "other-token")
+        context.insert(DownloadedGalleryMetadataRecord(
+            key: otherKey,
+            stableData: try JSONEncoder().encode(StableGalleryMetadataSnapshot(key: otherKey, sourceSite: .eHentai, title: "Other"))
+        ))
+        try context.save()
+        let store = PersistenceStore(modelContainer: container)
+        let summaries = try await store.localGallerySummaries(for: [key])
+        #expect(summaries.count == 1)
+        var actual = try #require(summaries.first)
+        #expect(actual.metadataCompleteness?.pages == .loadedWithValue)
+        #expect(actual.metadataCompleteness?.rating == (dynamic?.completeness.rating ?? stable.completeness.rating))
+        var expected = stable.detail(with: dynamic).summary
+        actual.metadataCompleteness = nil
+        expected.metadataCompleteness = nil
+        #expect(actual == expected)
+        let transfer = try #require(try await store.downloadedTransferRecord(for: key))
+        #expect(transfer.stable == stable)
+        #expect(transfer.dynamic == dynamic)
+    }
+
+    @Test("Limited library queries preserve filtering, order and history timestamps")
+    func libraryQueriesFilterBeforeLimiting() async throws {
+        let container = try ModelContainerFactory.make(inMemory: true)
+        let context = ModelContext(container)
+        for index in 0..<60 {
+            let summary = GallerySummary(key: GalleryKey(gid: Int64(index), token: "library"), title: String(format: "%03d", index))
+            context.insert(GalleryRecord(
+                snapshot: summary,
+                lastReadPage: index,
+                lastReadAt: index >= 10 ? Date(timeIntervalSince1970: Double(index)) : nil,
+                isFavorite: index % 3 == 0
+            ))
+        }
+        try context.save()
+        let store = PersistenceStore(modelContainer: container)
+        let recent = try await store.recent(limit: 3)
+        #expect(recent.map { $0.key.gid } == [59, 58, 57])
+        #expect(recent.first?.postedAt == Date(timeIntervalSince1970: 59))
+        #expect(try await store.favorites(limit: 3).map { $0.key.gid } == [0, 3, 6])
+        #expect(try await store.recent(limit: 0).isEmpty)
+        #expect(try await store.favorites(limit: 0).isEmpty)
+        #expect(try await store.recent().count == 50)
+    }
+
+    @Test("Batched reading progress matches exact gallery keys and omits missing records")
+    func batchedReadingProgressUsesExactKeys() async throws {
+        let store = PersistenceStore(modelContainer: try ModelContainerFactory.make(inMemory: true))
+        let key = GalleryKey(gid: 902, token: "progress")
+        let other = GalleryKey(gid: 903, token: "other")
+        try await store.upsert([GallerySummary(key: key, title: "Read"), GallerySummary(key: other, title: "Other")])
+        try await store.updateReadingProgress(for: key, page: 42)
+        let pages = try await store.readingPages(for: [key, GalleryKey(gid: 903, token: "different-token"), GalleryKey(gid: 904, token: "missing")])
+        #expect(pages == [key: 42])
+        #expect(try await store.readingPages(for: []).isEmpty)
+    }
+
+    @Test("Partial page lists preserve total page count and incremental completion")
+    func partialDownloadPageListRoundTrip() async throws {
+        let store = PersistenceStore(modelContainer: try ModelContainerFactory.make(inMemory: true))
+        let key = GalleryKey(gid: 901, token: "partial-pages")
+        let page = GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: URL(string: "https://example.invalid/0")!)
+        try await store.upsertDownload(key: key, title: "Large", pages: [page], totalPageCount: 1001,
+                                       completedPageIndexes: [], stateRaw: "running", errorMessage: nil)
+        try await store.markDownloadPageCompleted(for: key, pageIndex: 0, bytes: 42)
+        try await store.markDownloadPageCompleted(for: key, pageIndex: 0)
+        let restored = try #require(try await store.downloadJobs().first)
+        #expect(restored.totalPageCount == 1001)
+        #expect(restored.pages.count == 1)
+        #expect(restored.completedPageIndexes == [0])
+        #expect(restored.stateRaw == "running")
+        let next = GalleryPageDescriptor(galleryKey: key, index: 1, pageURL: URL(string: "https://example.invalid/1")!)
+        try await store.upsertDownload(key: key, title: "Large", pages: [page, next], totalPageCount: 1001,
+                                       completedPageIndexes: [0], stateRaw: "paused", errorMessage: nil)
+        let stable = try #require(try await store.downloadedTransferRecord(for: key)?.stable)
+        #expect(stable.pages.map(\.index) == [0, 1])
+        #expect(stable.pageCount == 1001)
+    }
+
     @Test("SwiftData upsert keeps one gallery record and stores reading progress")
     func upsertAndProgress() async throws {
         let container = try ModelContainerFactory.make(inMemory: true)

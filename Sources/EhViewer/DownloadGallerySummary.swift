@@ -16,14 +16,14 @@ enum DownloadGallerySummary {
         guard var summary = cached else {
             return GallerySummary(
                 key: job.key, title: job.title, japaneseTitle: job.japaneseTitle,
-                pageCount: job.pages.isEmpty ? nil : job.pages.count, tags: job.tags
+                pageCount: job.totalPageCount > 0 ? job.totalPageCount : nil, tags: job.tags
             )
         }
         let completeness = summary.metadataCompleteness
         if completeness?.title == .notLoaded, job.title.isEmpty == false { summary.title = job.title }
         if completeness?.japaneseTitle == .notLoaded, summary.japaneseTitle == nil { summary.japaneseTitle = job.japaneseTitle }
         if completeness?.tags == .notLoaded, summary.tags.isEmpty { summary.tags = job.tags }
-        if completeness?.pageCount == .notLoaded, summary.pageCount == nil, job.pages.isEmpty == false { summary.pageCount = job.pages.count }
+        if completeness?.pageCount == .notLoaded, summary.pageCount == nil, job.totalPageCount > 0 { summary.pageCount = job.totalPageCount }
         return summary
     }
 }

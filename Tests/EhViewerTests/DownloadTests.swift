@@ -4,7 +4,144 @@ import EHDomain
 import EHDownloads
 @testable import EhViewerPreview
 
+private actor DemandDownloadProbe {
+    let key: GalleryKey
+    let total: Int
+    private var completed: Set<Int> = []
+    private(set) var requests: [Int] = []
+    private(set) var requestedTooEarly = false
+    private(set) var fullSaves = 0
+
+    init(key: GalleryKey, total: Int) {
+        self.key = key
+        self.total = total
+    }
+
+    func batch(startingAt index: Int) -> [GalleryPageDescriptor] {
+        if !(0..<index).allSatisfy({ completed.contains($0) }) { requestedTooEarly = true }
+        requests.append(index)
+        return (index..<min(index + 20, total)).map {
+            GalleryPageDescriptor(galleryKey: key, index: $0, pageURL: URL(string: "https://example.invalid/\($0)")!)
+        }
+    }
+
+    func complete(_ index: Int) { completed.insert(index) }
+    func save(_ job: DownloadJob) { fullSaves += 1 }
+}
+
 struct DownloadTests {
+    @Test("Local lists ignore invisible progress but apply completion and redownload transitions")
+    func localListDownloadUpdatePolicy() {
+        let key = GalleryKey(gid: 1005, token: "local-list")
+        var running = DownloadJob(key: key, title: "Running", pages: [])
+        running.state = .running
+        var completed = running
+        completed.state = .completed
+        #expect(DownloadsPage.local.shouldApplyUpdate(running, previous: nil) == false)
+        #expect(DownloadsPage.local.shouldApplyUpdate(running, previous: running) == false)
+        #expect(DownloadsPage.local.shouldApplyUpdate(completed, previous: running))
+        #expect(DownloadsPage.local.shouldApplyUpdate(running, previous: completed))
+        #expect(DownloadsPage.downloading.shouldApplyUpdate(running, previous: nil))
+    }
+
+    @Test("Pausing while page-list pagination is suspended keeps the partial job paused", .timeLimit(.minutes(1)))
+    func pauseDuringPageListLoad() async throws {
+        let key = GalleryKey(gid: 1003, token: "pause-demand")
+        let started = AsyncStream<Int>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        let initial = GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: URL(string: "https://example.invalid/0")!)
+        let coordinator = DownloadCoordinator(
+            pageLoader: { _ in Data("page".utf8) },
+            pageListLoader: { _, index in
+                started.continuation.yield(index)
+                for await _ in release.stream { break }
+                try Task.checkCancellation()
+                return [GalleryPageDescriptor(galleryKey: key, index: index, pageURL: URL(string: "https://example.invalid/\(index)")!)]
+            }
+        )
+        await coordinator.enqueue(key: key, title: "Pause", pages: [initial], totalPageCount: 1001)
+        var iterator = started.stream.makeAsyncIterator()
+        #expect(await iterator.next() == 1)
+        await coordinator.pause(key)
+        release.continuation.finish()
+        let job = try #require(await coordinator.job(for: key))
+        #expect(job.state == .paused)
+        #expect(job.pages.map(\.index) == [0])
+        #expect(job.completedPageIndexes == [0])
+    }
+
+    @Test("Invalid pagination fails instead of completing a partial job", .timeLimit(.minutes(1)))
+    func invalidDownloadPaginationFails() async throws {
+        let key = GalleryKey(gid: 1004, token: "invalid-demand")
+        let coordinator = DownloadCoordinator(
+            pageLoader: { _ in Data("page".utf8) },
+            pageListLoader: { _, _ in [] }
+        )
+        let events = await coordinator.events()
+        await coordinator.enqueue(key: key, title: "Invalid", pages: [], totalPageCount: 1001)
+        for await event in events {
+            if case .changed(let job) = event, job.state == .failed {
+                #expect(job.completedPageIndexes.isEmpty)
+                #expect(job.errorMessage != nil)
+                return
+            }
+        }
+        Issue.record("Expected a pagination failure")
+    }
+
+    @Test("Large downloads acquire page lists only after downloading the current batch", .timeLimit(.minutes(1)))
+    func largeDownloadPageListsAreDemandDriven() async throws {
+        let key = GalleryKey(gid: 1001, token: "demand")
+        let probe = DemandDownloadProbe(key: key, total: 1001)
+        let coordinator = DownloadCoordinator(
+            maxConcurrentPages: 3,
+            pageLoader: { _ in Data("page".utf8) },
+            pageListLoader: { _, index in await probe.batch(startingAt: index) },
+            pageCompletionPersistence: { _, index in await probe.complete(index) },
+            persistence: { job in await probe.save(job) }
+        )
+        let events = await coordinator.events()
+        await coordinator.enqueue(key: key, title: "Large", pages: await probe.batch(startingAt: 0), totalPageCount: 1001)
+        for await event in events {
+            if case .changed(let job) = event, job.state == .completed {
+                #expect(job.pages.count == 1001)
+                #expect(job.completedPageIndexes.count == 1001)
+                #expect(job.progress == 1)
+                #expect(await probe.requests == Array(stride(from: 0, to: 1001, by: 20)))
+                #expect(await probe.requestedTooEarly == false)
+                #expect(await probe.fullSaves < 60)
+                return
+            }
+        }
+        Issue.record("Download event stream ended without completion")
+    }
+
+    @Test("Resumed partial jobs obtain missing page lists before completion", .timeLimit(.minutes(1)))
+    func resumedPartialDownloadLoadsMissingPages() async throws {
+        let key = GalleryKey(gid: 1002, token: "resume-demand")
+        let probe = DemandDownloadProbe(key: key, total: 23)
+        var job = DownloadJob(key: key, title: "Partial", pages: await probe.batch(startingAt: 0), totalPageCount: 23)
+        job.completedPageIndexes = Set(0..<20)
+        job.state = .paused
+        #expect(job.progress == Double(20) / 23)
+        for index in 0..<20 { await probe.complete(index) }
+        let coordinator = DownloadCoordinator(
+            pageLoader: { _ in Data("page".utf8) },
+            pageListLoader: { _, index in await probe.batch(startingAt: index) }
+        )
+        let events = await coordinator.events()
+        await coordinator.restore([job])
+        await coordinator.resume(key)
+        for await event in events {
+            if case .changed(let updated) = event, updated.state == .completed {
+                #expect(updated.completedPageIndexes == Set(0..<23))
+                #expect(await probe.requests == [0, 20])
+                return
+            }
+        }
+        Issue.record("Download event stream ended without completion")
+    }
+
     @Test("Local download titles follow the Japanese-title preference")
     func localDownloadTitlePreference() {
         let key = GalleryKey(gid: 1, token: "local-title")

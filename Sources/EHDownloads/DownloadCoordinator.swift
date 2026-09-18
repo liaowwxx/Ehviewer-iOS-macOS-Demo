@@ -37,7 +37,8 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
     public let title: String
     public let japaneseTitle: String?
     public let tags: [String]
-    public let pages: [GalleryPageDescriptor]
+    public internal(set) var pages: [GalleryPageDescriptor]
+    public let totalPageCount: Int
     public let addedAt: Date
     public var label: String?
     public var completedPageIndexes: Set<Int>
@@ -50,6 +51,7 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
         japaneseTitle: String? = nil,
         tags: [String] = [],
         pages: [GalleryPageDescriptor],
+        totalPageCount: Int? = nil,
         label: String? = nil,
         addedAt: Date = Date()
     ) {
@@ -58,6 +60,7 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
         self.japaneseTitle = japaneseTitle
         self.tags = tags
         self.pages = pages
+        self.totalPageCount = max(totalPageCount ?? pages.count, pages.count)
         self.label = label
         self.addedAt = addedAt
         completedPageIndexes = []
@@ -67,8 +70,8 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
 
     public var id: GalleryKey { key }
     public var progress: Double {
-        guard pages.isEmpty == false else { return 0 }
-        return Double(completedPageIndexes.count) / Double(pages.count)
+        guard totalPageCount > 0 else { return 0 }
+        return min(Double(completedPageIndexes.count) / Double(totalPageCount), 1)
     }
 
     /// Mirrors the reference client's `EhUtils.getSuitableTitle` for download
@@ -236,6 +239,8 @@ public actor DownloadCoordinator {
     private var subscribers: [UUID: AsyncStream<DownloadEvent>.Continuation] = [:]
     private var activeKey: GalleryKey?
     private let pageLoader: PageLoader
+    private let pageListLoader: (@Sendable (GalleryKey, Int) async throws -> [GalleryPageDescriptor])?
+    private let pageCompletionPersistence: (@Sendable (GalleryKey, Int) async -> Void)?
     private let maxConcurrentPages: Int
     private let fileStore: DownloadFileStore?
     private let persistence: JobPersistence?
@@ -246,6 +251,8 @@ public actor DownloadCoordinator {
     public init(
         maxConcurrentPages: Int = 3,
         pageLoader: @escaping PageLoader = DownloadCoordinator.defaultPageLoader,
+        pageListLoader: (@Sendable (GalleryKey, Int) async throws -> [GalleryPageDescriptor])? = nil,
+        pageCompletionPersistence: (@Sendable (GalleryKey, Int) async -> Void)? = nil,
         fileStore: DownloadFileStore? = nil,
         persistence: JobPersistence? = nil,
         batchPersistence: BatchJobPersistence? = nil,
@@ -254,6 +261,8 @@ public actor DownloadCoordinator {
     ) {
         self.maxConcurrentPages = max(1, maxConcurrentPages)
         self.pageLoader = pageLoader
+        self.pageListLoader = pageListLoader
+        self.pageCompletionPersistence = pageCompletionPersistence
         self.fileStore = fileStore
         self.persistence = persistence
         self.batchPersistence = batchPersistence
@@ -280,11 +289,12 @@ public actor DownloadCoordinator {
         title: String,
         japaneseTitle: String? = nil,
         tags: [String] = [],
-        pages: [GalleryPageDescriptor]
+        pages: [GalleryPageDescriptor],
+        totalPageCount: Int? = nil
     ) async {
         guard jobs[key] == nil else { return }
         removedKeys.remove(key)
-        let job = DownloadJob(key: key, title: title, japaneseTitle: japaneseTitle, tags: tags, pages: pages)
+        let job = DownloadJob(key: key, title: title, japaneseTitle: japaneseTitle, tags: tags, pages: pages, totalPageCount: totalPageCount)
         jobs[key] = job
         await save(job)
         emit(.changed(job))
@@ -601,11 +611,12 @@ public actor DownloadCoordinator {
                     japaneseTitle: existing.japaneseTitle ?? incoming.japaneseTitle,
                     tags: existing.tags.isEmpty ? incoming.tags : existing.tags,
                     pages: pages,
+                    totalPageCount: max(existing.totalPageCount, incoming.totalPageCount),
                     label: existing.label ?? incoming.label,
                     addedAt: min(existing.addedAt, incoming.addedAt)
                 )
                 merged.completedPageIndexes = completedIndexes.intersection(expectedIndexes)
-                if expectedIndexes.isEmpty == false && merged.completedPageIndexes == expectedIndexes {
+                if expectedIndexes.count == merged.totalPageCount && expectedIndexes.isEmpty == false && merged.completedPageIndexes == expectedIndexes {
                     merged.state = .completed
                     merged.errorMessage = nil
                 } else if existing.state == .running || existing.state == .queued {
@@ -765,13 +776,27 @@ public actor DownloadCoordinator {
         emit(.changed(job))
 
         do {
-            let pendingPages = job.pages.filter { job.completedPageIndexes.contains($0.index) == false }
-            var iterator = pendingPages.makeIterator()
-            while let first = iterator.next() {
+            while true {
                 try Task.checkCancellation()
-                var batch = [first]
-                while batch.count < maxConcurrentPages, let next = iterator.next() {
-                    batch.append(next)
+                guard runTokens[key] == runToken, let latest = jobs[key], latest.state == .running else { return }
+                let batch = Array(latest.pages.filter { latest.completedPageIndexes.contains($0.index) == false }.prefix(maxConcurrentPages))
+                if batch.isEmpty {
+                    guard let missingIndex = (0..<latest.totalPageCount).first(where: { !latest.completedPageIndexes.contains($0) }) else { break }
+                    guard let pageListLoader else { throw EHError.parsingFailed(String(localized: "部分下载页面信息缺失，请继续下载")) }
+                    let loadedPages = try await pageListLoader(key, missingIndex)
+                    try Task.checkCancellation()
+                    guard runTokens[key] == runToken, var current = jobs[key], current.state == .running else { return }
+                    guard loadedPages.contains(where: { $0.galleryKey == key && $0.index == missingIndex }) else {
+                        throw EHError.parsingFailed(String(localized: "无法获取第 \(missingIndex + 1) 页的页面信息，请重试。"))
+                    }
+                    var byIndex = Dictionary(current.pages.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+                    for page in loadedPages where page.galleryKey == key && page.index >= 0 && page.index < current.totalPageCount {
+                        byIndex[page.index] = page
+                    }
+                    current.pages = byIndex.values.sorted { $0.index < $1.index }
+                    jobs[key] = current
+                    await save(current)
+                    continue
                 }
 
                 try await withThrowingTaskGroup(of: Int.self) { group in
@@ -793,7 +818,11 @@ public actor DownloadCoordinator {
                         }
                         current.completedPageIndexes.insert(index)
                         jobs[key] = current
-                        await save(current)
+                        if let pageCompletionPersistence {
+                            await persistCompletion(key: key, index: index, writer: pageCompletionPersistence)
+                        } else {
+                            await save(current)
+                        }
                         if runTokens[key] == runToken, jobs[key] == current {
                             emit(.changed(current))
                         }
@@ -910,6 +939,20 @@ public actor DownloadCoordinator {
         }
     }
 
+    private func persistCompletion(
+        key: GalleryKey,
+        index: Int,
+        writer: @escaping @Sendable (GalleryKey, Int) async -> Void
+    ) async {
+        guard removedKeys.contains(key) == false else { return }
+        let id = UUID()
+        let task = Task { await writer(key, index) }
+        pendingPersistence[key, default: []].append(PendingPersistence(id: id, task: task))
+        await task.value
+        pendingPersistence[key]?.removeAll { $0.id == id }
+        if pendingPersistence[key]?.isEmpty == true { pendingPersistence[key] = nil }
+    }
+
     private func waitForPendingPersistence(for key: GalleryKey) async {
         while let pending = pendingPersistence[key], pending.isEmpty == false {
             for item in pending {
@@ -946,6 +989,7 @@ public actor DownloadCoordinator {
             japaneseTitle: japaneseTitle,
             tags: tags,
             pages: existing.pages,
+            totalPageCount: existing.totalPageCount,
             label: existing.label,
             addedAt: existing.addedAt
         )

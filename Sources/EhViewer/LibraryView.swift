@@ -188,15 +188,13 @@ struct LibraryView: View {
             Text("有 \(bulkDownloadFailureCount) 项无法加载下载所需的画廊信息，可稍后再次尝试。")
         }
         .task(id: mode) {
-            downloadedJobs = [:]
-            downloadedJobsReady = false
-            libraryKeys = []
             await model.loadLibrary(mode: mode)
-            guard Task.isCancelled == false else { return }
-
+        }
+        .task(id: libraryMetadataTaskID) {
             let libraryKeys = Set(items.map(\.key))
             self.libraryKeys = libraryKeys
             let jobs = await model.downloads.snapshot()
+            guard Task.isCancelled == false else { return }
             downloadedJobs = Dictionary(
                 uniqueKeysWithValues: jobs
                     .filter { libraryKeys.contains($0.key) }
@@ -208,12 +206,8 @@ struct LibraryView: View {
                 readingPages = [:]
                 return
             }
-            var loadedPages: [GalleryKey: Int] = [:]
-            for gallery in model.historyGalleries {
-                if let page = await model.readingPage(for: gallery.key) {
-                    loadedPages[gallery.key] = page
-                }
-            }
+            let loadedPages = (try? await model.persistence.readingPages(for: libraryKeys)) ?? [:]
+            guard Task.isCancelled == false else { return }
             readingPages = loadedPages
         }
         .task {
@@ -225,6 +219,10 @@ struct LibraryView: View {
 
     private var items: [GallerySummary] {
         mode == .history ? model.historyGalleries : model.favoriteGalleries
+    }
+
+    private var libraryMetadataTaskID: String {
+        "\(mode.rawValue)|\(items.map { $0.key.id }.joined(separator: "|"))"
     }
 
     private var selectAllTitle: String {

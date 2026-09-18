@@ -220,7 +220,7 @@ private func makePersistedDownloadSnapshot(_ job: DownloadJob) -> PersistedDownl
         japaneseTitle: job.japaneseTitle,
         tags: job.tags,
         pages: job.pages,
-        totalPageCount: job.pages.count,
+        totalPageCount: job.totalPageCount,
         createdAt: job.addedAt,
         label: job.label,
         completedPageIndexes: job.completedPageIndexes,
@@ -450,6 +450,12 @@ final class AppModel {
                 }
                 throw lastValidationError ?? EHError.parsingFailed(String(localized: "下载结果不是有效图片或视频"))
             },
+            pageListLoader: { key, index in
+                try await downloadClient.previewPages(for: key, site: downloadSite, startingAt: index)
+            },
+            pageCompletionPersistence: { key, index in
+                try? await store.markDownloadPageCompleted(for: key, pageIndex: index)
+            },
             fileStore: fileStore,
             persistence: { job in
                 try? await store.upsertDownload(
@@ -458,6 +464,7 @@ final class AppModel {
                     japaneseTitle: job.japaneseTitle,
                     tags: job.tags,
                     pages: job.pages,
+                    totalPageCount: job.totalPageCount,
                     completedPageIndexes: job.completedPageIndexes,
                     stateRaw: job.state.rawValue,
                     errorMessage: job.errorMessage,
@@ -860,7 +867,23 @@ final class AppModel {
     }
 
     func detailStream(for key: GalleryKey) -> AsyncThrowingStream<GalleryDetail, Error> {
-        api.detailStream(for: key, site: site)
+        let api = api
+        let site = site
+        let (stream, continuation) = AsyncThrowingStream<GalleryDetail, Error>.makeStream()
+        let task = Task {
+            do {
+                continuation.yield(try await api.detailPreview(for: key, site: site))
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
+    }
+
+    func previewPages(for key: GalleryKey, startingAt index: Int) async throws -> [GalleryPageDescriptor] {
+        try await api.previewPages(for: key, site: site, startingAt: index)
     }
 
     /// Builds the detail page exclusively from download-owned metadata and the
@@ -877,14 +900,13 @@ final class AppModel {
         let transfer = try? await persistence.downloadedTransferRecord(for: key)
         let stable = transfer?.stable
         let dynamic = transfer?.dynamic
-        let pages = stable?.completeness.pages.isLoaded == true && stable?.pages.isEmpty == false
-            ? stable?.pages ?? []
-            : job.pages
+        let pagesByIndex = Dictionary(((stable?.pages ?? []) + job.pages).map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+        let pages = pagesByIndex.values.sorted { $0.index < $1.index }
         var localSummary = stable?.detail(with: dynamic).summary ?? GallerySummary(
             key: key,
             title: job.title,
             japaneseTitle: job.japaneseTitle,
-            pageCount: pages.isEmpty ? nil : pages.count,
+            pageCount: job.totalPageCount > 0 ? job.totalPageCount : nil,
             tags: job.tags
         )
         if localSummary.title.isEmpty { localSummary.title = job.title }
@@ -894,7 +916,7 @@ final class AppModel {
             localSummary.tags = job.tags
         }
         if localSummary.pageCount == nil, pages.isEmpty == false {
-            localSummary.pageCount = pages.count
+            localSummary.pageCount = job.totalPageCount
         }
         return GalleryDetail(
             summary: localSummary,
@@ -1294,7 +1316,7 @@ final class AppModel {
                 key: job.key,
                 title: job.title,
                 japaneseTitle: job.japaneseTitle,
-                pageCount: job.pages.isEmpty ? nil : job.pages.count,
+                pageCount: job.totalPageCount > 0 ? job.totalPageCount : nil,
                 tags: job.tags
             )
         }
@@ -1320,9 +1342,11 @@ final class AppModel {
         do {
             switch mode {
             case .history:
-                historyGalleries = try await persistence.recent()
+                let loaded = try await persistence.recent()
+                if loaded != historyGalleries { historyGalleries = loaded }
             case .favorites:
-                favoriteGalleries = try await persistence.favorites()
+                let loaded = try await persistence.favorites()
+                if loaded != favoriteGalleries { favoriteGalleries = loaded }
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -1515,7 +1539,8 @@ final class AppModel {
             title: detail.summary.title,
             japaneseTitle: detail.summary.japaneseTitle,
             tags: detail.summary.tags,
-            pages: detail.pages
+            pages: detail.pages,
+            totalPageCount: detail.summary.pageCount
         )
     }
 
@@ -1546,7 +1571,7 @@ final class AppModel {
             }
 
             do {
-                let detail = try await detail(for: gallery.key)
+                let detail = try await api.detailPreview(for: gallery.key, site: site)
                 guard Task.isCancelled == false else {
                     return GalleryDownloadEnqueueResult(
                         requested: total,
@@ -1934,6 +1959,7 @@ final class AppModel {
                         ?? existingJobs[candidate.key]?.tags
                         ?? [],
                     pages: pages,
+                    totalPageCount: max(candidate.declaredPageCount, existingJobs[candidate.key]?.totalPageCount ?? 0),
                     label: existingJobs[candidate.key]?.label,
                     addedAt: existingJobs[candidate.key]?.addedAt ?? Date()
                 )
@@ -2162,7 +2188,7 @@ final class AppModel {
     /// owns only local media and must not turn a partial reconciliation into a
     /// background network download.
     func refreshDownloadsAfterDeviceSync() async {
-        await restoreDownloads(resolveMissingPages: false, startQueued: false)
+        await restoreDownloads(startQueued: false)
         await refreshLocalDownloadUsage()
         // Device sync mutates files and persisted download metadata outside a
         // local-list interaction. Signal visible local lists after the reload
@@ -2171,7 +2197,6 @@ final class AppModel {
     }
 
     private func restoreDownloads(
-        resolveMissingPages: Bool = true,
         startQueued: Bool = true,
         progress: ((Int, Int) -> Void)? = nil
     ) async {
@@ -2191,7 +2216,6 @@ final class AppModel {
         isLoadingDownloads = false
         progress?(0, persisted.count)
 
-        let restoreSite = site
         async let downloadedSummaries = (try? await persistence.downloadedGallerySummaries(
             for: Set(persisted.map(\.key))
         )) ?? []
@@ -2200,24 +2224,14 @@ final class AppModel {
 
         for (offset, (item, baseline)) in zip(persisted, baselines).enumerated() {
             if Task.isCancelled { return }
-            var pages = item.pages
-            if resolveMissingPages,
-               item.totalPageCount > pages.count,
-               item.stateRaw != DownloadState.cancelled.rawValue,
-               let detail = try? await api.detail(for: item.key, site: restoreSite) {
-                let existingIndexes = Set(pages.map(\.index))
-                let missingDescriptors = detail.pages.filter { existingIndexes.contains($0.index) == false }
-                if missingDescriptors.isEmpty == false,
-                   let resolvedPages = try? await resolvedDownloadPages(missingDescriptors, site: restoreSite) {
-                    pages = (pages + resolvedPages).sorted { $0.index < $1.index }
-                }
-            }
+            let pages = item.pages
             var job = DownloadJob(
                 key: item.key,
                 title: item.title,
                 japaneseTitle: item.japaneseTitle,
                 tags: item.tags,
                 pages: pages,
+                totalPageCount: item.totalPageCount,
                 addedAt: item.createdAt
             )
             let expectedPageIndexes = Set(pages.map(\.index))
@@ -2229,6 +2243,7 @@ final class AppModel {
             job.label = item.label
             job.errorMessage = item.errorMessage
             if expectedPageIndexes.isEmpty == false,
+               expectedPageIndexes.count == job.totalPageCount,
                job.completedPageIndexes == expectedPageIndexes,
                job.state != .cancelled {
                 job.state = .completed
@@ -2258,6 +2273,7 @@ final class AppModel {
             japaneseTitle: item.japaneseTitle,
             tags: item.tags,
             pages: item.pages,
+            totalPageCount: item.totalPageCount,
             addedAt: item.createdAt
         )
         job.completedPageIndexes = item.completedPageIndexes
@@ -2723,7 +2739,7 @@ final class AppModel {
                     key: job.key,
                     title: job.title,
                     japaneseTitle: job.japaneseTitle,
-                    pageCount: job.pages.isEmpty ? nil : job.pages.count,
+                    pageCount: job.totalPageCount > 0 ? job.totalPageCount : nil,
                     tags: job.tags
                 )
                 try await persistence.upsertStableSnapshot(
@@ -2863,7 +2879,7 @@ final class AppModel {
                     key: job.key,
                     title: job.title,
                     japaneseTitle: job.japaneseTitle,
-                    pageCount: job.pages.isEmpty ? nil : job.pages.count,
+                    pageCount: job.totalPageCount > 0 ? job.totalPageCount : nil,
                     tags: job.tags
                 )
             }
@@ -3297,7 +3313,7 @@ final class AppModel {
             var jobsByKey = Dictionary(uniqueKeysWithValues: persistedJobs.map { ($0.key, $0) })
             for job in liveJobs {
                 jobsByKey[job.key] = job
-                totalPageCounts[job.key] = max(totalPageCounts[job.key] ?? 0, job.pages.count)
+                totalPageCounts[job.key] = max(totalPageCounts[job.key] ?? 0, job.totalPageCount)
             }
             let jobs = jobsByKey.values.sorted {
                 $0.title.localizedStandardCompare($1.title) == .orderedAscending
@@ -3324,7 +3340,7 @@ final class AppModel {
                     key: item.key,
                     title: item.title,
                     japaneseTitle: item.japaneseTitle,
-                    pageCount: item.pages.isEmpty ? nil : item.pages.count,
+                    pageCount: item.totalPageCount > 0 ? item.totalPageCount : nil,
                     tags: item.tags
                 )
                 try await persistence.upsertStableSnapshot(
@@ -3683,7 +3699,7 @@ final class AppModel {
 
     private func hydrateSyncedDownload(_ job: DownloadJob) async -> Bool {
         do {
-            let detail = try await api.detail(for: job.key, site: site)
+            let detail = try await api.detailPreview(for: job.key, site: site)
             guard detail.pages.isEmpty == false else {
                 throw EHError.parsingFailed(String(localized: "画廊没有可下载的页面。"))
             }
@@ -3693,6 +3709,7 @@ final class AppModel {
                 japaneseTitle: job.japaneseTitle,
                 tags: job.tags,
                 pages: detail.pages,
+                totalPageCount: detail.summary.pageCount,
                 label: job.label,
                 addedAt: job.addedAt
             )
