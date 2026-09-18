@@ -81,7 +81,8 @@ struct SettingsView: View {
     }
 
     private var settingsForm: some View {
-        Form {
+        @Bindable var model = model
+        return Form {
             ProfileManagementSection(
                 nameEditor: $profileNameEditor,
                 profilePendingDeletion: $profilePendingDeletion
@@ -115,6 +116,17 @@ struct SettingsView: View {
                     SettingsNavigationLabel("数据备份&同步", systemImage: "externaldrive.badge.icloud")
                 }
                 .accessibilityIdentifier("settings-data-and-backup-link")
+            }
+
+            Section {
+                Picker("启动页面", selection: $model.startupPage) {
+                    ForEach(StartupPage.allCases, id: \.self) { page in
+                        Text(page.title).tag(page)
+                    }
+                }
+                .accessibilityIdentifier("startup-page-picker")
+            } footer: {
+                Text("下次启动或进入此空间时生效")
             }
 
             Section("关于") {
@@ -263,7 +275,7 @@ struct SettingsView: View {
                     showingAllLocalMangaDeletionConfirmation = true
                 }
                 .foregroundStyle(.red)
-                .disabled(model.localDownloadGalleryCount == 0 || model.isDeletingAllLocalManga)
+                .disabled(model.localDownloadGalleryCount == 0 || model.isDeletingAllLocalManga || model.isLoadingDownloads || model.localDownloadLoadError != nil)
                 .accessibilityIdentifier("delete-all-local-manga-action")
                 .confirmationDialog(
                     "删除所有本地漫画？",
@@ -354,7 +366,7 @@ struct SettingsView: View {
                     Button("更新…") {
                         showingDownloadedMetadataRefreshDialog = true
                     }
-                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
+                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
                     .accessibilityIdentifier("refresh-downloaded-gallery-metadata-action")
                     .confirmationDialog(
                         "更新已下载画廊信息",
@@ -385,7 +397,7 @@ struct SettingsView: View {
                     Button("导入…") {
                         startFileImport(.gallerySync)
                     }
-                    .disabled(model.isMigrating || model.isRestoringDownloads)
+                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
                     .accessibilityIdentifier("import-gallery-metadata-action")
                 }
                 SettingsActionRow(
@@ -395,7 +407,7 @@ struct SettingsView: View {
                     Button("导入…") {
                         startFileImport(.downloadArchive)
                     }
-                    .disabled(model.isMigrating || model.isRestoringDownloads)
+                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
                     .accessibilityIdentifier("import-download-archive-action")
                 }
                 SettingsActionRow(
@@ -414,7 +426,7 @@ struct SettingsView: View {
 #endif
                         }
                     }
-                    .disabled(model.isMigrating || model.isRestoringDownloads)
+                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
                     .accessibilityIdentifier("export-gallery-metadata-action")
                 }
                 SettingsActionRow(
@@ -431,7 +443,7 @@ struct SettingsView: View {
 #endif
                         }
                     }
-                    .disabled(model.isMigrating || model.isRestoringDownloads)
+                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
                     .accessibilityIdentifier("export-download-archive-action")
                 }
             }
@@ -443,7 +455,7 @@ struct SettingsView: View {
                     )
                 }
                 .accessibilityIdentifier("device-sync-link")
-                .disabled(model.isMigrating || model.isRestoringDownloads)
+                .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
 
                 SettingsActionRow(
                     title: "重建同步索引",
@@ -454,7 +466,7 @@ struct SettingsView: View {
                             await model.buildDeviceSyncIndex()
                         }
                     }
-                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads)
+                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
                     .accessibilityIdentifier("rebuild-device-sync-index-action")
                 }
             }
@@ -560,8 +572,9 @@ struct SettingsView: View {
             pendingArchiveSaveFile = nil
         }
 #endif
-        .task(id: page) {
-            if page == .storageAndProgress || page == .storageManagement {
+        .task(id: "\(page)-\(model.isLoadingDownloads)") {
+            if !model.isLoadingDownloads, model.localDownloadLoadError == nil,
+               (page == .storageAndProgress || page == .storageManagement) {
                 await model.refreshGalleryCacheUsage()
                 await model.refreshLocalDownloadUsage()
             }

@@ -165,7 +165,10 @@ final class ProfileRuntime {
     let container: ModelContainer
     let model: AppModel
 
-    init(descriptor: ProfileDescriptor, profilesRoot: URL) throws {
+    init(
+        descriptor: ProfileDescriptor, profilesRoot: URL,
+        beforeLocalRestore: (@Sendable () async throws -> Void)? = nil
+    ) async throws {
         self.descriptor = descriptor
         layout = descriptor.usesLegacyStorage
             ? .legacy(for: descriptor.id)
@@ -184,8 +187,13 @@ final class ProfileRuntime {
         let files = DownloadFileStore(root: layout.downloadsRoot, indexSink: index)
         let cache = GalleryCacheStore(root: layout.galleryCacheRoot)
         let tagProvider = TagSuggestionProvider(cacheURL: layout.tagDatabaseURL)
+        let store = await Task.detached(priority: .utility) {
+            PersistenceStore(modelContainer: container)
+        }.value
         model = AppModel(
             container: container,
+            persistenceStore: store,
+            beforeLocalRestore: beforeLocalRestore,
             sessionVault: SessionVault(service: Self.keychainServiceName(for: descriptor.id)),
             defaults: defaults,
             downloadFiles: files,
@@ -214,6 +222,8 @@ final class ProfileRuntime {
 final class ProfileSession {
     private let profilesRoot: URL
     private let registryURL: URL
+    private let beforeLocalRestore: (@Sendable () async throws -> Void)?
+    private var activationID = UUID()
     private let authenticator: any ProfileAuthenticating
     private var lastUsedProfileID: UUID?
 
@@ -227,11 +237,13 @@ final class ProfileSession {
 
     init(
         profilesRoot: URL = ProfileStorageLayout.profilesRoot,
-        authenticator: any ProfileAuthenticating = SystemProfileAuthenticator()
+        authenticator: any ProfileAuthenticating = SystemProfileAuthenticator(),
+        beforeLocalRestore: (@Sendable () async throws -> Void)? = nil
     ) {
         self.profilesRoot = profilesRoot
         registryURL = profilesRoot.appendingPathComponent("registry.json")
         self.authenticator = authenticator
+        self.beforeLocalRestore = beforeLocalRestore
     }
 
     var selectedProfile: ProfileDescriptor? {
@@ -350,33 +362,47 @@ final class ProfileSession {
 
     private func activate(profileID: UUID, reason: String?) async {
         guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
+        let operationID = UUID()
+        activationID = operationID
+        let descriptor = profiles[index]
         isActivatingProfile = true
-        defer { isActivatingProfile = false }
+        defer {
+            if activationID == operationID { isActivatingProfile = false }
+        }
         do {
             if let reason {
                 guard try await authenticate(reason: reason) else {
                     throw ProfileSessionError.authenticationCancelled
                 }
             }
-            await migrateLegacySessionIfNeeded(for: profiles[index])
-            let newRuntime = try ProfileRuntime(descriptor: profiles[index], profilesRoot: profilesRoot)
-            // Publish the runtime as soon as its synchronous construction has
-            // completed. Download restoration has its own loading state and
+            guard activationID == operationID else { return }
+            await migrateLegacySessionIfNeeded(for: descriptor)
+            let newRuntime = try await ProfileRuntime(
+                descriptor: descriptor, profilesRoot: profilesRoot, beforeLocalRestore: beforeLocalRestore
+            )
+            guard activationID == operationID,
+                  let currentIndex = profiles.firstIndex(where: { $0.id == profileID }) else {
+                await newRuntime.model.shutdown()
+                return
+            }
+            // Publish the runtime as soon as construction has completed. Download restoration has its own loading state and
             // must not delay the first root view transaction.
             runtime = newRuntime
-            await newRuntime.model.waitUntilReady()
-            profiles[index].lastUsedAt = Date()
+            profiles[currentIndex].lastUsedAt = Date()
             lastUsedProfileID = profileID
             try persistRegistry()
             selectedProfileID = profileID
             startupError = nil
         } catch {
+            guard activationID == operationID else { return }
+            await runtime?.model.shutdown()
             runtime = nil
             startupError = error.localizedDescription
         }
     }
 
     private func closeRuntime() async {
+        activationID = UUID()
         guard let runtime else { return }
         await runtime.model.shutdown()
         self.runtime = nil
@@ -518,7 +544,7 @@ struct ProfileHostView: View {
     var body: some View {
         Group {
             if let runtime = session.runtime {
-                RootView()
+                RootView(initialRoute: runtime.model.selectedRoute ?? .local)
                     .id(runtime.descriptor.id)
                     .environment(runtime.model)
                     .environment(session)

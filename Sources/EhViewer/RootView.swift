@@ -32,6 +32,11 @@ struct RootView: View {
     @State private var splitSelection: AppRoute? = .local
     @State private var splitDetailPath: [AppRoute] = []
 
+    init(initialRoute: AppRoute = .local) {
+        _compactSelection = State(initialValue: initialRoute)
+        _splitSelection = State(initialValue: initialRoute)
+    }
+
     var body: some View {
         Group {
             if horizontalSizeClass == .compact {

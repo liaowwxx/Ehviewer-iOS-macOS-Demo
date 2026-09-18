@@ -24,8 +24,9 @@ struct DeviceSyncView: View {
                     }
                 }
             }
-            .onAppear {
-                if model.deviceSync.hasActiveSession == false {
+            .task(id: "\(model.isLoadingDownloads)-\(model.localDownloadLoadError == nil)") {
+                if !model.isLoadingDownloads, model.localDownloadLoadError == nil,
+                   model.deviceSync.hasActiveSession == false {
                     model.deviceSync.start()
                 }
             }
@@ -50,6 +51,23 @@ struct DeviceSyncView: View {
 
     @ViewBuilder
     private var content: some View {
+        if model.isLoadingDownloads {
+            ProgressView("正在加载下载内容…")
+        } else if let error = model.localDownloadLoadError {
+            ContentUnavailableView {
+                Label("无法加载本地内容", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            } actions: {
+                Button("重试") { model.retryLocalDownloadLoad() }
+            }
+        } else {
+            readyContent
+        }
+    }
+
+    @ViewBuilder
+    private var readyContent: some View {
         switch model.deviceSync.state {
         case .indexRequired:
             VStack(spacing: 16) {

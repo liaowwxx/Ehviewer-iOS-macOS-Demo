@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A18D00000000000000000001 /* StartupPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18D00000000000000000002 /* StartupPage.swift */; };
 		0DA41857302C7798007B166F /* EHDomain in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000001 /* EHDomain */; };
 		0DA41858302C7798007B166F /* EHNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000002 /* EHNetworking */; };
 		0DA41859302C7798007B166F /* EHPersistence in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000003 /* EHPersistence */; };
@@ -143,6 +144,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A18D00000000000000000002 /* StartupPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupPage.swift; sourceTree = "<group>"; };
 		EHF00000000000000000001 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		EHF00000000000000000002 /* BrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseView.swift; sourceTree = "<group>"; };
 		A17C00000000000000000002 /* GalleryLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryLayoutMode.swift; sourceTree = "<group>"; };
@@ -365,6 +367,7 @@
 				EHF00000000000000000030 /* WebLoginSheet.swift */,
 				EHF00000000000000000016 /* LocalArchiveView.swift */,
 				EHF00000000000000000034 /* ReadingSettings.swift */,
+				A18D00000000000000000002 /* StartupPage.swift */,
 				EHF00000000000000000063 /* ReadingSettingsForm.swift */,
 				EHF00000000000000000035 /* MigrationDocument.swift */,
 				EHF00000000000000000039 /* PhotoLibrarySaver.swift */,
@@ -617,6 +620,7 @@
 				EHB00000000000000000030 /* WebLoginSheet.swift in Sources */,
 				EHB00000000000000000021 /* LocalArchiveView.swift in Sources */,
 				EHB00000000000000000034 /* ReadingSettings.swift in Sources */,
+				A18D00000000000000000001 /* StartupPage.swift in Sources */,
 				EHB00000000000000000063 /* ReadingSettingsForm.swift in Sources */,
 				EHB00000000000000000035 /* MigrationDocument.swift in Sources */,
 				EHB00000000000000000039 /* PhotoLibrarySaver.swift in Sources */,

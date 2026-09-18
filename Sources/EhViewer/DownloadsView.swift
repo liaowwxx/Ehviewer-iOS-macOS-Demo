@@ -45,43 +45,28 @@ private struct DownloadVisibleJobsCacheKey: Equatable {
     let statusFilter: String
     let categoryFilter: [String]
     let sortOrder: String
+    let translationsRevision: Int
+    let showTranslations: Bool
 }
 
-/// Keeps selection changes from re-running the complete filtering and sorting
-/// pipeline for every body evaluation. Selection is intentionally not part of
-/// this key: it changes row affordances, not which jobs are visible.
-private final class DownloadVisibleJobsCache {
-    private var key: DownloadVisibleJobsCacheKey?
-    private var cachedJobs: [DownloadJob] = []
-    private(set) var revision = 0
-
-    func value(
-        jobs: [DownloadJob],
-        jobsRevision: Int,
-        summariesRevision: Int,
-        page: DownloadsPage,
-        searchText: String,
-        statusFilter: DownloadStatusFilter,
-        categoryFilter: Set<GalleryCategory>,
-        sortOrder: DownloadSortOrder,
-        downloadSummaries: [GalleryKey: GallerySummary],
-        localSearchSummaries: [GalleryKey: GallerySummary],
-        localizedTag: (String) -> String
-    ) -> [DownloadJob] {
-        let newKey = DownloadVisibleJobsCacheKey(
-            jobsRevision: jobsRevision,
-            summariesRevision: summariesRevision,
-            page: page,
-            searchText: searchText,
-            statusFilter: statusFilter.rawValue,
-            categoryFilter: categoryFilter.map(\.rawValue).sorted(),
-            sortOrder: sortOrder.rawValue
-        )
-        guard key != newKey else { return cachedJobs }
-
-        key = newKey
+private enum DownloadVisibleJobsLoader {
+    @concurrent
+    static func load(
+        jobs: [DownloadJob], page: DownloadsPage, searchText: String,
+        statusFilter: DownloadStatusFilter, categoryFilter: Set<GalleryCategory>,
+        sortOrder: DownloadSortOrder, downloadSummaries: [GalleryKey: GallerySummary],
+        localSearchSummaries: [GalleryKey: GallerySummary], translations: [String: String],
+        showTranslations: Bool
+    ) async -> [DownloadJob] {
+        let localizedTag: (String) -> String = { tag in
+            let value = tag.split(separator: ":", maxSplits: 1).last.map(String.init) ?? tag
+            guard showTranslations else { return value }
+            return translations[tag]
+                ?? translations[SearchQueryComposer.databaseTagKey(for: tag)]
+                ?? translations[value] ?? value
+        }
         let includesAllCategories = categoryFilter == Set(GalleryCategory.allCases)
-        cachedJobs = jobs
+        return jobs
             .filter { page.contains($0) }
             .filter { page == .local || statusFilter.matches($0.state) }
             .filter { job in
@@ -102,8 +87,6 @@ private final class DownloadVisibleJobsCache {
             .sorted {
                 sortOrder.areInIncreasingOrder($0, $1, summaries: downloadSummaries)
             }
-        revision &+= 1
-        return cachedJobs
     }
 }
 
@@ -117,7 +100,8 @@ struct DownloadsView: View {
     @State private var localGallerySummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var downloadGallerySummariesByKey: [GalleryKey: GallerySummary] = [:]
     @State private var summariesRevision = 0
-    @State private var visibleJobsCache = DownloadVisibleJobsCache()
+    @State private var visibleJobs: [DownloadJob] = []
+    @State private var isPreparingVisibleJobs = true
     @State private var editingJob: DownloadJob?
     @State private var labelInput = ""
     @State private var submittedSearchText = ""
@@ -149,21 +133,15 @@ struct DownloadsView: View {
         jobs.filter { page.contains($0) }
     }
 
-    private var visibleJobs: [DownloadJob] {
-        visibleJobsCache.value(
-            jobs: jobs,
-            jobsRevision: jobsRevision,
-            summariesRevision: summariesRevision,
-            page: page,
-            searchText: submittedSearchText,
-            statusFilter: model.downloadStatusFilter,
-            categoryFilter: model.downloadCategoryFilter,
-            sortOrder: effectiveSortOrder,
-            downloadSummaries: page == .local
-                ? localGallerySummariesByKey
-                : downloadGallerySummariesByKey,
-            localSearchSummaries: localGallerySummariesByKey,
-            localizedTag: model.displayTag
+    private var visibleJobsTaskID: DownloadVisibleJobsCacheKey {
+        DownloadVisibleJobsCacheKey(
+            jobsRevision: jobsRevision, summariesRevision: summariesRevision,
+            page: page, searchText: submittedSearchText,
+            statusFilter: model.downloadStatusFilter.rawValue,
+            categoryFilter: model.downloadCategoryFilter.map(\.rawValue).sorted(),
+            sortOrder: effectiveSortOrder.rawValue,
+            translationsRevision: model.tagTranslationsRevision,
+            showTranslations: model.readingSettings.showTagTranslations
         )
     }
 
@@ -307,7 +285,15 @@ struct DownloadsView: View {
         @Bindable var model = model
         return VStack(spacing: 0) {
             Group {
-                if hasLoadedJobs == false || model.isLoadingDownloads {
+                if let error = model.localDownloadLoadError {
+                    ContentUnavailableView {
+                        Label("无法加载本地内容", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("重试") { model.retryLocalDownloadLoad() }
+                    }
+                } else if hasLoadedJobs == false || model.isLoadingDownloads || isPreparingVisibleJobs {
                     ProgressView("正在加载下载内容…")
                 } else if pageJobs.isEmpty {
                     ContentUnavailableView(
@@ -425,8 +411,23 @@ struct DownloadsView: View {
 #endif
             }
         }
+        .task(id: visibleJobsTaskID, priority: .utility) {
+            let result = await DownloadVisibleJobsLoader.load(
+                jobs: jobs, page: page, searchText: submittedSearchText,
+                statusFilter: model.downloadStatusFilter,
+                categoryFilter: model.downloadCategoryFilter,
+                sortOrder: effectiveSortOrder,
+                downloadSummaries: page == .local ? localGallerySummariesByKey : downloadGallerySummariesByKey,
+                localSearchSummaries: localGallerySummariesByKey,
+                translations: model.tagTranslations,
+                showTranslations: model.readingSettings.showTagTranslations
+            )
+            guard !Task.isCancelled else { return }
+            visibleJobs = result
+            isPreparingVisibleJobs = false
+        }
         .task(id: "\(model.isLoadingDownloads)-\(page.rawValue)", priority: .utility) {
-            guard hasLoadedJobs == false || model.isLoadingDownloads else { return }
+            guard !model.isLoadingDownloads else { return }
             await reloadJobsSnapshot()
         }
         .task(id: localLibraryRefreshTaskID, priority: .utility) {
@@ -493,7 +494,7 @@ struct DownloadsView: View {
         Button("开始全部", systemImage: "play.fill", action: startAllDownloads)
             .accessibilityIdentifier("downloads-start-all")
             .labelStyle(.titleAndIcon)
-            .disabled(canStartAll == false)
+            .disabled(canStartAll == false || model.isLoadingDownloads || model.localDownloadLoadError != nil)
     }
 
     private var stopAllDownloadsToolbarButton: some View {
@@ -561,7 +562,7 @@ struct DownloadsView: View {
                 Button("开始全部") {
                     Task { await model.startAllDownloads() }
                 }
-                .disabled(canStartAll == false)
+                .disabled(canStartAll == false || model.isLoadingDownloads || model.localDownloadLoadError != nil)
                 Button("暂停全部") {
                     Task { await model.downloads.stopAll() }
                 }
@@ -1416,7 +1417,7 @@ private struct LocalDownloadsList: View {
     }
 }
 
-enum DownloadsPage: String, CaseIterable, Identifiable, Hashable {
+enum DownloadsPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     case downloading
     case local
 
@@ -1464,7 +1465,7 @@ enum DownloadsPage: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-enum DownloadStatusFilter: String, CaseIterable, Identifiable {
+enum DownloadStatusFilter: String, CaseIterable, Identifiable, Sendable {
     case all
     case active
     case paused
@@ -1495,7 +1496,7 @@ enum DownloadStatusFilter: String, CaseIterable, Identifiable {
     }
 }
 
-enum DownloadSortOrder: String, CaseIterable, Identifiable {
+enum DownloadSortOrder: String, CaseIterable, Identifiable, Sendable {
     case addedNewest
     case addedOldest
     case downloadAddedNewest

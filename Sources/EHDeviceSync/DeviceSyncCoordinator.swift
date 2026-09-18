@@ -397,6 +397,7 @@ public final class DeviceSyncCoordinator {
         var completed = 0
         var rolledBack = 0
         for sessionID in await staging.pendingSessionIDs() {
+            guard !Task.isCancelled else { break }
             let beforeCompleted = progressCommittedGalleries
             let beforeDeleted = progressDeletedGalleries
             do {
@@ -410,18 +411,11 @@ public final class DeviceSyncCoordinator {
             rolledBack += progressDeletedGalleries - beforeDeleted
         }
 
-        let root = transactionRoot
         let fileManager = FileManager.default
-        guard let urls = try? fileManager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
-            return DeviceSyncRecoveryResult(completedGalleryCount: completed, rolledBackGalleryCount: rolledBack)
-        }
-        for url in urls where url.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: url),
-                  let journal = Self.decodeTransactionJournal(data) else {
+        let journals = await Self.loadRecoveryJournals(root: transactionRoot)
+        for (url, decodedJournal) in journals {
+            guard !Task.isCancelled else { break }
+            guard let journal = decodedJournal else {
                 try? fileManager.removeItem(at: url)
                 continue
             }
@@ -1759,6 +1753,20 @@ public final class DeviceSyncCoordinator {
         }
         activeTransaction = nil
         activeTransactionURL = nil
+    }
+
+    @concurrent
+    private static func loadRecoveryJournals(root: URL) async -> [(URL, DeviceSyncTransactionJournal?)] {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        )) ?? []
+        var journals: [(URL, DeviceSyncTransactionJournal?)] = []
+        for url in urls where url.pathExtension == "json" {
+            guard !Task.isCancelled else { break }
+            let journal = (try? Data(contentsOf: url)).flatMap(decodeTransactionJournal)
+            journals.append((url, journal))
+        }
+        return journals
     }
 
     private nonisolated static func decodeTransactionJournal(_ data: Data) -> DeviceSyncTransactionJournal? {

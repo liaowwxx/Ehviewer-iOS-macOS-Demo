@@ -679,11 +679,6 @@ public actor DownloadCoordinator {
     }
 
     public func loadPersisted(_ restoredJobs: [DownloadJob]) {
-        for task in tasks.values { task.cancel() }
-        tasks.removeAll(keepingCapacity: true)
-        runTokens.removeAll(keepingCapacity: true)
-        activeKey = nil
-
         // Keep jobs that were enqueued while restoration was in flight instead
         // of wiping them: startup restore must never discard a fresh enqueue.
         for var restored in restoredJobs {

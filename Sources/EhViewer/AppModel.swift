@@ -232,6 +232,7 @@ private func makePersistedDownloadSnapshot(_ job: DownloadJob) -> PersistedDownl
 @MainActor
 @Observable
 final class AppModel {
+    @ObservationIgnored private let downloadBaselineLoader: (@Sendable () async throws -> [PersistedDownload])?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let forceGuestMode: Bool
     let api: any EHAPI
@@ -268,7 +269,10 @@ final class AppModel {
     var historyGalleries: [GallerySummary] = []
     var favoriteGalleries: [GallerySummary] = []
     var filterRules: [FilterRuleSnapshot] = []
-    var tagTranslations: [String: String] = [:]
+    var tagTranslations: [String: String] = [:] {
+        didSet { tagTranslationsRevision &+= 1 }
+    }
+    private(set) var tagTranslationsRevision = 0
     var tagDatabaseUpdateStatus: TagDatabaseUpdateStatus = .unknown
     private(set) var tagDatabaseUpdateError: String?
     private(set) var isCheckingTagDatabaseUpdate = false
@@ -277,7 +281,11 @@ final class AppModel {
     var searchHistorySuggestions: [String] = []
     var tagSearchSuggestions: [SearchTagSuggestion] = []
     var localArchive: LocalArchiveDocument?
+    var startupPage: StartupPage = .local {
+        didSet { defaults.set(startupPage.rawValue, forKey: "startupPage") }
+    }
     var selectedRoute: AppRoute? = .local
+    private(set) var localDownloadLoadError: String?
     var browseRefreshToken = 0
     private(set) var localLibraryRevision = 0
     var isLoading = false
@@ -312,10 +320,16 @@ final class AppModel {
     @ObservationIgnored private var tagTranslationImportTask: Task<Void, Never>?
     @ObservationIgnored private var hasLoadedReferenceTagTranslations = false
     @ObservationIgnored private var downloadRevisionTask: Task<Void, Never>?
-    @ObservationIgnored private var readyContinuation: CheckedContinuation<Void, Never>?
+    @ObservationIgnored private var readyContinuations: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var localRestoreTask: Task<Void, Never>?
+    @ObservationIgnored private var startupMaintenanceTask: Task<Void, Never>?
+    @ObservationIgnored private var isShuttingDown = false
 
     init(
         container: ModelContainer,
+        persistenceStore: PersistenceStore? = nil,
+        beforeLocalRestore: (@Sendable () async throws -> Void)? = nil,
+        downloadBaselineLoader: (@Sendable () async throws -> [PersistedDownload])? = nil,
         api: (any EHAPI)? = nil,
         sessionVault: SessionVault = SessionVault(),
         defaults: UserDefaults = .standard,
@@ -332,6 +346,10 @@ final class AppModel {
         let arguments = ProcessInfo.processInfo.arguments
         let forceGuestModeForUITest = arguments.contains("-UITestUseGuestMode")
         self.defaults = defaults
+        self.downloadBaselineLoader = downloadBaselineLoader
+        let initialPage = StartupPage.load(from: defaults)
+        startupPage = initialPage
+        selectedRoute = initialPage.route
         forceGuestMode = forceGuestModeForUITest
         let savedSite = SiteMode(rawValue: defaults.string(forKey: "site") ?? "") ?? .eHentai
         let selectedSite = forceGuestModeForUITest ? SiteMode.eHentai : savedSite
@@ -356,7 +374,7 @@ final class AppModel {
         let client: any EHAPI = api ?? EHClient(sessionVault: sessionVault)
         self.api = client
         let index = deviceSyncIndex ?? DeviceSyncIndexStore()
-        let store = PersistenceStore(modelContainer: container)
+        let store = persistenceStore ?? PersistenceStore(modelContainer: container)
         persistence = store
         self.imagePipeline = imagePipeline ?? ImagePipeline()
         let fileStore = downloadFiles ?? DownloadFileStore()
@@ -485,29 +503,48 @@ final class AppModel {
         #if os(iOS)
         self.downloadBackgroundTask = DownloadBackgroundTaskController(coordinator: self.downloads)
         #endif
-        Task { @MainActor [weak self] in
+        startupMaintenanceTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.migrateLegacyGalleryCache()
+            guard !Task.isCancelled else { return }
             await self.galleryCoverLoader.removeLegacyLocalEntries()
+            guard !Task.isCancelled else { return }
             await self.refreshGalleryCacheUsage()
+            guard !Task.isCancelled else { return }
             if self.forceGuestMode == false {
                 await self.refreshSessionStatus()
             }
+            guard !Task.isCancelled else { return }
             await self.loadFilterRules()
         }
-        Task { @MainActor [weak self] in
+        localRestoreTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            do {
+                try await beforeLocalRestore?()
+                try Task.checkCancellation()
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.localDownloadLoadError = error.localizedDescription
+                self.isLoadingDownloads = false
+                self.markReady()
+                return
+            }
             await store.configureDeviceSyncIndex(index)
+            guard !Task.isCancelled else { return }
             await fileStore.configureDeviceSyncIndex(index)
+            guard !Task.isCancelled else { return }
             self.isDeviceSyncIndexSetupRequired = await index.status() != .ready
             _ = await self.downloadFiles.sweepTemporaryFiles()
+            guard !Task.isCancelled else { return }
             let recovery = await self.deviceSync.recoverInterruptedTransfers()
+            guard !Task.isCancelled else { return }
             if recovery.recoveredAnything {
                 self.importResultMessage = String(
                     localized: "上次设备同步已恢复：保留 \(recovery.completedGalleryCount) 本，回滚未完成画廊 \(recovery.rolledBackGalleryCount) 本。"
                 )
                 self.publishLocalLibraryChange()
             }
+            guard !Task.isCancelled else { return }
             await self.restoreDownloads()
         }
         Task.detached(priority: .utility) {
@@ -552,6 +589,9 @@ final class AppModel {
     /// installed. Every asynchronous callback is invalidated before the
     /// runtime's container can be discarded.
     func shutdown() async {
+        isShuttingDown = true
+        localRestoreTask?.cancel()
+        startupMaintenanceTask?.cancel()
         await sessionVault.invalidatePendingRequests()
         markReady()
         activeListRequestID = UUID()
@@ -586,7 +626,7 @@ final class AppModel {
             if isReady {
                 continuation.resume()
             } else {
-                readyContinuation = continuation
+                readyContinuations.append(continuation)
             }
         }
     }
@@ -594,8 +634,9 @@ final class AppModel {
     private func markReady() {
         guard isReady == false else { return }
         isReady = true
-        readyContinuation?.resume()
-        readyContinuation = nil
+        let continuations = readyContinuations
+        readyContinuations = []
+        for continuation in continuations { continuation.resume() }
     }
 
     func load(query: GalleryListQuery? = nil) async {
@@ -669,6 +710,7 @@ final class AppModel {
     }
 
     func confirmDeviceSync() {
+        guard !isLoadingDownloads, localDownloadLoadError == nil, !isShuttingDown else { return }
 #if os(iOS)
         guard deviceSyncRuntime.prepareForUserInitiatedSync() else {
             errorMessage = String(
@@ -681,6 +723,7 @@ final class AppModel {
     }
 
     func buildDeviceSyncIndex() async {
+        guard !isLoadingDownloads, localDownloadLoadError == nil, !isShuttingDown else { return }
         guard beginMigration(status: String(localized: "正在建立设备同步索引…")) else { return }
         defer { finishMigration() }
         do {
@@ -968,6 +1011,7 @@ final class AppModel {
     private func migrateLegacyGalleryCache() async {
         let snapshots = await galleryCache.legacyStableSnapshots()
         for snapshot in snapshots {
+            guard !Task.isCancelled else { return }
             try? await persistence.upsertStableSnapshot(snapshot)
         }
     }
@@ -1096,6 +1140,7 @@ final class AppModel {
     }
 
     func deleteAllLocalManga() async {
+        guard !isLoadingDownloads, localDownloadLoadError == nil, !isShuttingDown else { return }
         guard isDeletingAllLocalManga == false else { return }
         let keys = await downloads.snapshot().map(\.key)
         let usage = await downloadFiles.localLibraryUsage(for: keys)
@@ -1381,6 +1426,7 @@ final class AppModel {
            let local = try? await persistence.tagTranslations(locale: Locale.current.identifier) {
             loaded.merge(local) { _, new in new }
         }
+        guard !Task.isCancelled, !isShuttingDown else { return }
         tagTranslations = loaded
     }
 
@@ -1393,10 +1439,8 @@ final class AppModel {
         let hasReferenceTranslations = hasLoadedReferenceTagTranslations
         guard hasImportMarker == false || hasReferenceTranslations == false else { return }
         guard let entries = try? await tagSuggestionProvider.allEntries() else { return }
-        let pairs = entries.compactMap { entry -> (tag: String, localizedText: String)? in
-            guard let text = entry.localizedText, text.isEmpty == false else { return nil }
-            return (entry.rawKey ?? entry.english, text)
-        }
+        let pairs = await Self.translationPairs(entries)
+        guard !Task.isCancelled, !isShuttingDown else { return }
         guard pairs.isEmpty == false else { return }
         do {
             try await persistence.saveTagTranslations(pairs, locale: Self.tagTranslationLocale)
@@ -1405,6 +1449,14 @@ final class AppModel {
         }
         defaults.set(Self.tagTranslationLocale, forKey: "tagTranslationImportLocale")
         await loadTagTranslations()
+    }
+
+    @concurrent
+    private static func translationPairs(_ entries: [SearchTagSuggestion]) async -> [(tag: String, localizedText: String)] {
+        entries.compactMap { entry in
+            guard let text = entry.localizedText, !text.isEmpty else { return nil }
+            return (entry.rawKey ?? entry.english, text)
+        }
     }
 
     func checkTagDatabaseForUpdate() async {
@@ -1643,6 +1695,7 @@ final class AppModel {
     }
 
     func startAllDownloads() async {
+        guard !isLoadingDownloads, localDownloadLoadError == nil, !isShuttingDown else { return }
         let jobs = await downloads.snapshot()
         for job in jobs where [.paused, .failed, .authenticationRequired, .rateLimited, .bandwidthLimited].contains(job.state) {
             await resumeDownload(job.key)
@@ -1657,6 +1710,9 @@ final class AppModel {
         from archiveURL: URL,
         progress: ((Int, Int) -> Void)? = nil
     ) async -> DownloadRestoreOutcome {
+        guard !isLoadingDownloads, localDownloadLoadError == nil else {
+            return DownloadRestoreOutcome(message: String(localized: "正在加载下载内容…"))
+        }
         guard isMigrating == false else {
             return DownloadRestoreOutcome(message: String(localized: "已有导入或导出任务正在进行。"))
         }
@@ -2205,14 +2261,27 @@ final class AppModel {
         // Tags live in the downloaded-metadata snapshot and are not needed to
         // render the initial download baseline. Defer that large JSON decode
         // so the root view can be published with only the job/page records.
-        guard let persisted = try? await persistence.downloadJobs(includeTags: false) else {
+        localDownloadLoadError = nil
+        let persisted: [PersistedDownload]
+        do {
+            if let downloadBaselineLoader {
+                persisted = try await downloadBaselineLoader()
+            } else {
+                persisted = try await persistence.downloadJobs(includeTags: false)
+            }
+            try Task.checkCancellation()
+        } catch {
+            guard !Task.isCancelled, !isShuttingDown else { return }
+            localDownloadLoadError = error.localizedDescription
             isLoadingDownloads = false
             markReady()
             return
         }
 
-        let baselines = persisted.map(makePersistedDownloadJob)
+        let baselines = await Self.downloadBaselines(persisted)
+        guard !Task.isCancelled, !isShuttingDown else { return }
         await downloads.loadPersisted(baselines)
+        guard !Task.isCancelled, !isShuttingDown else { return }
         markReady()
         isLoadingDownloads = false
         progress?(0, persisted.count)
@@ -2220,11 +2289,56 @@ final class AppModel {
         async let downloadedSummaries = (try? await persistence.downloadedGallerySummaries(
             for: Set(persisted.map(\.key))
         )) ?? []
+        let reconciliations = await Self.downloadReconciliations(persisted, baselines: baselines)
+        guard !Task.isCancelled, !isShuttingDown else { return }
+        _ = await downloads.reconcilePersisted(reconciliations)
+        progress?(persisted.count, persisted.count)
+        if startQueued, !Task.isCancelled, !isShuttingDown {
+            await downloads.startRestoredJobs()
+        }
+        let restoredSummaries = await downloadedSummaries
+        guard !Task.isCancelled, !isShuttingDown else { return }
+        await downloads.mergeMetadataInMemory(restoredSummaries)
+    }
+
+    func retryLocalDownloadLoad() {
+        guard !isLoadingDownloads, !isShuttingDown else { return }
+        localRestoreTask?.cancel()
+        isLoadingDownloads = true
+        localDownloadLoadError = nil
+        localRestoreTask = Task { [weak self] in
+            await self?.restoreDownloads()
+        }
+    }
+
+    func waitForLocalRestore() async {
+        await localRestoreTask?.value
+    }
+
+    @concurrent
+    static func downloadBaselines(
+        _ persisted: [PersistedDownload],
+        onStart: (@Sendable () async -> Void)? = nil
+    ) async -> [DownloadJob] {
+        await onStart?()
+        var jobs: [DownloadJob] = []
+        jobs.reserveCapacity(persisted.count)
+        for item in persisted {
+            guard !Task.isCancelled else { return [] }
+            jobs.append(Self.makePersistedDownloadJob(item))
+        }
+        return jobs
+    }
+
+    @concurrent
+    private static func downloadReconciliations(
+        _ persisted: [PersistedDownload], baselines: [DownloadJob]
+    ) async -> [(job: DownloadJob, baseline: DownloadJob)] {
         var reconciliations: [(job: DownloadJob, baseline: DownloadJob)] = []
         reconciliations.reserveCapacity(persisted.count)
 
-        for (offset, (item, baseline)) in zip(persisted, baselines).enumerated() {
-            if Task.isCancelled { return }
+        for (item, baseline) in zip(persisted, baselines) {
+            if Task.isCancelled { return [] }
             let pages = item.pages
             var job = DownloadJob(
                 key: item.key,
@@ -2257,17 +2371,11 @@ final class AppModel {
                 job.errorMessage = String(localized: "后台下载任务恢复中")
             }
             reconciliations.append((job: job, baseline: baseline))
-            progress?(offset + 1, persisted.count)
         }
-        _ = await downloads.reconcilePersisted(reconciliations)
-        if startQueued {
-            await downloads.startRestoredJobs()
-        }
-        let restoredSummaries = await downloadedSummaries
-        await downloads.mergeMetadataInMemory(restoredSummaries)
+        return reconciliations
     }
 
-    private func makePersistedDownloadJob(_ item: PersistedDownload) -> DownloadJob {
+    nonisolated private static func makePersistedDownloadJob(_ item: PersistedDownload) -> DownloadJob {
         var job = DownloadJob(
             key: item.key,
             title: item.title,
@@ -2288,7 +2396,7 @@ final class AppModel {
         return job
     }
 
-    private func normalizedRestoredState(_ rawValue: String) -> DownloadState {
+    nonisolated private static func normalizedRestoredState(_ rawValue: String) -> DownloadState {
         let state = DownloadState(rawValue: rawValue) ?? .queued
         return state == .running ? .queued : state
     }
@@ -3287,6 +3395,7 @@ final class AppModel {
     }
 
     func exportDownloadArchive(keys: Set<GalleryKey>? = nil) async -> URL? {
+        guard !isLoadingDownloads, localDownloadLoadError == nil else { return nil }
         guard beginMigration(status: String(localized: "正在准备下载包…")) else { return nil }
         defer { finishMigration() }
 
@@ -3307,7 +3416,7 @@ final class AppModel {
             setMigrationProgress(status: String(localized: "正在读取下载任务…"), fraction: 0.05)
             let liveJobs = await downloads.snapshot()
             let persisted = (try? await persistence.downloadJobs()) ?? []
-            let persistedJobs = persisted.map(makePersistedDownloadJob)
+            let persistedJobs = persisted.map(Self.makePersistedDownloadJob)
             var totalPageCounts = Dictionary(
                 uniqueKeysWithValues: persisted.map { ($0.key, $0.totalPageCount) }
             )
@@ -3742,7 +3851,8 @@ final class AppModel {
     }
 
     private func beginMigration(status: String) -> Bool {
-        guard isMigrating == false, isRestoringDownloads == false else { return false }
+        guard !isLoadingDownloads, localDownloadLoadError == nil, !isShuttingDown,
+              isMigrating == false, isRestoringDownloads == false else { return false }
         isMigrating = true
         migrationProgress = MigrationProgress(status: status, fraction: 0)
         return true

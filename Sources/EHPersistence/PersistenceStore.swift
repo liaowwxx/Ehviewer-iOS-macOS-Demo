@@ -1247,7 +1247,7 @@ public actor PersistenceStore {
         }
     }
 
-    public func downloadJobs(includeTags: Bool = true) throws -> [PersistedDownload] {
+    public func downloadJobs(includeTags: Bool = true) async throws -> [PersistedDownload] {
         var descriptor = FetchDescriptor<DownloadJobRecord>(
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
@@ -1265,7 +1265,12 @@ public actor PersistenceStore {
         } else {
             summariesByKey = [:]
         }
-        return records.map { record in
+        var result: [PersistedDownload] = []
+        result.reserveCapacity(records.count)
+        for (offset, record) in records.enumerated() {
+            try Task.checkCancellation()
+            if offset.isMultiple(of: 32) { await Task.yield() }
+            guard record.modelContext != nil else { continue }
             let key = record.key
             var pages: [GalleryPageDescriptor] = []
             var completed: Set<Int> = []
@@ -1285,7 +1290,7 @@ public actor PersistenceStore {
                 ))
             }
             pages.sort { $0.index < $1.index }
-            return PersistedDownload(
+            result.append(PersistedDownload(
                 key: key,
                 title: record.title,
                 japaneseTitle: record.japaneseTitle,
@@ -1299,8 +1304,9 @@ public actor PersistenceStore {
                 stateRaw: record.stateRaw,
                 errorMessage: record.errorMessage,
                 inFlightPageIndexes: inFlight
-            )
+            ))
         }
+        return result
     }
 
     public func setBackgroundTaskIdentifier(_ identifier: Int?, for key: GalleryKey, pageIndex: Int) throws {

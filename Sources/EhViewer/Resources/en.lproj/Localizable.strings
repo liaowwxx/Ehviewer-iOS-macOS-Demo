@@ -539,3 +539,7 @@
 "E-Hentai 登录成功，ExHentai 会话尚未建立；访问 ExHentai 时会再次尝试连接。" = "Signed in to E-Hentai. An ExHentai session has not been established; the app will try again when accessing ExHentai.";
 "正在下载画廊" = "Downloading galleries";
 "下载会在锁屏或进入后台后继续" = "Downloads continue when locked or in the background";
+
+"启动页面" = "Startup page";
+"下次启动或进入此空间时生效" = "Takes effect next time you launch or enter this space";
+"无法加载本地内容" = "Unable to load local content";
