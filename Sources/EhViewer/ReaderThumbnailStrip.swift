@@ -49,7 +49,7 @@ struct ReaderThumbnailStrip: View {
                     + Double(renderedRange.lowerBound) * ReaderPageWindow.thumbnailStride)
                 .frame(
                     width: ReaderPageWindow.thumbnailContentWidth(pageCount: descriptors.count),
-                    height: 116,
+                    height: ReaderPageWindow.thumbnailHeight,
                     alignment: .leading
                 )
             }
@@ -76,7 +76,7 @@ struct ReaderThumbnailStrip: View {
                 synchronizeScrollPosition(viewportWidth: geometry.size.width)
             }
         }
-        .frame(height: 116)
+        .frame(height: ReaderPageWindow.thumbnailHeight)
         .accessibilityLabel("页面预览")
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("reader-thumbnail-strip")
@@ -106,5 +106,50 @@ struct ReaderThumbnailStrip: View {
             pageCount: descriptors.count
         )
         scrollPosition.scrollTo(x: offset)
+    }
+}
+
+struct ReaderThumbnailGrid: View {
+    let descriptors: [GalleryPageDescriptor]
+    let targetPage: Int
+    let height: Double
+    let requestPage: (Int) -> Void
+    let onSeekEnded: () -> Void
+    @State private var scrollPosition = ScrollPosition(idType: Int.self)
+
+    private let columns = [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 8)]
+
+    var body: some View {
+        ScrollView(.vertical) {
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(descriptors) { descriptor in
+                    Button {
+                        requestPage(descriptor.index)
+                        onSeekEnded()
+                    } label: {
+                        ReaderThumbnailView(
+                            descriptor: descriptor,
+                            isSelected: descriptor.index == targetPage
+                        )
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("选择后跳转到此页")
+                    .id(descriptor.index)
+                }
+            }
+            .scrollTargetLayout()
+            .padding(.horizontal, 4)
+            .padding(.vertical, 4)
+        }
+        .scrollPosition($scrollPosition)
+        .frame(height: height)
+        .accessibilityLabel("网格页面预览")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("reader-thumbnail-grid")
+        .onAppear {
+            scrollPosition.scrollTo(id: targetPage, anchor: .center)
+        }
     }
 }

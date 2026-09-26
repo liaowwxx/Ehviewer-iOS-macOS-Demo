@@ -102,6 +102,8 @@
 		EHB0000000000000000005B /* DeviceSyncPairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005B /* DeviceSyncPairingView.swift */; };
 		EHB0000000000000000005C /* GalleryCardDisplaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005C /* GalleryCardDisplaySettings.swift */; };
 		EHB0000000000000000005D /* GalleryCardSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005D /* GalleryCardSettingsSection.swift */; };
+		EHB0000000000000000007E /* BrowsingCustomizationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000007E /* BrowsingCustomizationView.swift */; };
+		EHB0000000000000000007F /* GalleryCardSettingsPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000007F /* GalleryCardSettingsPreview.swift */; };
 		EHB0000000000000000005E /* GalleryRatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005E /* GalleryRatingView.swift */; };
 		EHB0000000000000000005F /* GalleryCardDownloadStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */; };
 		EHB00000000000000000060 /* DocumentationHTML.swift in Sources */ = {isa = PBXBuildFile; fileRef = EHF00000000000000000060 /* DocumentationHTML.swift */; };
@@ -239,6 +241,8 @@
 		EHF0000000000000000005B /* DeviceSyncPairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSyncPairingView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005C /* GalleryCardDisplaySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardDisplaySettings.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005D /* GalleryCardSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardSettingsSection.swift; sourceTree = "<group>"; };
+		EHF0000000000000000007E /* BrowsingCustomizationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsingCustomizationView.swift; sourceTree = "<group>"; };
+		EHF0000000000000000007F /* GalleryCardSettingsPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardSettingsPreview.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005E /* GalleryRatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryRatingView.swift; sourceTree = "<group>"; };
 		EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCardDownloadStatus.swift; sourceTree = "<group>"; };
 		EHF00000000000000000060 /* DocumentationHTML.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentationHTML.swift; sourceTree = "<group>"; };
@@ -334,6 +338,8 @@
 				A17C00000000000000000020 /* TagFlowLayoutCache.swift */,
 				EHF0000000000000000005C /* GalleryCardDisplaySettings.swift */,
 				EHF0000000000000000005D /* GalleryCardSettingsSection.swift */,
+				EHF0000000000000000007E /* BrowsingCustomizationView.swift */,
+				EHF0000000000000000007F /* GalleryCardSettingsPreview.swift */,
 				EHF0000000000000000005E /* GalleryRatingView.swift */,
 				EHF0000000000000000005F /* GalleryCardDownloadStatus.swift */,
 				EHF00000000000000000033 /* BrowseSearchSuggestions.swift */,
@@ -589,6 +595,8 @@
 				A17C0000000000000000001F /* TagFlowLayoutCache.swift in Sources */,
 				EHB0000000000000000005C /* GalleryCardDisplaySettings.swift in Sources */,
 				EHB0000000000000000005D /* GalleryCardSettingsSection.swift in Sources */,
+				EHB0000000000000000007E /* BrowsingCustomizationView.swift in Sources */,
+				EHB0000000000000000007F /* GalleryCardSettingsPreview.swift in Sources */,
 				EHB0000000000000000005E /* GalleryRatingView.swift in Sources */,
 				EHB0000000000000000005F /* GalleryCardDownloadStatus.swift in Sources */,
 				EHB00000000000000000033 /* BrowseSearchSuggestions.swift in Sources */,

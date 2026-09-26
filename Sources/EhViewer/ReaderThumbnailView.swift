@@ -39,7 +39,10 @@ struct ReaderThumbnailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 76, height: 96)
+            .frame(
+                width: ReaderPageWindow.thumbnailImageWidth,
+                height: ReaderPageWindow.thumbnailImageHeight
+            )
             .background(.quaternary)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay {
@@ -51,7 +54,11 @@ struct ReaderThumbnailView: View {
                 .font(.caption2.monospacedDigit())
                 .fontWeight(isSelected ? .bold : .regular)
         }
-        .frame(width: ReaderPageWindow.thumbnailWidth)
+        .frame(
+            width: ReaderPageWindow.thumbnailWidth,
+            height: ReaderPageWindow.thumbnailHeight
+        )
+        .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("第 \(descriptor.index + 1) 页")
         .accessibilityValue(isSelected ? "当前页" : "")
@@ -74,16 +81,9 @@ struct ReaderThumbnailView: View {
             return
         }
         guard Task.isCancelled == false else { return }
-        let data = await model.downloadedPageDataIfAvailable(for: descriptor)
-        guard Task.isCancelled == false else { return }
-        guard let data else {
-            isUnavailable = true
-            return
+        let image = await ReaderThumbnailLoader.shared.readerThumbnail(for: descriptor.id) {
+            await model.downloadedPageDataIfAvailable(for: descriptor)
         }
-        let image = await ReaderThumbnailLoader.shared.thumbnail(
-            for: descriptor.id,
-            data: data
-        )
         guard Task.isCancelled == false else { return }
         guard let image else {
             isUnavailable = true

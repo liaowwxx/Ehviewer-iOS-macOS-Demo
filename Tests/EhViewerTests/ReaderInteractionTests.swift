@@ -8,6 +8,27 @@ import EHDownloads
 @testable import EhViewerPreview
 
 struct ReaderInteractionTests {
+    @Test("Reader thumbnail loads keep original-image reads bounded")
+    func readerThumbnailLoadsAreBounded() async {
+        let probe = ReaderThumbnailLoadProbe()
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<12 {
+                group.addTask {
+                    _ = await ReaderThumbnailLoader.shared.readerThumbnail(
+                        for: "thumbnail-load-test-\(UUID().uuidString)"
+                    ) {
+                        await probe.load()
+                    }
+                }
+            }
+        }
+
+        let result = await probe.result()
+        #expect(result.completed == 12)
+        #expect(result.peak <= 4)
+    }
+
     @Test("Image layout visibility updates do not request automatic scrolling")
     func visiblePageDoesNotRequestScroll() {
         var state = ReaderPositionState(page: 0)
@@ -81,7 +102,7 @@ struct ReaderInteractionTests {
         let count = 1_900
         let width = 320.0
         let contentWidth = ReaderPageWindow.thumbnailContentWidth(pageCount: count)
-        #expect(contentWidth == 174_814)
+        #expect(contentWidth == 201_414)
         #expect(ReaderPageWindow.thumbnailOffset(target: -10, pageCount: count, viewportWidth: width) == 0)
         #expect(ReaderPageWindow.thumbnailOffset(target: 2_000, pageCount: count, viewportWidth: width) == contentWidth - width)
 
@@ -186,4 +207,23 @@ struct ReaderInteractionTests {
 
 private enum GalleryThumbnailCacheTestError: Error {
     case unexpectedFetch
+}
+
+private actor ReaderThumbnailLoadProbe {
+    private var active = 0
+    private var peak = 0
+    private var completed = 0
+
+    func load() async -> Data? {
+        active += 1
+        peak = max(peak, active)
+        try? await Task.sleep(for: .milliseconds(25))
+        active -= 1
+        completed += 1
+        return nil
+    }
+
+    func result() -> (peak: Int, completed: Int) {
+        (peak, completed)
+    }
 }

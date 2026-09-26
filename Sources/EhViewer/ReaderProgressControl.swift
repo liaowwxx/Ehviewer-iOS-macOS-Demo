@@ -21,6 +21,7 @@ import EHDomain
 
 struct ReaderProgressControl: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     let page: Int
     let pageCount: Int
     let descriptors: [GalleryPageDescriptor]
@@ -30,6 +31,7 @@ struct ReaderProgressControl: View {
     let onSeekEnded: () -> Void
     @State private var sliderValue: Double
     @State private var isPreviewExpanded = false
+    @State private var isGridExpanded = false
 
     init(
         page: Int,
@@ -69,14 +71,13 @@ struct ReaderProgressControl: View {
                 .disabled(pageCount <= 1)
 
                 if source == .download {
-                    Button(
-                        isPreviewExpanded ? "收起预览" : "展开预览",
-                        systemImage: isPreviewExpanded ? "chevron.down" : "chevron.up",
-                        action: togglePreview
-                    )
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    Button(action: togglePreview) {
+                        Image(systemName: isPreviewExpanded ? "chevron.down" : "chevron.up")
+                            .foregroundStyle(.tint)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                     .accessibilityLabel(isPreviewExpanded ? "收起预览" : "展开预览")
                     .accessibilityValue(isPreviewExpanded ? "已展开" : "已收起")
                     .accessibilityIdentifier("reader-preview-toggle")
@@ -84,12 +85,50 @@ struct ReaderProgressControl: View {
             }
 
             if isPreviewExpanded, source == .download, pageCount > 0 {
-                ReaderThumbnailStrip(
-                    descriptors: descriptors,
-                    targetPage: currentPage,
-                    requestPage: requestPage,
-                    onSeekEnded: onSeekEnded
-                )
+                VStack(spacing: 4) {
+                    Button {
+                        isGridExpanded.toggle()
+                    } label: {
+                        Label(
+                            isGridExpanded ? "收起网格预览" : "展开网格预览",
+                            systemImage: isGridExpanded ? "chevron.down" : "chevron.up"
+                        )
+                        .font(.caption)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("reader-preview-grid-toggle")
+
+                    if isGridExpanded {
+                        ReaderThumbnailGrid(
+                            descriptors: descriptors,
+                            targetPage: currentPage,
+                            height: verticalSizeClass == .compact ? 190 : 390,
+                            requestPage: requestPage,
+                            onSeekEnded: onSeekEnded
+                        )
+                        .transition(.opacity)
+                    } else {
+                        ReaderThumbnailStrip(
+                            descriptors: descriptors,
+                            targetPage: currentPage,
+                            requestPage: requestPage,
+                            onSeekEnded: onSeekEnded
+                        )
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 25)
+                                .onEnded { value in
+                                    let vertical = value.translation.height
+                                    guard vertical < -55,
+                                          abs(vertical) > abs(value.translation.width) else { return }
+                                    isGridExpanded = true
+                                }
+                        )
+                        .transition(.opacity)
+                    }
+                }
                 .transition(
                     accessibilityReduceMotion
                         ? .opacity
@@ -100,11 +139,15 @@ struct ReaderProgressControl: View {
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .padding(.bottom, 8)
-        .background(.ultraThinMaterial)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
         .accessibilityIdentifier("reader-progress-control")
         .animation(
             accessibilityReduceMotion ? .easeInOut(duration: 0.15) : .snappy(duration: 0.25),
             value: isPreviewExpanded
+        )
+        .animation(
+            accessibilityReduceMotion ? .easeInOut(duration: 0.15) : .snappy(duration: 0.3),
+            value: isGridExpanded
         )
         .onChange(of: sliderValue) { _, newValue in
             let target = normalizedPage(from: newValue)
@@ -159,5 +202,8 @@ struct ReaderProgressControl: View {
 
     private func togglePreview() {
         isPreviewExpanded.toggle()
+        if isPreviewExpanded == false {
+            isGridExpanded = false
+        }
     }
 }

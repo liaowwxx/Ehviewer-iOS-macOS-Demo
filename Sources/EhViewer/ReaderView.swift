@@ -210,8 +210,8 @@ struct ReaderView: View {
         #endif
         #if os(iOS)
         .toolbar(isShowingControls ? .visible : .hidden, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .background(ReaderTabBarVisibilityController())
+        .overlay(alignment: .bottom) {
             if isShowingControls, let detail {
                 ReaderProgressControl(
                     page: position.page,
@@ -224,6 +224,9 @@ struct ReaderView: View {
                     },
                     onSeekEnded: saveProgressImmediately
                 )
+                .frame(maxWidth: 700)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -553,3 +556,32 @@ struct ReaderView: View {
         return GalleryDetail(summary: summary, pages: job.pages, externalURL: externalURL)
     }
 }
+
+#if os(iOS)
+/// Keeps the system tab bar in sync with the reader's navigation transition.
+private struct ReaderTabBarVisibilityController: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> VisibilityController {
+        VisibilityController()
+    }
+
+    func updateUIViewController(_ controller: VisibilityController, context: Context) {}
+
+    final class VisibilityController: UIViewController {
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            tabBarController?.setTabBarHidden(
+                true,
+                animated: animated && !UIAccessibility.isReduceMotionEnabled
+            )
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            tabBarController?.setTabBarHidden(
+                false,
+                animated: animated && !UIAccessibility.isReduceMotionEnabled
+            )
+        }
+    }
+}
+#endif

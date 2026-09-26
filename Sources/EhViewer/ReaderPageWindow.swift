@@ -17,7 +17,10 @@
  */
 
 struct ReaderPageWindow {
-    static let thumbnailWidth: Double = 82
+    static let thumbnailWidth: Double = 96
+    static let thumbnailImageWidth: Double = 88
+    static let thumbnailImageHeight: Double = 112
+    static let thumbnailHeight: Double = 136
     static let thumbnailSpacing: Double = 10
     static let thumbnailPadding: Double = 12
     static let thumbnailStride = thumbnailWidth + thumbnailSpacing

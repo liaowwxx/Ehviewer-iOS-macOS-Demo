@@ -86,6 +86,11 @@ final class EhViewerUITests: XCTestCase {
         XCTAssertTrue(browsing.waitForExistence(timeout: 5))
         browsing.tap()
 
+        let customization = app.buttons["settings-browsing-customization-link"]
+        XCTAssertTrue(customization.waitForExistence(timeout: 5))
+        customization.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["gallery-card-settings-preview"].waitForExistence(timeout: 5))
+
         let toggle = app.switches["show-japanese-title-toggle"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         let wasOn = (toggle.value as? String) == "1"
@@ -164,6 +169,9 @@ final class EhViewerUITests: XCTestCase {
                 "Missing settings action: \(identifier)"
             )
         }
+
+        app.descendants(matching: .any)["refresh-downloaded-gallery-metadata-action"].tap()
+        XCTAssertTrue(app.buttons["仅更新缺失信息"].waitForExistence(timeout: 5))
     }
 
     func testCreatingProfileShowsNameEditorControls() throws {

@@ -24,6 +24,8 @@ actor ReaderThumbnailLoader {
     static let shared = ReaderThumbnailLoader()
 
     private let cache = NSCache<NSString, CGImage>()
+    private var activeReaderLoads = 0
+    private var readerLoadWaiters: [(UUID, CheckedContinuation<Bool, Never>)] = []
 
     private init() {
         cache.countLimit = 48
@@ -32,6 +34,21 @@ actor ReaderThumbnailLoader {
 
     func cachedThumbnail(for key: String) -> CGImage? {
         cache.object(forKey: key as NSString)
+    }
+
+    /// Bounds original-image reads and thumbnail decodes while scrolling the reader grid.
+    func readerThumbnail(
+        for key: String,
+        loadData: @MainActor @Sendable () async -> Data?
+    ) async -> CGImage? {
+        if let cached = cachedThumbnail(for: key) { return cached }
+        guard await acquireReaderLoadSlot() else { return nil }
+        defer { releaseReaderLoadSlot() }
+        if let cached = cachedThumbnail(for: key) { return cached }
+        guard Task.isCancelled == false,
+              let data = await loadData(),
+              Task.isCancelled == false else { return nil }
+        return await thumbnail(for: key, data: data)
     }
 
     func thumbnail(for key: String, data: Data) async -> CGImage? {
@@ -48,6 +65,40 @@ actor ReaderThumbnailLoader {
             cost: image.bytesPerRow * image.height
         )
         return image
+    }
+
+    private func acquireReaderLoadSlot() async -> Bool {
+        guard Task.isCancelled == false else { return false }
+        if activeReaderLoads < 4 {
+            activeReaderLoads += 1
+            return true
+        }
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else {
+                    readerLoadWaiters.append((id, continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelReaderLoadWaiter(id) }
+        }
+    }
+
+    private func cancelReaderLoadWaiter(_ id: UUID) {
+        guard let index = readerLoadWaiters.firstIndex(where: { $0.0 == id }) else { return }
+        let (_, continuation) = readerLoadWaiters.remove(at: index)
+        continuation.resume(returning: false)
+    }
+
+    private func releaseReaderLoadSlot() {
+        if readerLoadWaiters.isEmpty {
+            activeReaderLoads -= 1
+        } else {
+            readerLoadWaiters.removeFirst().1.resume(returning: true)
+        }
     }
 
     @concurrent

@@ -53,7 +53,6 @@ enum SettingsPage: Equatable {
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(ProfileSession.self) private var profileSession
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let page: SettingsPage
     @State private var showingCookieSheet = false
     @State private var showingWebLogin = false
@@ -73,6 +72,7 @@ struct SettingsView: View {
     @State private var showingGalleryCacheClearConfirmation = false
     @State private var showingAllLocalMangaDeletionConfirmation = false
     @State private var showingDownloadedMetadataRefreshDialog = false
+    @State private var showingSyncIndexRebuildConfirmation = false
     @State private var profileNameEditor: ProfileNameEditorRequest?
     @State private var profilePendingDeletion: ProfileDescriptor?
 
@@ -185,21 +185,13 @@ struct SettingsView: View {
     }
 
     private var browsingAndFilteringForm: some View {
-        @Bindable var model = model
         return Form {
-            Section("浏览") {
-                Toggle("显示日文标题", isOn: $model.readingSettings.showJapaneseTitle)
-                    .onChange(of: model.readingSettings.showJapaneseTitle) { _, _ in
-                        model.persistReadingSettings()
-                    }
-                    .accessibilityIdentifier("show-japanese-title-toggle")
-                Toggle("显示标签翻译", isOn: $model.readingSettings.showTagTranslations)
-                    .onChange(of: model.readingSettings.showTagTranslations) { _, _ in
-                        model.persistReadingSettings()
-                    }
-                    .accessibilityIdentifier("show-tag-translations-toggle")
+            Section {
+                NavigationLink(value: AppRoute.settingsBrowsing) {
+                    SettingsNavigationLabel("自定义", systemImage: "slider.horizontal.3")
+                }
+                .accessibilityIdentifier("settings-browsing-customization-link")
             }
-            GalleryCardSettingsSection(isCompactWidth: horizontalSizeClass == .compact)
             TagDatabaseSettingsSection()
             FilterRulesSection()
         }
@@ -223,28 +215,6 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("站点")
-    }
-
-    private var browsingForm: some View {
-        @Bindable var model = model
-        return Form {
-            Section("浏览") {
-                Toggle("显示日文标题", isOn: $model.readingSettings.showJapaneseTitle)
-                    .onChange(of: model.readingSettings.showJapaneseTitle) { _, _ in
-                        model.persistReadingSettings()
-                    }
-                    .accessibilityIdentifier("show-japanese-title-toggle")
-                Toggle("显示标签翻译", isOn: $model.readingSettings.showTagTranslations)
-                    .onChange(of: model.readingSettings.showTagTranslations) { _, _ in
-                        model.persistReadingSettings()
-                    }
-                    .accessibilityIdentifier("show-tag-translations-toggle")
-            }
-            GalleryCardSettingsSection(isCompactWidth: horizontalSizeClass == .compact)
-            TagDatabaseSettingsSection()
-        }
-        .formStyle(.grouped)
-        .navigationTitle("浏览")
     }
 
     private var storageAndProgressForm: some View {
@@ -361,91 +331,90 @@ struct SettingsView: View {
             Section("数据与备份") {
                 SettingsActionRow(
                     title: "更新已下载画廊信息",
-                    subtitle: "更新本地已下载漫画列表"
+                    subtitle: "更新本地已下载漫画列表",
+                    systemImage: "arrow.clockwise"
                 ) {
-                    Button("更新…") {
-                        showingDownloadedMetadataRefreshDialog = true
-                    }
-                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
-                    .accessibilityIdentifier("refresh-downloaded-gallery-metadata-action")
-                    .confirmationDialog(
-                        "更新已下载画廊信息",
-                        isPresented: $showingDownloadedMetadataRefreshDialog,
-                        titleVisibility: .visible
-                    ) {
-                        Button("更新全部") {
-                            model.runFileOperation {
-                                await model.refreshDownloadedGalleryMetadata(mode: .all)
-                            }
+                    showingDownloadedMetadataRefreshDialog = true
+                }
+                .disabled(backupActionsUnavailable)
+                .accessibilityIdentifier("refresh-downloaded-gallery-metadata-action")
+                .confirmationDialog(
+                    "更新已下载画廊信息",
+                    isPresented: $showingDownloadedMetadataRefreshDialog,
+                    titleVisibility: .visible
+                ) {
+                    Button("更新全部") {
+                        model.runFileOperation {
+                            await model.refreshDownloadedGalleryMetadata(mode: .all)
                         }
-                        Button("仅更新缺失信息") {
-                            model.runFileOperation {
-                                await model.refreshDownloadedGalleryMetadata(mode: .missingOnly)
-                            }
-                        }
-                        Button("取消", role: .cancel) {}
-                    } message: {
-                        Text("缺失信息包括标题、作者、分类、页数、上传日期、缩略图和评分。")
                     }
+                    Button("仅更新缺失信息") {
+                        model.runFileOperation {
+                            await model.refreshDownloadedGalleryMetadata(mode: .missingOnly)
+                        }
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text("缺失信息包括标题、作者、分类、页数、上传日期、缩略图和评分。")
                 }
             }
-            Section("导入与导出") {
+            Section {
                 SettingsActionRow(
                     title: "导入漫画列表",
-                    subtitle: "从 .ehgallery 文件导入"
+                    subtitle: "从 .ehgallery 文件导入",
+                    systemImage: "square.and.arrow.down"
                 ) {
-                    Button("导入…") {
-                        startFileImport(.gallerySync)
-                    }
-                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
-                    .accessibilityIdentifier("import-gallery-metadata-action")
+                    startFileImport(.gallerySync)
                 }
+                .disabled(backupActionsUnavailable)
+                .accessibilityIdentifier("import-gallery-metadata-action")
                 SettingsActionRow(
                     title: "导入完整备份",
-                    subtitle: "从 .eharchive 或兼容 ZIP 文件恢复下载内容"
+                    subtitle: "从 .eharchive 或兼容 ZIP 文件恢复下载内容",
+                    systemImage: "square.and.arrow.down"
                 ) {
-                    Button("导入…") {
-                        startFileImport(.downloadArchive)
-                    }
-                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
-                    .accessibilityIdentifier("import-download-archive-action")
+                    startFileImport(.downloadArchive)
                 }
+                .disabled(backupActionsUnavailable)
+                .accessibilityIdentifier("import-download-archive-action")
                 SettingsActionRow(
                     title: "导出漫画列表",
-                    subtitle: "导出为 .ehgallery 文件"
+                    subtitle: "导出为 .ehgallery 文件",
+                    systemImage: "square.and.arrow.up"
                 ) {
-                    Button("导出…") {
-                        model.runFileOperation {
-                            guard let url = await model.exportGallerySync() else { return }
+                    model.runFileOperation {
+                        guard let url = await model.exportGallerySync() else { return }
 #if os(iOS)
-                            pendingShareFile = PendingSharedFile(url: url)
+                        pendingShareFile = PendingSharedFile(url: url)
 #else
-                            gallerySyncExportFilename = url.lastPathComponent
-                            gallerySyncExportDocument = GallerySyncExportDocument(sourceURL: url)
-                            showingGallerySyncExporter = true
+                        gallerySyncExportFilename = url.lastPathComponent
+                        gallerySyncExportDocument = GallerySyncExportDocument(sourceURL: url)
+                        showingGallerySyncExporter = true
 #endif
-                        }
                     }
-                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
-                    .accessibilityIdentifier("export-gallery-metadata-action")
                 }
+                .disabled(backupActionsUnavailable)
+                .accessibilityIdentifier("export-gallery-metadata-action")
                 SettingsActionRow(
                     title: "导出完整备份",
-                    subtitle: "导出为 .eharchive 文件"
+                    subtitle: "导出为 .eharchive 文件",
+                    systemImage: "square.and.arrow.up"
                 ) {
-                    Button("导出…") {
-                        model.runFileOperation {
-                            guard let url = await model.exportDownloadArchive() else { return }
+                    model.runFileOperation {
+                        guard let url = await model.exportDownloadArchive() else { return }
 #if os(iOS)
-                            pendingShareFile = PendingSharedFile(url: url)
+                        pendingShareFile = PendingSharedFile(url: url)
 #else
-                            pendingArchiveSaveFile = PendingSharedFile(url: url)
+                        pendingArchiveSaveFile = PendingSharedFile(url: url)
 #endif
-                        }
                     }
-                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
-                    .accessibilityIdentifier("export-download-archive-action")
                 }
+                .disabled(backupActionsUnavailable)
+                .accessibilityIdentifier("export-download-archive-action")
+            } header: {
+                Text("导入与导出")
+            } footer: {
+                Text("漫画列表只包含画廊信息；完整备份包含本地图片。")
             }
             Section("设备间同步") {
                 NavigationLink(value: AppRoute.settingsDeviceSync) {
@@ -455,24 +424,39 @@ struct SettingsView: View {
                     )
                 }
                 .accessibilityIdentifier("device-sync-link")
-                .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
+                .disabled(backupActionsUnavailable)
 
                 SettingsActionRow(
                     title: "重建同步索引",
-                    subtitle: "完整扫描下载记录和本地页面文件，替换现有同步索引"
+                    subtitle: "完整扫描下载记录和本地页面文件，替换现有同步索引",
+                    systemImage: "arrow.triangle.2.circlepath"
                 ) {
-                    Button("重建…") {
+                    showingSyncIndexRebuildConfirmation = true
+                }
+                .disabled(backupActionsUnavailable)
+                .accessibilityIdentifier("rebuild-device-sync-index-action")
+                .confirmationDialog(
+                    "重建同步索引？",
+                    isPresented: $showingSyncIndexRebuildConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("重建同步索引") {
                         model.runFileOperation {
                             await model.buildDeviceSyncIndex()
                         }
                     }
-                    .disabled(model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil)
-                    .accessibilityIdentifier("rebuild-device-sync-index-action")
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text("将完整扫描下载记录和本地页面文件，并替换现有同步索引。")
                 }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("数据备份&同步")
+    }
+
+    private var backupActionsUnavailable: Bool {
+        model.isMigrating || model.isRestoringDownloads || model.isLoadingDownloads || model.localDownloadLoadError != nil
     }
 
     var body: some View {
@@ -604,7 +588,7 @@ struct SettingsView: View {
         case .login:
             loginForm
         case .browsing:
-            browsingForm
+            BrowsingCustomizationView()
         case .filters:
             filterRulesForm
         case .storageAndProgress:
@@ -654,38 +638,25 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsActionRow<Action: View>: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+private struct SettingsActionRow: View {
     let title: LocalizedStringKey
     let subtitle: LocalizedStringKey
-    let action: () -> Action
-
-    init(
-        title: LocalizedStringKey,
-        subtitle: LocalizedStringKey,
-        @ViewBuilder action: @escaping () -> Action
-    ) {
-        self.title = title
-        self.subtitle = subtitle
-        self.action = action
-    }
+    let systemImage: String
+    let action: () -> Void
 
     var body: some View {
-        if horizontalSizeClass == .compact {
-            VStack(alignment: .leading, spacing: 8) {
+        Button(action: action) {
+            HStack(spacing: 12) {
                 SettingsDetailLabel(title: title, subtitle: subtitle)
-                HStack {
-                    Spacer(minLength: 0)
-                    action()
-                }
+                Spacer(minLength: 0)
+                Image(systemName: systemImage)
+                    .foregroundStyle(AppTheme.accent)
+                    .accessibilityHidden(true)
             }
-        } else {
-            LabeledContent {
-                action()
-            } label: {
-                SettingsDetailLabel(title: title, subtitle: subtitle)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 }
 
