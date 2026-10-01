@@ -124,6 +124,59 @@ struct ReaderInteractionTests {
         #expect(ReaderPageWindow.thumbnailRange(offset: 0, viewportWidth: 834, pageCount: 3) == 0..<3)
     }
 
+    @Test("Large grid previews retain only visible rows and a small buffer", arguments: [320.0, 680.0])
+    func largeGridPreviewStaysBounded(width: Double) {
+        let pageCount = 1_900
+        let viewportHeight = 390.0
+        let columns = ReaderPageWindow.gridColumnCount(viewportWidth: width)
+        let maximumVisibleRows = Int((viewportHeight / ReaderPageWindow.gridRowStride).rounded(.up)) + 6
+
+        for target in 0..<pageCount {
+            let offset = ReaderPageWindow.gridOffset(
+                target: target,
+                pageCount: pageCount,
+                viewportWidth: width,
+                viewportHeight: viewportHeight
+            )
+            let range = ReaderPageWindow.gridRange(
+                offset: offset,
+                viewportWidth: width,
+                viewportHeight: viewportHeight,
+                pageCount: pageCount
+            )
+            #expect(range.contains(target))
+            #expect(range.count <= maximumVisibleRows * columns)
+        }
+    }
+
+    @Test("Grid preview scrolling reaches every page without rendering the full gallery")
+    func gridPreviewScrollCoversGallery() {
+        let pageCount = 1_900
+        let width = 320.0
+        let viewportHeight = 390.0
+        let contentHeight = ReaderPageWindow.gridContentHeight(pageCount: pageCount, viewportWidth: width)
+        var covered = Set<Int>()
+
+        for offset in stride(from: 0.0, through: contentHeight, by: viewportHeight / 2) {
+            let range = ReaderPageWindow.gridRange(
+                offset: offset,
+                viewportWidth: width,
+                viewportHeight: viewportHeight,
+                pageCount: pageCount
+            )
+            #expect(range.count < 40)
+            covered.formUnion(range)
+        }
+
+        #expect(covered == Set(0..<pageCount))
+        #expect(ReaderPageWindow.gridRange(
+            offset: 0,
+            viewportWidth: width,
+            viewportHeight: viewportHeight,
+            pageCount: 0
+        ).isEmpty)
+    }
+
     @Test("Downloaded galleries reuse the normal reader detail model")
     @MainActor
     func downloadedGalleryBuildsReaderDetail() throws {

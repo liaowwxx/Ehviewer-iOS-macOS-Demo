@@ -115,41 +115,157 @@ struct ReaderThumbnailGrid: View {
     let height: Double
     let requestPage: (Int) -> Void
     let onSeekEnded: () -> Void
-    @State private var scrollPosition = ScrollPosition(idType: Int.self)
+    @State private var scrollPosition: ScrollPosition
+    @State private var visibleRange: Range<Int>
 
-    private let columns = [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 8)]
+    init(
+        descriptors: [GalleryPageDescriptor],
+        targetPage: Int,
+        height: Double,
+        viewportWidth: Double,
+        requestPage: @escaping (Int) -> Void,
+        onSeekEnded: @escaping () -> Void
+    ) {
+        self.descriptors = descriptors
+        self.targetPage = targetPage
+        self.height = height
+        self.requestPage = requestPage
+        self.onSeekEnded = onSeekEnded
+        let target: Int
+        if descriptors.indices.contains(targetPage), descriptors[targetPage].index == targetPage {
+            target = targetPage
+        } else {
+            target = descriptors.firstIndex { $0.index == targetPage } ?? 0
+        }
+        let offset = ReaderPageWindow.gridOffset(
+            target: target,
+            pageCount: descriptors.count,
+            viewportWidth: viewportWidth,
+            viewportHeight: height
+        )
+        _scrollPosition = State(initialValue: ScrollPosition(y: offset))
+        _visibleRange = State(initialValue: ReaderPageWindow.gridRange(
+            offset: offset,
+            viewportWidth: viewportWidth,
+            viewportHeight: height,
+            pageCount: descriptors.count
+        ))
+    }
 
     var body: some View {
-        ScrollView(.vertical) {
-            LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(descriptors) { descriptor in
-                    Button {
-                        requestPage(descriptor.index)
-                        onSeekEnded()
-                    } label: {
-                        ReaderThumbnailView(
-                            descriptor: descriptor,
-                            isSelected: descriptor.index == targetPage
+        GeometryReader { geometry in
+            let width = Double(geometry.size.width)
+            let columnCount = ReaderPageWindow.gridColumnCount(viewportWidth: width)
+            let cellWidth = (width - ReaderPageWindow.gridPadding * 2
+                - Double(columnCount - 1) * ReaderPageWindow.gridSpacing) / Double(columnCount)
+            let firstRow = renderedRange.lowerBound / columnCount
+            let lastRow = (renderedRange.upperBound + columnCount - 1) / columnCount
+
+            ScrollView(.vertical) {
+                Color.clear
+                    .frame(
+                        width: width,
+                        height: ReaderPageWindow.gridContentHeight(
+                            pageCount: descriptors.count,
+                            viewportWidth: width
                         )
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
+                    )
+                    .contentShape(Rectangle())
+                    .overlay(alignment: .topLeading) {
+                        VStack(spacing: ReaderPageWindow.gridSpacing) {
+                            ForEach(firstRow..<lastRow, id: \.self) { row in
+                                HStack(spacing: ReaderPageWindow.gridSpacing) {
+                                    ForEach(0..<columnCount, id: \.self) { column in
+                                        let index = row * columnCount + column
+                                        if descriptors.indices.contains(index) {
+                                            let descriptor = descriptors[index]
+                                            Button {
+                                                requestPage(descriptor.index)
+                                                onSeekEnded()
+                                            } label: {
+                                                ReaderThumbnailView(
+                                                    descriptor: descriptor,
+                                                    isSelected: descriptor.index == targetPage
+                                                )
+                                                .frame(width: cellWidth)
+                                                .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .accessibilityHint("选择后跳转到此页")
+                                        } else {
+                                            Color.clear
+                                                .frame(width: cellWidth, height: ReaderPageWindow.thumbnailHeight)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.leading, ReaderPageWindow.gridPadding)
+                        .offset(y: ReaderPageWindow.gridPadding
+                            + Double(firstRow) * ReaderPageWindow.gridRowStride)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("选择后跳转到此页")
-                    .id(descriptor.index)
-                }
             }
-            .scrollTargetLayout()
-            .padding(.horizontal, 4)
-            .padding(.vertical, 4)
+            .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: Range<Int>.self) { scrollGeometry in
+                ReaderPageWindow.gridRange(
+                    offset: scrollGeometry.contentOffset.y,
+                    viewportWidth: scrollGeometry.containerSize.width,
+                    viewportHeight: height,
+                    pageCount: descriptors.count
+                )
+            } action: { _, range in
+                visibleRange = range
+            }
+            .onAppear {
+                synchronizeScrollPosition(viewportWidth: width)
+            }
+            .onChange(of: targetPage) { _, _ in
+                synchronizeScrollPosition(viewportWidth: width)
+            }
+            .onChange(of: geometry.size.width) { _, width in
+                synchronizeScrollPosition(viewportWidth: width)
+            }
+            .onChange(of: descriptors.count) { _, _ in
+                synchronizeScrollPosition(viewportWidth: width)
+            }
         }
-        .scrollPosition($scrollPosition)
         .frame(height: height)
         .accessibilityLabel("网格页面预览")
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("reader-thumbnail-grid")
-        .onAppear {
-            scrollPosition.scrollTo(id: targetPage, anchor: .center)
+    }
+
+    private var renderedRange: Range<Int> {
+        let lowerBound = min(visibleRange.lowerBound, descriptors.count)
+        let upperBound = min(visibleRange.upperBound, descriptors.count)
+        return lowerBound..<max(lowerBound, upperBound)
+    }
+
+    private func synchronizeScrollPosition(viewportWidth: Double) {
+        let target: Int
+        if descriptors.indices.contains(targetPage), descriptors[targetPage].index == targetPage {
+            target = targetPage
+        } else {
+            target = descriptors.firstIndex { $0.index == targetPage } ?? 0
+        }
+        let offset = ReaderPageWindow.gridOffset(
+            target: target,
+            pageCount: descriptors.count,
+            viewportWidth: viewportWidth,
+            viewportHeight: height
+        )
+        let range = ReaderPageWindow.gridRange(
+            offset: offset,
+            viewportWidth: viewportWidth,
+            viewportHeight: height,
+            pageCount: descriptors.count
+        )
+        guard range != visibleRange || abs((scrollPosition.y ?? offset) - offset) > 1 else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            visibleRange = range
+            scrollPosition.scrollTo(y: offset)
         }
     }
 }

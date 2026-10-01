@@ -24,6 +24,10 @@ struct ReaderPageWindow {
     static let thumbnailSpacing: Double = 10
     static let thumbnailPadding: Double = 12
     static let thumbnailStride = thumbnailWidth + thumbnailSpacing
+    static let gridSpacing: Double = 8
+    static let gridPadding: Double = 4
+    static let gridMinimumCellWidth: Double = 100
+    static let gridRowStride = thumbnailHeight + gridSpacing
 
     static func thumbnailContentWidth(pageCount: Int) -> Double {
         Double(max(pageCount, 0)) * thumbnailStride
@@ -48,6 +52,52 @@ struct ReaderPageWindow {
         let first = Int(((offset - thumbnailPadding) / thumbnailStride).rounded(.down))
         let end = Int(((offset + viewportWidth - thumbnailPadding) / thumbnailStride).rounded(.up))
         return max(first - 3, 0)..<min(end + 3, pageCount)
+    }
+
+    static func gridColumnCount(viewportWidth: Double) -> Int {
+        let availableWidth = max(viewportWidth - gridPadding * 2, gridMinimumCellWidth)
+        return max(Int(((availableWidth + gridSpacing) / (gridMinimumCellWidth + gridSpacing)).rounded(.down)), 1)
+    }
+
+    static func gridContentHeight(pageCount: Int, viewportWidth: Double) -> Double {
+        let columns = gridColumnCount(viewportWidth: viewportWidth)
+        let rows = (max(pageCount, 0) + columns - 1) / columns
+        guard rows > 0 else { return 0 }
+        return gridPadding * 2 + Double(rows) * thumbnailHeight + Double(rows - 1) * gridSpacing
+    }
+
+    static func gridOffset(
+        target: Int,
+        pageCount: Int,
+        viewportWidth: Double,
+        viewportHeight: Double
+    ) -> Double {
+        guard pageCount > 0, viewportHeight > 0 else { return 0 }
+        let columns = gridColumnCount(viewportWidth: viewportWidth)
+        let row = min(max(target, 0), pageCount - 1) / columns
+        let centeredOffset = gridPadding + Double(row) * gridRowStride
+            + thumbnailHeight / 2 - viewportHeight / 2
+        let maximumOffset = max(gridContentHeight(pageCount: pageCount, viewportWidth: viewportWidth) - viewportHeight, 0)
+        return min(max(centeredOffset, 0), maximumOffset)
+    }
+
+    /// Render complete rows around the viewport, including two buffer rows on each side.
+    static func gridRange(
+        offset: Double,
+        viewportWidth: Double,
+        viewportHeight: Double,
+        pageCount: Int
+    ) -> Range<Int> {
+        guard pageCount > 0, viewportWidth > 0, viewportHeight > 0 else { return 0..<0 }
+        let columns = gridColumnCount(viewportWidth: viewportWidth)
+        let rowCount = (pageCount + columns - 1) / columns
+        let maximumOffset = max(gridContentHeight(pageCount: pageCount, viewportWidth: viewportWidth) - viewportHeight, 0)
+        let offset = min(max(offset, 0), maximumOffset)
+        let firstRow = Int(((offset - gridPadding) / gridRowStride).rounded(.down))
+        let lastRow = Int(((offset + viewportHeight - gridPadding) / gridRowStride).rounded(.up))
+        let lowerRow = max(firstRow - 2, 0)
+        let upperRow = min(lastRow + 2, rowCount)
+        return (lowerRow * columns)..<min(upperRow * columns, pageCount)
     }
 
     static func indexes(target: Int, pageCount: Int, maximumCount: Int) -> [Int] {

@@ -32,6 +32,7 @@ struct ReaderProgressControl: View {
     @State private var sliderValue: Double
     @State private var isPreviewExpanded = false
     @State private var isGridExpanded = false
+    @State private var panelWidth = 0.0
 
     init(
         page: Int,
@@ -106,10 +107,11 @@ struct ReaderProgressControl: View {
                             descriptors: descriptors,
                             targetPage: currentPage,
                             height: verticalSizeClass == .compact ? 190 : 390,
+                            viewportWidth: max(panelWidth - 24, 1),
                             requestPage: requestPage,
                             onSeekEnded: onSeekEnded
                         )
-                        .transition(.opacity)
+                        .transition(.identity)
                     } else {
                         ReaderThumbnailStrip(
                             descriptors: descriptors,
@@ -126,7 +128,7 @@ struct ReaderProgressControl: View {
                                     isGridExpanded = true
                                 }
                         )
-                        .transition(.opacity)
+                        .transition(.identity)
                     }
                 }
                 .transition(
@@ -140,13 +142,16 @@ struct ReaderProgressControl: View {
         .padding(.top, 6)
         .padding(.bottom, 8)
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
+            if abs(panelWidth - width) > 1 { panelWidth = width }
+        }
         .accessibilityIdentifier("reader-progress-control")
         .animation(
             accessibilityReduceMotion ? .easeInOut(duration: 0.15) : .snappy(duration: 0.25),
             value: isPreviewExpanded
         )
         .animation(
-            accessibilityReduceMotion ? .easeInOut(duration: 0.15) : .snappy(duration: 0.3),
+            .easeInOut(duration: accessibilityReduceMotion ? 0.15 : 0.22),
             value: isGridExpanded
         )
         .onChange(of: sliderValue) { _, newValue in
