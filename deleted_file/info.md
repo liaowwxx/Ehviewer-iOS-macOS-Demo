@@ -23,3 +23,12 @@
   - Reason: the custom ActivityKit activity duplicated the system Live Activity automatically supplied by `BGContinuedProcessingTask`; retain only the system activity so the user sees one progress surface.
   - SHA-256 before archive: `Sources/EHDomain/DeviceSyncLiveActivity.swift` `722f7943f73b0ec55745a2f236cd159492abf0e36ada94221bdc239040312f90`; `Sources/EhViewer/DeviceSyncLiveActivityController.swift` `0175533c514ee1493619305bb99c016104e1db33ba450ba6fddd39d2be26cd4d`; `Sources/EhViewerLiveActivity/DeviceSyncLiveActivityWidget.swift` `d1dd50d07d572a02a0153869404756661adf6b5ec6e08188bbe956a5c7d3e682`; `Sources/EhViewerLiveActivity/Info.plist` `3be5ab7924bbcc73853b6b78f9909670051829b067183ab56929c7a9c4ca8b66`; `Tests/EhViewerTests/DeviceSyncLiveActivityTests.swift` `7eb3da84c0b840ad208ee1b24243dd15e0bb9f97558f18709a6fed9c934c809c`
   - Restore: move each archived file back to its original path, restore the WidgetKit Extension target and app embedding references in `EhViewer.xcodeproj/project.pbxproj`, restore the ActivityKit linker setting in `Package.swift`, and reconnect `DeviceSyncRuntime` to the custom controller.
+
+## 2026-10-04T18:06:34.356370+08:00
+
+- 原始路径：`Sources/EhViewer/SearchBackgroundInteraction.swift`
+- 归档路径：`deleted_file/2026-10-04T180634+0800/Sources/EhViewer/SearchBackgroundInteraction.swift`
+- 来源及用途：本轮 iPad 搜索历史滑动修复中新增的实验性 UIKit 辅助代码。
+- 原因与任务背景：用户指出改动偏离范围，停止测试并撤回本轮实验性修改。
+- SHA-256：`58beea22050335b9708695ff237796b4997de212e0e088288bff43e8b4a3aeec`
+- 恢复方法：如需恢复，将归档文件移动回原始路径；本轮添加的 Xcode 工程引用已撤回。

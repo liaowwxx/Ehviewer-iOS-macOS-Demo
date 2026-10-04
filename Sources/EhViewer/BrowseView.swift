@@ -143,6 +143,7 @@ struct BrowseView: View {
         .overlay(alignment: .topTrailing) {
             GeometryReader { proxy in
                 BrowseSearchSuggestionOverlay(
+                    panelWidth: min(560, max(0, proxy.size.width - 24)),
                     query: pageModel.searchText,
                     isLoading: pageModel.isUpdatingSearchSuggestions,
                     searchHistory: pageModel.searchHistorySuggestions,
@@ -165,10 +166,6 @@ struct BrowseView: View {
                         }
                     }
                 )
-                    .frame(width: min(560, max(0, proxy.size.width - 24)))
-                    .padding(.top, 8)
-                    .padding(.trailing, 12)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
             .zIndex(100)
         }
@@ -342,6 +339,11 @@ struct BrowseView: View {
 
 private struct BrowseSearchSuggestionOverlay: View {
     @Environment(\.isSearching) private var isSearching
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    // iPadOS can end an empty search when the floating history list is scrolled.
+    @State private var isHistoryPresented = false
+    @State private var selectedHistoryQuery: String?
+    let panelWidth: CGFloat
     let query: String
     let isLoading: Bool
     let searchHistory: [String]
@@ -351,18 +353,62 @@ private struct BrowseSearchSuggestionOverlay: View {
     let onDeleteHistory: (String) -> Void
     let onSelectTag: (String) -> Void
 
+    private var keepsHistoryOpen: Bool {
+        horizontalSizeClass == .regular && query.isEmpty
+    }
+
+    private var isPresented: Bool {
+        isSuppressed == false && selectedHistoryQuery != query &&
+            (keepsHistoryOpen ? isHistoryPresented : isSearching)
+    }
+
     var body: some View {
-        if isSearching, isSuppressed == false {
-            SearchSuggestionPanel(
-                query: query,
-                isLoading: isLoading,
-                searchHistory: searchHistory,
-                tags: tags,
-                onSelectHistory: onSelectHistory,
-                onDeleteHistory: onDeleteHistory,
-                onSelectTag: onSelectTag
-            )
+        ZStack(alignment: .topTrailing) {
+            if keepsHistoryOpen, isPresented {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { isHistoryPresented = false }
+            }
+            if isPresented {
+                SearchSuggestionPanel(
+                    query: query,
+                    isLoading: isLoading,
+                    searchHistory: searchHistory,
+                    tags: tags,
+                    onSelectHistory: { history in
+                        if horizontalSizeClass == .regular {
+                            isHistoryPresented = false
+                            selectedHistoryQuery = SearchQueryComposer.normalized(history)
+                        }
+                        onSelectHistory(history)
+                    },
+                    onDeleteHistory: onDeleteHistory,
+                    onSelectTag: onSelectTag
+                )
+                .frame(width: panelWidth)
+                .contentShape(Rectangle())
+                .onTapGesture {}
+                .padding(.top, 8)
+                .padding(.trailing, 12)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .onChange(of: isSearching, initial: true) { _, searching in
+            if searching {
+                isHistoryPresented = query.isEmpty
+                selectedHistoryQuery = nil
+            }
+        }
+        .onChange(of: query) { _, newValue in
+            isHistoryPresented = newValue.isEmpty && isSearching
+            if newValue != selectedHistoryQuery {
+                selectedHistoryQuery = nil
+            }
+        }
+        .onChange(of: isSuppressed) { _, suppressed in
+            if suppressed { isHistoryPresented = false }
+        }
+        .onDisappear { isHistoryPresented = false }
     }
 }
 
