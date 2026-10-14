@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 @MainActor
 final class EhViewerUITests: XCTestCase {
@@ -197,6 +198,261 @@ final class EhViewerUITests: XCTestCase {
         app.open(URL(string: "ehviewer://?url=https://e-hentai.org/g/12345/token/")!)
 
         XCTAssertTrue(app.navigationBars["详情"].waitForExistence(timeout: 5))
+    }
+
+    func testAdvancedSearchExplainsFiltersAndKeepsPageLabelsVisible() throws {
+        let app = launchAdvancedSearch()
+
+        let torrents = app.switches["advanced-search-torrents"]
+        scrollToAdvancedSearchElement(torrents, in: app)
+        XCTAssertTrue(torrents.label.contains("仅显示有种子文件的画廊"))
+        XCTAssertTrue(torrents.label.contains("只显示提供 Torrent 种子文件的画廊。"))
+        let expunged = app.switches["advanced-search-expunged"]
+        XCTAssertTrue(expunged.exists)
+        XCTAssertTrue(expunged.label.contains("仅搜索被移除的画廊"))
+        XCTAssertTrue(expunged.label.contains("Expunged"))
+
+        let minimum = app.textFields["advanced-search-minimum-pages"]
+        scrollToAdvancedSearchElement(minimum, in: app)
+        XCTAssertEqual(minimum.label, "最少页数")
+        XCTAssertEqual(minimum.value as? String, "0")
+        XCTAssertTrue(app.staticTexts["最少页数"].isHittable)
+        let maximum = app.textFields["advanced-search-maximum-pages"]
+        scrollToAdvancedSearchElement(maximum, in: app)
+        XCTAssertEqual(maximum.label, "最多页数")
+        XCTAssertEqual(maximum.value as? String, "0")
+        XCTAssertTrue(app.staticTexts["最多页数"].isHittable)
+
+        let help = app.staticTexts["advanced-search-default-filters-help"]
+        scrollToAdvancedSearchElement(help, in: app)
+        XCTAssertEqual(help.label, "开启后，本次搜索将忽略网站账户中对应的默认过滤设置。App 内的本地过滤规则仍然生效。")
+        for title in ["忽略语言过滤", "忽略上传者过滤", "忽略标签过滤"] {
+            XCTAssertTrue(app.switches[title].exists)
+        }
+    }
+
+    func testAdvancedSearchPreservesPageRangeAndRejectsReversedBounds() throws {
+        let app = launchAdvancedSearch()
+        let minimum = app.textFields["advanced-search-minimum-pages"]
+        let maximum = app.textFields["advanced-search-maximum-pages"]
+
+        replaceAdvancedSearchValue(in: minimum, with: "20", app: app)
+        XCTAssertTrue(app.staticTexts["最少页数"].isHittable)
+        replaceAdvancedSearchValue(in: maximum, with: "80", app: app)
+        XCTAssertTrue(app.staticTexts["最多页数"].isHittable)
+        let apply = app.buttons["apply-advanced-search"]
+        XCTAssertTrue(apply.isEnabled)
+        apply.tap()
+
+        let openSearch = app.buttons["advanced-search-action"]
+        XCTAssertTrue(openSearch.waitForExistence(timeout: 5))
+        openSearch.tap()
+        XCTAssertTrue(app.scrollViews["advanced-search-scroll"].waitForExistence(timeout: 5))
+        scrollToAdvancedSearchElement(minimum, in: app)
+        XCTAssertEqual(minimum.value as? String, "20")
+        XCTAssertTrue(app.staticTexts["最少页数"].isHittable)
+        scrollToAdvancedSearchElement(maximum, in: app)
+        XCTAssertEqual(maximum.value as? String, "80")
+        XCTAssertTrue(app.staticTexts["最多页数"].isHittable)
+
+        replaceAdvancedSearchValue(in: maximum, with: "10", app: app)
+        let error = app.staticTexts["最多页数不能小于最少页数"]
+        scrollToAdvancedSearchElement(error, in: app)
+        XCTAssertFalse(apply.isEnabled)
+        replaceAdvancedSearchValue(in: maximum, with: "0", app: app)
+        XCTAssertTrue(apply.isEnabled)
+        XCTAssertFalse(error.exists)
+    }
+
+    func testIPadLocalSearchKeepsSidebarToggleBeforeAndAfterSubmission() throws {
+        let app = try launchIPadLocalSearch()
+        let toggle = systemSidebarToggle(in: app)
+        let sidebar = app.buttons["settings-sidebar"]
+
+        for hideBeforeSearch in [true, false] {
+            if sidebar.isHittable == false {
+                toggle.tap()
+            }
+            XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+            if hideBeforeSearch {
+                toggle.tap()
+                XCTAssertTrue(sidebar.waitForNonExistence(timeout: 5))
+            }
+
+            submitLocalSearch("blue archive", in: app)
+            assertLocalSearchToolbar(in: app, query: "blue archive")
+            XCTAssertTrue(app.buttons["打开《Blue Archive A》"].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.buttons["打开《Green Garden》"].exists)
+
+            if hideBeforeSearch == false {
+                toggle.tap()
+                XCTAssertTrue(sidebar.waitForNonExistence(timeout: 5))
+            }
+            XCTAssertTrue(toggle.isHittable)
+            toggle.tap()
+            XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+            assertLocalSearchToolbar(in: app, query: "blue archive")
+            XCTAssertTrue(app.buttons["打开《Blue Archive A》"].exists)
+        }
+    }
+
+    func testIPadLocalSearchPreservesQueryAcrossLayoutSortAndFilters() throws {
+        let app = try launchIPadLocalSearch()
+        submitLocalSearch("blue archive", in: app)
+        assertLocalSearchToolbar(in: app, query: "blue archive")
+
+        let layout = app.buttons["downloads-layout-toggle"]
+        let originalLayout = layout.value as? String
+        layout.tap()
+        XCTAssertNotEqual(layout.value as? String, originalLayout)
+        assertLocalSearchToolbar(in: app, query: "blue archive")
+
+        app.buttons["download-sort-menu"].tap()
+        let descending = app.buttons["标题 Z-A"]
+        XCTAssertTrue(descending.waitForExistence(timeout: 5))
+        descending.tap()
+        assertLocalSearchToolbar(in: app, query: "blue archive")
+        let rows = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "打开《Blue Archive"))
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.element(boundBy: 0).label, "打开《Blue Archive Z》")
+
+        app.buttons["download-advanced-filter"].tap()
+        let apply = app.buttons["apply-download-category-filter"]
+        XCTAssertTrue(apply.waitForExistence(timeout: 5))
+        app.buttons["取消"].tap()
+        assertLocalSearchToolbar(in: app, query: "blue archive")
+        app.buttons["download-advanced-filter"].tap()
+        XCTAssertTrue(apply.waitForExistence(timeout: 5))
+        apply.tap()
+        assertLocalSearchToolbar(in: app, query: "blue archive")
+
+        submitLocalSearch("no-local-gallery-matches", in: app)
+        XCTAssertTrue(app.staticTexts["没有匹配的下载"].waitForExistence(timeout: 5))
+        assertLocalSearchToolbar(in: app, query: "no-local-gallery-matches")
+        replaceLocalSearchInput(with: "", in: app)
+        XCTAssertTrue(app.buttons["打开《Green Garden》"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "打开《")).count, 3)
+        XCTAssertFalse(app.staticTexts["没有匹配的下载"].exists)
+    }
+
+    func testIPadLocalSearchTagCompletionOnlyFiltersAfterSubmission() throws {
+        let app = try launchIPadLocalSearch()
+
+        let search = app.searchFields.firstMatch
+        replaceLocalSearchInput(with: "精灵", in: app)
+        let suggestion = app.buttons.matching(NSPredicate(
+            format: "label == %@ OR label BEGINSWITH %@", "female:elf", "female:elf，"
+        )).firstMatch
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 10))
+        suggestion.tap()
+        let completedQuery = try XCTUnwrap(search.value as? String)
+        XCTAssertTrue(completedQuery.contains("elf"))
+        XCTAssertNotEqual(completedQuery, "female:elf")
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue(app.buttons["打开《Green Garden》"].exists)
+        XCTAssertTrue(app.buttons["打开《Blue Archive A》"].exists)
+
+        search.typeText("\n")
+        assertLocalSearchToolbar(in: app, query: completedQuery)
+        XCTAssertTrue(app.buttons["打开《Blue Archive A》"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["打开《Green Garden》"].exists)
+    }
+
+    private func launchIPadLocalSearch() throws -> XCUIApplication {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Requires iPad split navigation")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-UITestUseGuestMode", "YES", "-UITestLocalSearchFixtures", "YES",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"
+        ]
+        app.launch()
+        XCTAssertTrue(app.otherElements["ehviewer-root"].waitForExistence(timeout: 10))
+        let later = app.alerts.buttons["稍后"]
+        if later.waitForExistence(timeout: 2) {
+            later.tap()
+        }
+        XCTAssertTrue(systemSidebarToggle(in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["打开《Green Garden》"].waitForExistence(timeout: 10))
+        return app
+    }
+
+    private func replaceLocalSearchInput(with query: String, in app: XCUIApplication) {
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        let current = search.value as? String ?? ""
+        if current.isEmpty == false, current != search.placeholderValue {
+            search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        if query.isEmpty == false {
+            search.typeText(query)
+        }
+    }
+
+    private func submitLocalSearch(_ query: String, in app: XCUIApplication) {
+        replaceLocalSearchInput(with: query, in: app)
+        app.searchFields.firstMatch.typeText("\n")
+    }
+
+    private func assertLocalSearchToolbar(in app: XCUIApplication, query: String) {
+        XCTAssertTrue(app.navigationBars["本地"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["搜索结果"].exists)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        let search = app.searchFields.firstMatch
+        if query.isEmpty {
+            XCTAssertTrue((search.value as? String ?? "").isEmpty || search.value as? String == search.placeholderValue)
+        } else {
+            XCTAssertEqual(search.value as? String, query)
+        }
+        let sidebarToggle = systemSidebarToggle(in: app)
+        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 5))
+        XCTAssertTrue(sidebarToggle.isHittable)
+        for identifier in ["downloads-layout-toggle", "download-sort-menu", "download-advanced-filter"] {
+            let button = app.buttons[identifier]
+            XCTAssertTrue(button.waitForExistence(timeout: 5), identifier)
+            XCTAssertTrue(button.isHittable, identifier)
+            XCTAssertTrue(button.isEnabled, identifier)
+        }
+    }
+
+    private func systemSidebarToggle(in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(
+            format: "label CONTAINS %@ OR label CONTAINS[c] %@", "边栏", "sidebar"
+        )).firstMatch
+    }
+
+    private func launchAdvancedSearch() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-UITestUseGuestMode", "YES",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"
+        ]
+        app.launch()
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5))
+        app.tabBars.buttons.element(boundBy: 0).tap()
+        let action = app.buttons["advanced-search-action"]
+        XCTAssertTrue(action.waitForExistence(timeout: 5))
+        action.tap()
+        XCTAssertTrue(app.scrollViews["advanced-search-scroll"].waitForExistence(timeout: 5))
+        return app
+    }
+
+    private func scrollToAdvancedSearchElement(_ element: XCUIElement, in app: XCUIApplication) {
+        let scrollView = app.scrollViews["advanced-search-scroll"]
+        for _ in 0..<6 {
+            if element.isHittable { break }
+            scrollView.swipeUp()
+        }
+        XCTAssertTrue(element.isHittable)
+    }
+
+    private func replaceAdvancedSearchValue(in field: XCUIElement, with value: String, app: XCUIApplication) {
+        scrollToAdvancedSearchElement(field, in: app)
+        field.tap()
+        let currentValue = field.value as? String ?? ""
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: currentValue.count) + value + "\n")
+        XCTAssertEqual(field.value as? String, value)
     }
 
     private func openSettings(in app: XCUIApplication) {

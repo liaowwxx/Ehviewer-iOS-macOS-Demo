@@ -64,9 +64,10 @@ struct AdvancedSearchView: View {
                 .padding(24)
                 .frame(maxWidth: 640, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .top)
+                .accessibilityIdentifier("advanced-search-form")
             }
+            .accessibilityIdentifier("advanced-search-scroll")
             .navigationTitle("高级搜索")
-            .accessibilityIdentifier("advanced-search-form")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消", action: dismiss.callAsFunction)
@@ -140,10 +141,28 @@ struct AdvancedSearchView: View {
     }
 
     private var macOSGalleryConditionsSection: some View {
-        GroupBox("画廊条件") {
+        GroupBox("画廊筛选") {
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("仅显示有种子的画廊", isOn: $draft.onlyWithTorrents)
-                Toggle("浏览已删除的画廊", isOn: $draft.onlyShowExpunged)
+                Toggle(isOn: $draft.onlyWithTorrents) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("仅显示有种子文件的画廊")
+                        Text("只显示提供 Torrent 种子文件的画廊。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityIdentifier("advanced-search-torrents")
+                Toggle(isOn: $draft.onlyShowExpunged) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("仅搜索被移除的画廊")
+                        Text("只搜索被站点标记为已移除（Expunged）的画廊。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityIdentifier("advanced-search-expunged")
             }
             .toggleStyle(.checkbox)
             .padding(10)
@@ -165,16 +184,28 @@ struct AdvancedSearchView: View {
                     .pickerStyle(.menu)
                     .frame(width: 180, alignment: .leading)
                 }
+                Text("仅显示评分达到所选星级的画廊。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 macOSLabeledRow("最少页数") {
                     TextField("0 表示不限", value: $draft.minimumPageCount, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 180)
+                        .accessibilityLabel("最少页数")
+                        .accessibilityIdentifier("advanced-search-minimum-pages")
                 }
                 macOSLabeledRow("最多页数") {
                     TextField("0 表示不限", value: $draft.maximumPageCount, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 180)
+                        .accessibilityLabel("最多页数")
+                        .accessibilityIdentifier("advanced-search-maximum-pages")
                 }
+                Text("按画廊图片总页数筛选，0 表示该项不限。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if draft.hasValidPageRange == false {
                     Label("最多页数不能小于最少页数", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
@@ -187,11 +218,16 @@ struct AdvancedSearchView: View {
     }
 
     private var macOSDefaultFiltersSection: some View {
-        GroupBox("禁用默认排除项") {
+        GroupBox("忽略网站默认过滤") {
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("语言", isOn: $draft.disableLanguageFilter)
-                Toggle("上传者", isOn: $draft.disableUploaderFilter)
-                Toggle("标签", isOn: $draft.disableTagFilter)
+                Toggle("忽略语言过滤", isOn: $draft.disableLanguageFilter)
+                Toggle("忽略上传者过滤", isOn: $draft.disableUploaderFilter)
+                Toggle("忽略标签过滤", isOn: $draft.disableTagFilter)
+                Text("开启后，本次搜索将忽略网站账户中对应的默认过滤设置。App 内的本地过滤规则仍然生效。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("advanced-search-default-filters-help")
             }
             .toggleStyle(.checkbox)
             .padding(10)
@@ -229,10 +265,11 @@ struct AdvancedSearchView: View {
                 .padding(20)
                 .frame(maxWidth: 680, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .top)
+                .accessibilityIdentifier("advanced-search-form")
             }
+            .accessibilityIdentifier("advanced-search-scroll")
             .navigationTitle("高级搜索")
             .navigationBarTitleDisplayMode(.inline)
-            .accessibilityIdentifier("advanced-search-form")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消", action: dismiss.callAsFunction)
@@ -304,10 +341,28 @@ struct AdvancedSearchView: View {
     }
 
     private var mobileGalleryConditionsSection: some View {
-        GroupBox("画廊条件") {
+        GroupBox("画廊筛选") {
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("仅显示有种子的画廊", isOn: $draft.onlyWithTorrents)
-                Toggle("浏览已删除的画廊", isOn: $draft.onlyShowExpunged)
+                Toggle(isOn: $draft.onlyWithTorrents) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("仅显示有种子文件的画廊")
+                        Text("只显示提供 Torrent 种子文件的画廊。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityIdentifier("advanced-search-torrents")
+                Toggle(isOn: $draft.onlyShowExpunged) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("仅搜索被移除的画廊")
+                        Text("只搜索被站点标记为已移除（Expunged）的画廊。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityIdentifier("advanced-search-expunged")
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -328,10 +383,28 @@ struct AdvancedSearchView: View {
                     }
                     .pickerStyle(.menu)
                 }
-                TextField("最少页数（0 表示不限）", value: $draft.minimumPageCount, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                TextField("最多页数（0 表示不限）", value: $draft.maximumPageCount, format: .number)
-                    .textFieldStyle(.roundedBorder)
+                Text("仅显示评分达到所选星级的画廊。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("最少页数")
+                    TextField("0 表示不限", value: $draft.minimumPageCount, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("最少页数")
+                        .accessibilityIdentifier("advanced-search-minimum-pages")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("最多页数")
+                    TextField("0 表示不限", value: $draft.maximumPageCount, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("最多页数")
+                        .accessibilityIdentifier("advanced-search-maximum-pages")
+                }
+                Text("按画廊图片总页数筛选，0 表示该项不限。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if draft.hasValidPageRange == false {
                     Label("最多页数不能小于最少页数", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
@@ -342,11 +415,16 @@ struct AdvancedSearchView: View {
     }
 
     private var mobileDefaultFiltersSection: some View {
-        GroupBox("禁用默认排除项") {
+        GroupBox("忽略网站默认过滤") {
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("语言", isOn: $draft.disableLanguageFilter)
-                Toggle("上传者", isOn: $draft.disableUploaderFilter)
-                Toggle("标签", isOn: $draft.disableTagFilter)
+                Toggle("忽略语言过滤", isOn: $draft.disableLanguageFilter)
+                Toggle("忽略上传者过滤", isOn: $draft.disableUploaderFilter)
+                Toggle("忽略标签过滤", isOn: $draft.disableTagFilter)
+                Text("开启后，本次搜索将忽略网站账户中对应的默认过滤设置。App 内的本地过滤规则仍然生效。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("advanced-search-default-filters-help")
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -179,6 +179,12 @@ struct DownloadsView: View {
         ) {
             content
         }
+            .navigationTitle(page == .downloading ? "downloads_title" : "本地")
+#if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .tint(AppTheme.accent)
+            .toolbar { downloadToolbar }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let progress = bulkRemovalProgress {
                     bulkRemovalProgressView(progress)
@@ -281,8 +287,101 @@ struct DownloadsView: View {
         job?.displayTitle(showJapaneseTitle: model.readingSettings.showJapaneseTitle) ?? ""
     }
 
+    @ToolbarContentBuilder
+    private var downloadToolbar: some ToolbarContent {
+        if isSelectionMode {
+#if os(macOS)
+            ToolbarItem(placement: .navigation) {
+                Button("完成") { exitSelectionMode() }
+            }
+#else
+            ToolbarItem(placement: .cancellationAction) {
+                Button("完成") { exitSelectionMode() }
+            }
+#endif
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button(selectAllTitle) {
+                    toggleSelectAll()
+                }
+                if page == .local {
+                    Button {
+                        showingShareFormatDialog = true
+                    } label: {
+                        Label("分享(\(selectedKeys.count))", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(selectedKeys.isEmpty || model.isMigrating || model.isRestoringDownloads)
+                    .accessibilityIdentifier("downloads-share-selected")
+                }
+                Button(role: .destructive) {
+                    deletionConfirmation = .multiple(selectedKeys.count)
+                } label: {
+                    Label("删除(\(selectedKeys.count))", systemImage: "trash")
+                }
+                .disabled(selectedKeys.isEmpty || bulkRemovalProgress != nil)
+            }
+        } else {
+            if page == .local, horizontalSizeClass == .compact {
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink(value: AppRoute.downloads) {
+                        Label("downloads_title", systemImage: "arrow.down.circle")
+                    }
+                    .accessibilityIdentifier("local-downloads-link")
+                }
+            }
+#if os(macOS)
+            ToolbarItem(placement: .navigation) {
+                selectionToolbarButton
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                layoutToolbarButton
+                sortToolbarMenu
+                downloadAdvancedFilterButton
+                if page == .downloading {
+                    downloadManagementMenu
+                }
+            }
+#else
+            if horizontalSizeClass == .regular {
+                ToolbarItem(placement: .navigation) {
+                    selectionToolbarButton
+                }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    layoutToolbarButton
+                    sortToolbarMenu
+                    downloadAdvancedFilterButton
+                    if page == .downloading {
+                        downloadManagementMenu
+                    }
+                }
+            } else {
+                ToolbarItem(placement: .primaryAction) {
+                    selectionToolbarButton
+                }
+                if page == .local {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        layoutToolbarButton
+                        sortToolbarMenu
+                        downloadAdvancedFilterButton
+                    }
+                } else {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        startAllDownloadsToolbarButton
+                        stopAllDownloadsToolbarButton
+                        layoutToolbarButton
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("更多", systemImage: "ellipsis.circle") {
+                            showingDownloadManagementSheet = true
+                        }
+                        .accessibilityIdentifier("download-management-sheet")
+                    }
+                }
+            }
+#endif
+        }
+    }
+
     private var content: some View {
-        @Bindable var model = model
         return VStack(spacing: 0) {
             Group {
                 if let error = model.localDownloadLoadError {
@@ -312,103 +411,6 @@ struct DownloadsView: View {
                         downloadsList
                     }
                 }
-            }
-        }
-        .navigationTitle(page == .downloading ? "downloads_title" : "本地")
-#if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-#endif
-        .tint(AppTheme.accent)
-        .toolbar {
-            if isSelectionMode {
-#if os(macOS)
-                ToolbarItem(placement: .navigation) {
-                    Button("完成") { exitSelectionMode() }
-                }
-#else
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { exitSelectionMode() }
-                }
-#endif
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button(selectAllTitle) {
-                        toggleSelectAll()
-                    }
-                    if page == .local {
-                        Button {
-                            showingShareFormatDialog = true
-                        } label: {
-                            Label("分享(\(selectedKeys.count))", systemImage: "square.and.arrow.up")
-                        }
-                        .disabled(selectedKeys.isEmpty || model.isMigrating || model.isRestoringDownloads)
-                        .accessibilityIdentifier("downloads-share-selected")
-                    }
-                    Button(role: .destructive) {
-                        deletionConfirmation = .multiple(selectedKeys.count)
-                    } label: {
-                        Label("删除(\(selectedKeys.count))", systemImage: "trash")
-                    }
-                    .disabled(selectedKeys.isEmpty || bulkRemovalProgress != nil)
-                }
-            } else {
-                if page == .local, horizontalSizeClass == .compact {
-                    ToolbarItem(placement: .primaryAction) {
-                        NavigationLink(value: AppRoute.downloads) {
-                            Label("downloads_title", systemImage: "arrow.down.circle")
-                        }
-                        .accessibilityIdentifier("local-downloads-link")
-                    }
-                }
-#if os(macOS)
-                ToolbarItem(placement: .navigation) {
-                    selectionToolbarButton
-                }
-                ToolbarItemGroup(placement: .primaryAction) {
-                    layoutToolbarButton
-                    sortToolbarMenu
-                    downloadAdvancedFilterButton
-                    if page == .downloading {
-                        downloadManagementMenu
-                    }
-                }
-#else
-                if horizontalSizeClass == .regular {
-                    ToolbarItem(placement: .navigation) {
-                        selectionToolbarButton
-                    }
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        layoutToolbarButton
-                        sortToolbarMenu
-                        downloadAdvancedFilterButton
-                        if page == .downloading {
-                            downloadManagementMenu
-                        }
-                    }
-                } else {
-                    ToolbarItem(placement: .primaryAction) {
-                        selectionToolbarButton
-                    }
-                    if page == .local {
-                        ToolbarItemGroup(placement: .primaryAction) {
-                            layoutToolbarButton
-                            sortToolbarMenu
-                            downloadAdvancedFilterButton
-                        }
-                    } else {
-                        ToolbarItemGroup(placement: .primaryAction) {
-                            startAllDownloadsToolbarButton
-                            stopAllDownloadsToolbarButton
-                            layoutToolbarButton
-                        }
-                        ToolbarItem(placement: .primaryAction) {
-                            Button("更多", systemImage: "ellipsis.circle") {
-                                showingDownloadManagementSheet = true
-                            }
-                            .accessibilityIdentifier("download-management-sheet")
-                        }
-                    }
-                }
-#endif
             }
         }
         .task(id: visibleJobsTaskID, priority: .utility) {
@@ -1184,6 +1186,8 @@ private struct DownloadSearchContainer<Content: View>: View {
     @Binding var submittedSearchText: String
     @ViewBuilder let content: Content
     @State private var searchText = ""
+    @State private var isSearchPresented = false
+    @State private var queryPendingSearchDismissal: String?
     @State private var suppressNextSearchSubmission = false
     @State private var suppressSearchSuggestions = false
 
@@ -1215,6 +1219,7 @@ private struct DownloadSearchContainer<Content: View>: View {
 #if os(iOS)
         .searchable(
             text: $searchText,
+            isPresented: $isSearchPresented,
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: "搜索下载标题或标签"
         )
@@ -1222,7 +1227,24 @@ private struct DownloadSearchContainer<Content: View>: View {
         .searchable(text: $searchText, placement: .toolbar, prompt: "搜索下载标题或标签")
 #endif
         .onSubmit(of: .search, submitSearch)
+        .onChange(of: isSearchPresented) { _, isPresented in
+            if isPresented {
+                queryPendingSearchDismissal = nil
+                suppressSearchSuggestions = false
+            }
+        }
+        .task(id: isSearchPresented) {
+            guard isSearchPresented == false, let query = queryPendingSearchDismissal else { return }
+            // Search dismissal resets the native field. Publish the submitted
+            // query again after dismissal without clearing the filtered list.
+            searchText = ""
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            searchText = query
+            queryPendingSearchDismissal = nil
+        }
         .onChange(of: searchText) { _, newValue in
+            guard queryPendingSearchDismissal == nil else { return }
             let normalized = SearchQueryComposer.normalized(newValue)
             if normalized.isEmpty {
                 submittedSearchText = ""
@@ -1252,6 +1274,10 @@ private struct DownloadSearchContainer<Content: View>: View {
         suppressSearchSuggestions = true
         submittedSearchText = SearchQueryComposer.normalized(searchText)
         searchText = submittedSearchText
+#if os(iOS)
+        queryPendingSearchDismissal = submittedSearchText
+        isSearchPresented = false
+#endif
     }
 }
 

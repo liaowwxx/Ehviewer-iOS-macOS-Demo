@@ -8,3 +8,25 @@
 "subscriptions_title" = "Abonnements";
 "popular_title" = "Beliebt";
 "toplist_title" = "Rangliste";
+
+/* Advanced search */
+"画廊筛选" = "Galeriefilter";
+"仅显示有种子文件的画廊" = "Nur Galerien mit Torrent-Dateien anzeigen";
+"只显示提供 Torrent 种子文件的画廊。" = "Zeigt nur Galerien an, die Torrent-Dateien bereitstellen.";
+"仅搜索被移除的画廊" = "Nur entfernte Galerien durchsuchen";
+"只搜索被站点标记为已移除（Expunged）的画廊。" = "Durchsucht nur Galerien, die von der Website als entfernt (Expunged) markiert wurden.";
+"仅显示评分达到所选星级的画廊。" = "Zeigt nur Galerien an, deren Bewertung mindestens der gewählten Sternezahl entspricht.";
+"最少页数" = "Mindestseitenzahl";
+"最多页数" = "Höchstseitenzahl";
+"0 表示不限" = "0 = unbegrenzt";
+"按画廊图片总页数筛选，0 表示该项不限。" = "Filtert nach der Gesamtzahl der Bildseiten einer Galerie. 0 hebt die jeweilige Grenze auf.";
+"忽略网站默认过滤" = "Standardfilter der Website ignorieren";
+"忽略语言过滤" = "Sprachfilter ignorieren";
+"忽略上传者过滤" = "Uploaderfilter ignorieren";
+"忽略标签过滤" = "Tagfilter ignorieren";
+"开启后，本次搜索将忽略网站账户中对应的默认过滤设置。App 内的本地过滤规则仍然生效。" = "Wenn aktiviert, ignoriert diese Suche die entsprechenden Standardfilter Ihres Website-Kontos. Lokale Filterregeln in der App gelten weiterhin.";
+"评分与页数" = "Bewertung und Seitenzahl";
+"最低评分" = "Mindestbewertung";
+"不限" = "Beliebig";
+"%lld 星" = "%lld Sterne";
+"最多页数不能小于最少页数" = "Die Höchstseitenzahl darf nicht unter der Mindestseitenzahl liegen";

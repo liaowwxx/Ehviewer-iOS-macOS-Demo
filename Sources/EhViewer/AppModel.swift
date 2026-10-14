@@ -346,8 +346,41 @@ final class AppModel {
         let arguments = ProcessInfo.processInfo.arguments
         let forceGuestModeForUITest = arguments.contains("-UITestUseGuestMode")
         self.defaults = defaults
+#if DEBUG
+        let useLocalSearchFixtures = forceGuestModeForUITest
+            && arguments.contains("-UITestLocalSearchFixtures")
+        if useLocalSearchFixtures, downloadBaselineLoader == nil {
+            self.downloadBaselineLoader = {
+                [
+                    ("Blue Archive A", "female:elf"),
+                    ("Blue Archive Z", "female:elf"),
+                    ("Green Garden", "female:fairy")
+                ].enumerated().map { index, fixture in
+                    let key = GalleryKey(gid: Int64(900_000 + index), token: "local-search-test")
+                    let page = GalleryPageDescriptor(
+                        galleryKey: key,
+                        index: 0,
+                        pageURL: URL(string: "https://example.invalid/local-search/\(index)")!
+                    )
+                    return PersistedDownload(
+                        key: key,
+                        title: fixture.0,
+                        tags: [fixture.1],
+                        pages: [page],
+                        completedPageIndexes: [0],
+                        stateRaw: DownloadState.completed.rawValue,
+                        errorMessage: nil
+                    )
+                }
+            }
+        } else {
+            self.downloadBaselineLoader = downloadBaselineLoader
+        }
+        let initialPage: StartupPage = useLocalSearchFixtures ? .local : StartupPage.load(from: defaults)
+#else
         self.downloadBaselineLoader = downloadBaselineLoader
         let initialPage = StartupPage.load(from: defaults)
+#endif
         startupPage = initialPage
         selectedRoute = initialPage.route
         forceGuestMode = forceGuestModeForUITest
@@ -365,6 +398,13 @@ final class AppModel {
             rawValue: defaults.string(forKey: "downloadLayoutMode") ?? ""
         ) ?? .list
         downloadCategoryFilter = Self.loadDownloadCategoryFilter(from: defaults)
+#if DEBUG
+        if useLocalSearchFixtures {
+            downloadSortOrder = .titleAscending
+            downloadLayoutMode = .list
+            downloadCategoryFilter = Set(GalleryCategory.allCases)
+        }
+#endif
         if forceGuestModeForUITest {
             isGuestMode = true
         }

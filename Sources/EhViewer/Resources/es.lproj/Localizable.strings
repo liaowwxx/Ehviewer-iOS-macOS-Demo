@@ -8,3 +8,25 @@
 "subscriptions_title" = "Suscripciones";
 "popular_title" = "Popular";
 "toplist_title" = "Clasificación";
+
+/* Advanced search */
+"画廊筛选" = "Filtros de galerías";
+"仅显示有种子文件的画廊" = "Mostrar solo galerías con archivos Torrent";
+"只显示提供 Torrent 种子文件的画廊。" = "Muestra solo galerías que ofrecen archivos Torrent.";
+"仅搜索被移除的画廊" = "Buscar solo galerías retiradas";
+"只搜索被站点标记为已移除（Expunged）的画廊。" = "Busca solo galerías que el sitio ha marcado como retiradas (Expunged).";
+"仅显示评分达到所选星级的画廊。" = "Muestra solo galerías con una valoración igual o superior a las estrellas seleccionadas.";
+"最少页数" = "Mínimo de páginas";
+"最多页数" = "Máximo de páginas";
+"0 表示不限" = "0 = sin límite";
+"按画廊图片总页数筛选，0 表示该项不限。" = "Filtra por el número total de páginas de imágenes de la galería. Un valor de 0 elimina el límite correspondiente.";
+"忽略网站默认过滤" = "Ignorar filtros predeterminados del sitio";
+"忽略语言过滤" = "Ignorar filtros de idioma";
+"忽略上传者过滤" = "Ignorar filtros de usuarios que suben contenido";
+"忽略标签过滤" = "Ignorar filtros de etiquetas";
+"开启后，本次搜索将忽略网站账户中对应的默认过滤设置。App 内的本地过滤规则仍然生效。" = "Al activar estas opciones, esta búsqueda ignora los filtros predeterminados correspondientes de tu cuenta del sitio. Las reglas de filtrado locales de la app siguen aplicándose.";
+"评分与页数" = "Valoración y páginas";
+"最低评分" = "Valoración mínima";
+"不限" = "Sin límite";
+"%lld 星" = "%lld estrellas";
+"最多页数不能小于最少页数" = "El máximo de páginas no puede ser menor que el mínimo";
