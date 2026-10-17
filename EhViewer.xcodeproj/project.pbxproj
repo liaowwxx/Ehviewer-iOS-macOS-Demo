@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        A19000000000000000000004 /* TranslationLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000014; };
+        A19000000000000000000001 /* AppTranslationLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000011; };
+        A19000000000000000000002 /* GalleryTranslationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000012; };
+        A19000000000000000000003 /* LocalTranslationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000013; };
 		A18D00000000000000000001 /* StartupPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18D00000000000000000002 /* StartupPage.swift */; };
 		0DA41857302C7798007B166F /* EHDomain in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000001 /* EHDomain */; };
 		0DA41858302C7798007B166F /* EHNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = EHD00000000000000000002 /* EHNetworking */; };
@@ -146,6 +150,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        A19000000000000000000014 /* TranslationLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationLibraryView.swift; sourceTree = "<group>"; };
+        A19000000000000000000011 /* AppTranslationLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTranslationLibrary.swift; sourceTree = "<group>"; };
+        A19000000000000000000012 /* GalleryTranslationSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryTranslationSection.swift; sourceTree = "<group>"; };
+        A19000000000000000000013 /* LocalTranslationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTranslationClient.swift; sourceTree = "<group>"; };
 		A18D00000000000000000002 /* StartupPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupPage.swift; sourceTree = "<group>"; };
 		EHF00000000000000000001 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		EHF00000000000000000002 /* BrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseView.swift; sourceTree = "<group>"; };
@@ -366,6 +374,10 @@
 				EHF0000000000000000002C /* ReaderPagedView.swift */,
 				EHF00000000000000000028 /* ReaderPositionState.swift */,
 				EHF00000000000000000007 /* ReaderView.swift */,
+                A19000000000000000000011 /* AppTranslationLibrary.swift */,
+                A19000000000000000000014 /* TranslationLibraryView.swift */,
+                A19000000000000000000012 /* GalleryTranslationSection.swift */,
+                A19000000000000000000013 /* LocalTranslationClient.swift */,
 				EHF00000000000000000008 /* RootView.swift */,
 				EHF0000000000000000000A /* SettingsView.swift */,
 				EHF00000000000000000032 /* SiteWebView.swift */,
@@ -621,6 +633,10 @@
 				EHB0000000000000000002C /* ReaderPagedView.swift in Sources */,
 				EHB00000000000000000028 /* ReaderPositionState.swift in Sources */,
 				EHB00000000000000000007 /* ReaderView.swift in Sources */,
+                A19000000000000000000001 /* AppTranslationLibrary.swift in Sources */,
+                A19000000000000000000004 /* TranslationLibraryView.swift in Sources */,
+                A19000000000000000000002 /* GalleryTranslationSection.swift in Sources */,
+                A19000000000000000000003 /* LocalTranslationClient.swift in Sources */,
 				EHB00000000000000000008 /* RootView.swift in Sources */,
 				EHB0000000000000000000A /* SettingsView.swift in Sources */,
 				EHB00000000000000000032 /* SiteWebView.swift in Sources */,

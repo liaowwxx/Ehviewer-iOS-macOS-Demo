@@ -220,6 +220,9 @@ struct SettingsView: View {
     private var storageAndProgressForm: some View {
         Form {
             Section("本地漫画") {
+                NavigationLink { TranslationLibraryView() } label: {
+                    Label("译件资料库", systemImage: "character.book.closed")
+                }
                 if model.hasLoadedLocalDownloadUsage == false || model.isRefreshingLocalDownloadUsage {
                     ProgressView("正在计算本地漫画占用…")
                 } else {
@@ -259,7 +262,7 @@ struct SettingsView: View {
                     }
                     Button("取消", role: .cancel) {}
                 } message: {
-                    Text("将删除所有本地漫画文件，并从下载列表中移除对应任务。此操作无法撤销。")
+                    Text("将删除所有本地漫画原图，并从下载列表中移除对应任务。译件将保留，可在译件资料库中单独移除。")
                 }
             }
 

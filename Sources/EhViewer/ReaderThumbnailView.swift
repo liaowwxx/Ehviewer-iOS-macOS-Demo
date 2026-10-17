@@ -21,6 +21,7 @@ import EHDomain
 
 struct ReaderThumbnailView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.readingEdition) private var edition
     let descriptor: GalleryPageDescriptor
     let isSelected: Bool
     @State private var thumbnail: Image?
@@ -63,7 +64,7 @@ struct ReaderThumbnailView: View {
         .accessibilityLabel("第 \(descriptor.index + 1) 页")
         .accessibilityValue(isSelected ? "当前页" : "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .task(id: descriptor.id, priority: .utility) {
+        .task(id: cacheKey, priority: .utility) {
             await loadThumbnail()
         }
         .onDisappear {
@@ -75,14 +76,14 @@ struct ReaderThumbnailView: View {
         thumbnail = nil
         isUnavailable = false
 
-        if let image = await ReaderThumbnailLoader.shared.cachedThumbnail(for: descriptor.id) {
+        if let image = await ReaderThumbnailLoader.shared.cachedThumbnail(for: cacheKey) {
             guard Task.isCancelled == false else { return }
             thumbnail = Image(decorative: image, scale: 1, orientation: .up)
             return
         }
         guard Task.isCancelled == false else { return }
-        let image = await ReaderThumbnailLoader.shared.readerThumbnail(for: descriptor.id) {
-            await model.downloadedPageDataIfAvailable(for: descriptor)
+        let image = await ReaderThumbnailLoader.shared.readerThumbnail(for: cacheKey) {
+            try? await model.readerPageData(for: descriptor, resolution: .preview, source: .download, edition: edition)
         }
         guard Task.isCancelled == false else { return }
         guard let image else {
@@ -92,4 +93,6 @@ struct ReaderThumbnailView: View {
         guard Task.isCancelled == false else { return }
         thumbnail = Image(decorative: image, scale: 1, orientation: .up)
     }
+
+    private var cacheKey: String { "\(descriptor.id)|\(edition)" }
 }

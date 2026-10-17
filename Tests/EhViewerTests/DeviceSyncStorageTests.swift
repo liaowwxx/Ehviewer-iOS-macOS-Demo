@@ -170,9 +170,9 @@ struct DeviceSyncStorageTests {
         try await store.remove(key)
     }
 
-    @Test("Device sync v4 uses one MiB chunks and bounded transfer windows")
-    func usesV4TransferTuning() {
-        #expect(DeviceSyncCoordinator.protocolVersion == 4)
+    @Test("Device sync v5 keeps one MiB chunks and bounded transfer windows")
+    func usesV5TransferTuning() {
+        #expect(DeviceSyncCoordinator.protocolVersion == 5)
         #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 1 * 1024 * 1024) == 1 * 1024 * 1024)
         #expect(DeviceSyncCoordinator.preferredPageChunkBytes(forPageByteCount: 16 * 1024 * 1024) == 1 * 1024 * 1024)
         #expect(DeviceSyncCoordinator.sendWindowBytes == 16 * 1024 * 1024)

@@ -243,6 +243,10 @@ final class AppModel {
     let galleryCoverLoader: GalleryCoverLoader
     let backgroundSession: BackgroundDownloadSession
     let downloadFiles: DownloadFileStore
+    let translationLibrary: AppTranslationLibrary
+#if os(macOS)
+    let localTranslation: LocalTranslationClient
+#endif
     let deviceSync: DeviceSyncCoordinator
 #if os(iOS)
     let deviceSyncRuntime: DeviceSyncRuntime
@@ -334,6 +338,7 @@ final class AppModel {
         sessionVault: SessionVault = SessionVault(),
         defaults: UserDefaults = .standard,
         downloadFiles: DownloadFileStore? = nil,
+        translationRoot: URL? = nil,
         galleryCache: GalleryCacheStore? = nil,
         tagSuggestionProvider: TagSuggestionProvider = TagSuggestionProvider(),
         imagePipeline: ImagePipeline? = nil,
@@ -419,10 +424,17 @@ final class AppModel {
         self.imagePipeline = imagePipeline ?? ImagePipeline()
         let fileStore = downloadFiles ?? DownloadFileStore()
         self.downloadFiles = fileStore
+        let translationFiles = TranslationFileStore(root: translationRoot ?? TranslationFileStore.defaultRootURL)
+        let translationLibrary = AppTranslationLibrary(files: translationFiles, defaults: defaults)
+        self.translationLibrary = translationLibrary
+#if os(macOS)
+        self.localTranslation = LocalTranslationClient(root: translationFiles.root.appendingPathComponent("Companion"), library: translationLibrary)
+#endif
         self.deviceSyncIndex = index
         self.deviceSync = DeviceSyncCoordinator(
             persistence: store,
             files: fileStore,
+            translations: translationFiles,
             index: index,
             transactionRoot: deviceSyncTransactionRoot
         )
@@ -534,9 +546,19 @@ final class AppModel {
                 try? await store.upsertDownloads(jobs.map(makePersistedDownloadSnapshot))
             },
             removal: { key in
+                if (try await translationFiles.manifests(for: key)).isEmpty == false,
+                   let record = try await store.downloadedTransferRecord(for: key) {
+                    try await translationFiles.storeGalleryMetadata(record)
+                }
                 try await store.deleteDownload(for: key)
             },
             batchRemoval: { keys in
+                for key in keys {
+                    if (try await translationFiles.manifests(for: key)).isEmpty == false,
+                       let record = try await store.downloadedTransferRecord(for: key) {
+                        try await translationFiles.storeGalleryMetadata(record)
+                    }
+                }
                 try await store.deleteDownloads(for: keys)
             }
         )
@@ -586,6 +608,10 @@ final class AppModel {
             }
             guard !Task.isCancelled else { return }
             await self.restoreDownloads()
+            await self.translationLibrary.refresh()
+#if os(macOS)
+            self.localTranslation.start()
+#endif
         }
         Task.detached(priority: .utility) {
             Self.sweepStaleTemporaryFiles()
@@ -629,6 +655,9 @@ final class AppModel {
     /// installed. Every asynchronous callback is invalidated before the
     /// runtime's container can be discarded.
     func shutdown() async {
+#if os(macOS)
+        localTranslation.stop()
+#endif
         isShuttingDown = true
         localRestoreTask?.cancel()
         startupMaintenanceTask?.cancel()
@@ -979,7 +1008,17 @@ final class AppModel {
         } else {
             resolvedJob = await downloads.job(for: key)
         }
-        guard let job = resolvedJob else { return nil }
+        guard let job = resolvedJob else {
+            if (try? await translationLibrary.files.manifests(for: key).isEmpty) == false {
+                if let transfer = try? await persistence.downloadedTransferRecord(for: key) {
+                    return transfer.stable.detail(with: transfer.dynamic)
+                }
+                if let transfer = try? await translationLibrary.files.galleryMetadata(for: key) {
+                    return transfer.stable.detail(with: transfer.dynamic)
+                }
+            }
+            return nil
+        }
 
         let transfer = try? await persistence.downloadedTransferRecord(for: key)
         let stable = transfer?.stable
@@ -1228,9 +1267,11 @@ final class AppModel {
         return try? await downloadFiles.data(for: descriptor.galleryKey, pageIndex: descriptor.index)
     }
 
-    func savePage(_ descriptor: GalleryPageDescriptor, resolution: ImageResolution = .preview) async throws {
+    func savePage(_ descriptor: GalleryPageDescriptor, resolution: ImageResolution = .preview, edition: ReadingEdition = .original) async throws {
         let data: Data
-        if await downloadFiles.contains(descriptor.galleryKey, pageIndex: descriptor.index) {
+        if case .translated(let versionID) = edition {
+            data = try await translationLibrary.files.data(for: descriptor.galleryKey, versionID: versionID, index: descriptor.index)
+        } else if await downloadFiles.contains(descriptor.galleryKey, pageIndex: descriptor.index) {
             data = try await downloadFiles.data(for: descriptor.galleryKey, pageIndex: descriptor.index)
         } else {
             let image = try await pageImage(for: descriptor)
@@ -1250,7 +1291,14 @@ final class AppModel {
         let fileExtension = DownloadMediaValidator.kind(of: data) == .video
             ? "mp4"
             : (descriptor.pageURL.pathExtension.isEmpty ? "img" : descriptor.pageURL.pathExtension)
-        let fileName = "ehviewer-\(descriptor.galleryKey.gid)-\(descriptor.index + 1).\(fileExtension)"
+        let editionSuffix: String
+        let outputExtension: String
+        if case .translated(let id) = edition {
+            editionSuffix = "-translated-\(id.uuidString)"
+            outputExtension = (try? await translationLibrary.files.manifests(for: descriptor.galleryKey))?
+                .first(where: { $0.versionID == id })?.pages[descriptor.index].fileName.components(separatedBy: ".").last ?? "img"
+        } else { editionSuffix = ""; outputExtension = fileExtension }
+        let fileName = "ehviewer-\(descriptor.galleryKey.gid)-\(descriptor.index + 1)\(editionSuffix).\(outputExtension)"
         try data.write(to: downloadsDirectory.appendingPathComponent(fileName), options: .atomic)
         #endif
     }
@@ -2286,6 +2334,7 @@ final class AppModel {
     /// background network download.
     func refreshDownloadsAfterDeviceSync() async {
         await restoreDownloads(startQueued: false)
+        await translationLibrary.refresh()
         await refreshLocalDownloadUsage()
         // Device sync mutates files and persisted download metadata outside a
         // local-list interaction. Signal visible local lists after the reload

@@ -63,6 +63,7 @@ struct ProfileStorageLayout: Sendable {
 
     var storeURL: URL { root.appendingPathComponent("Store.store") }
     var downloadsRoot: URL { usesLegacyStorage ? DownloadFileStore.defaultRootURL : root.appendingPathComponent("Downloads", isDirectory: true) }
+    var translationRoot: URL { usesLegacyStorage ? TranslationFileStore.defaultRootURL : root.appendingPathComponent("Translations", isDirectory: true) }
     var galleryCacheRoot: URL { usesLegacyStorage ? GalleryCacheStore.defaultRootURL : root.appendingPathComponent("GalleryCache", isDirectory: true) }
     var imageCacheRoot: URL {
         usesLegacyStorage
@@ -197,6 +198,7 @@ final class ProfileRuntime {
             sessionVault: SessionVault(service: Self.keychainServiceName(for: descriptor.id)),
             defaults: defaults,
             downloadFiles: files,
+            translationRoot: layout.translationRoot,
             galleryCache: cache,
             tagSuggestionProvider: tagProvider,
             imagePipeline: ImagePipeline(diskRoot: layout.imageCacheRoot),

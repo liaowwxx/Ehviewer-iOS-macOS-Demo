@@ -74,6 +74,7 @@ struct ReaderView: View {
     private let downloadedJob: DownloadJob?
     private let usesSavedProgress: Bool
     @State private var source: ReaderContentSource
+    @State private var edition = ReadingEdition.original
     @State private var detail: GalleryDetail?
     @State private var position: ReaderPositionState
     /// 阅读控件显隐：点击页面手动切换。
@@ -111,8 +112,9 @@ struct ReaderView: View {
 
     var body: some View {
         readerRoot
+            .environment(\.readingEdition, edition)
             .task(id: position.page) {
-            guard source == .remote, let detail else { return }
+            guard source == .remote, edition == .original, let detail else { return }
             await model.prefetch(
                 prefetchDescriptors(in: detail.pages, around: position.page),
                 resolution: .preview
@@ -133,6 +135,17 @@ struct ReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if edition != .original || !(model.translationLibrary.versions[key] ?? []).isEmpty {
+                    Picker("阅读版本", selection: $edition) {
+                        Text("原件").tag(ReadingEdition.original)
+                        ForEach(model.translationLibrary.versions[key] ?? []) { version in
+                            Text("译件 · \(version.targetLanguage) · \(String(version.id.uuidString.prefix(8)))").tag(ReadingEdition.translated(versionID: version.versionID))
+                        }
+                    }
+                    .accessibilityIdentifier("reader-edition-picker")
+                }
+            }
 #if os(macOS)
             ToolbarItem(placement: .primaryAction) {
                 ReaderPageLayoutButton(isEnabled: readingMode == .paged)
@@ -168,6 +181,10 @@ struct ReaderView: View {
                     requestPage(position.page, pageCount: detail.pages.count)
                 }
             }
+        }
+        .onChange(of: edition) { _, value in
+            model.translationLibrary.select(value, for: key)
+            resetZoom()
         }
 #if os(macOS)
         .onChange(of: detail != nil) { _, isReady in
@@ -347,6 +364,8 @@ struct ReaderView: View {
         detail = nil
         detailError = nil
         do {
+            await model.translationLibrary.refresh()
+            edition = model.translationLibrary.edition(for: key)
             let loadedDetail: GalleryDetail
             let localJob: DownloadJob?
             if let downloadedJob {
@@ -357,6 +376,9 @@ struct ReaderView: View {
             if let localJob {
                 source = .download
                 loadedDetail = try await readerDetail(for: localJob)
+            } else if let localDetail = await model.localGalleryDetail(for: key) {
+                source = .remote
+                loadedDetail = localDetail
             } else {
                 source = .remote
                 loadedDetail = try await model.detail(for: key)

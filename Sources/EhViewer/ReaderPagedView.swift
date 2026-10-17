@@ -191,6 +191,7 @@ struct ReaderPagedView: View {
 
 #if os(iOS)
 struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
+    @Environment(\.readingEdition) private var edition
     let model: AppModel
     let descriptors: [GalleryPageDescriptor]
     let resolution: ImageResolution
@@ -212,7 +213,8 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             resetToken: resetToken,
             readingDirection: readingDirection,
             navigationOrientation: navigationOrientation,
-            source: source
+            source: source,
+            edition: edition
         )
     }
 
@@ -226,6 +228,7 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             readingDirection: readingDirection,
             navigationOrientation: navigationOrientation,
             source: source,
+            edition: edition,
             position: position
         )
     }
@@ -240,6 +243,7 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
         private var readingDirection: ReadingDirection = .rightToLeft
         private var navigationOrientation: UIPageViewController.NavigationOrientation = .horizontal
         private var source: ReaderContentSource = .remote
+        private var edition: ReadingEdition = .original
         private var resetToken: UUID?
         private var lastScrollRequestSequence = -1
         private var pages: [Int: ReaderNativePageViewController] = [:]
@@ -255,7 +259,8 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             resetToken: UUID,
             readingDirection: ReadingDirection,
             navigationOrientation: UIPageViewController.NavigationOrientation,
-            source: ReaderContentSource
+            source: ReaderContentSource,
+            edition: ReadingEdition
         ) -> UIPageViewController {
             self.model = model
             self.descriptors = descriptors
@@ -264,6 +269,7 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             self.readingDirection = readingDirection
             self.navigationOrientation = navigationOrientation
             self.source = source
+            self.edition = edition
             lastScrollRequestSequence = position.wrappedValue.scrollRequestSequence
 
             let controller = UIPageViewController(
@@ -288,11 +294,14 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             readingDirection: ReadingDirection,
             navigationOrientation: UIPageViewController.NavigationOrientation,
             source: ReaderContentSource,
+            edition: ReadingEdition,
             position: ReaderPositionState
         ) {
             let descriptorsChanged = self.descriptors.map(\.id) != descriptors.map(\.id)
             let directionChanged = self.readingDirection != readingDirection
             let orientationChanged = self.navigationOrientation != navigationOrientation
+            let editionChanged = self.edition != edition
+            self.edition = edition
             self.model = model
             self.descriptors = descriptors
             self.resolution = resolution
@@ -300,7 +309,7 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
             self.navigationOrientation = navigationOrientation
             self.source = source
 
-            if descriptorsChanged || directionChanged || orientationChanged {
+            if descriptorsChanged || directionChanged || orientationChanged || editionChanged {
                 pages = [:]
                 let current = pageController(for: position.page)
                 controller.setViewControllers([current], direction: .forward, animated: false)
@@ -383,6 +392,7 @@ struct ReaderPagedControllerRepresentable: UIViewControllerRepresentable {
                 descriptor: descriptor,
                 resolution: resolution,
                 source: source,
+                edition: edition,
                 navigationOrientation: navigationOrientation,
                 model: model
             )
@@ -418,6 +428,7 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
     private let descriptor: GalleryPageDescriptor
     private let resolution: ImageResolution
     private let source: ReaderContentSource
+    private let edition: ReadingEdition
     private let navigationOrientation: UIPageViewController.NavigationOrientation
     private let model: AppModel
     private let scrollView = UIScrollView()
@@ -427,6 +438,7 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
         descriptor: GalleryPageDescriptor,
         resolution: ImageResolution,
         source: ReaderContentSource,
+        edition: ReadingEdition,
         navigationOrientation: UIPageViewController.NavigationOrientation,
         model: AppModel
     ) {
@@ -434,6 +446,7 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
         self.descriptor = descriptor
         self.resolution = resolution
         self.source = source
+        self.edition = edition
         self.navigationOrientation = navigationOrientation
         self.model = model
         super.init(nibName: nil, bundle: nil)
@@ -479,7 +492,7 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
             fitsViewport: true,
             resetToken: UUID()
         )
-        let hostingController = UIHostingController(rootView: AnyView(page.environment(model)))
+        let hostingController = UIHostingController(rootView: AnyView(page.environment(model).environment(\.readingEdition, edition)))
         hostingController.view.backgroundColor = .clear
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(hostingController.view)
@@ -513,6 +526,7 @@ private final class ReaderNativePageViewController: UIViewController, UIScrollVi
 }
 
 struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
+    @Environment(\.readingEdition) private var edition
     let model: AppModel
     let descriptors: [GalleryPageDescriptor]
     let resolution: ImageResolution
@@ -532,7 +546,8 @@ struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
             resolution: resolution,
             resetToken: resetToken,
             readingDirection: readingDirection,
-            source: source
+            source: source,
+            edition: edition
         )
     }
 
@@ -545,6 +560,7 @@ struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
             resetToken: resetToken,
             readingDirection: readingDirection,
             source: source,
+            edition: edition,
             position: position
         )
     }
@@ -558,6 +574,7 @@ struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
         private var resolution: ImageResolution = .preview
         private var readingDirection: ReadingDirection = .rightToLeft
         private var source: ReaderContentSource = .remote
+        private var edition: ReadingEdition = .original
         private var resetToken: UUID?
         private var lastScrollRequestSequence = -1
         private var layout = ReaderSpreadLayout(
@@ -577,7 +594,8 @@ struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
             resolution: ImageResolution,
             resetToken: UUID,
             readingDirection: ReadingDirection,
-            source: ReaderContentSource
+            source: ReaderContentSource,
+            edition: ReadingEdition
         ) -> UIPageViewController {
             self.model = model
             self.descriptors = descriptors
@@ -585,6 +603,7 @@ struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
             self.resetToken = resetToken
             self.readingDirection = readingDirection
             self.source = source
+            self.edition = edition
             layout = makeLayout(descriptors: descriptors, readingDirection: readingDirection)
             lastScrollRequestSequence = position.wrappedValue.scrollRequestSequence
 
@@ -613,10 +632,13 @@ struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
             resetToken: UUID,
             readingDirection: ReadingDirection,
             source: ReaderContentSource,
+            edition: ReadingEdition,
             position: ReaderPositionState
         ) {
             let descriptorsChanged = self.descriptors.map(\.id) != descriptors.map(\.id)
             let directionChanged = self.readingDirection != readingDirection
+            let editionChanged = self.edition != edition
+            self.edition = edition
             self.model = model
             self.descriptors = descriptors
             self.resolution = resolution
@@ -624,7 +646,7 @@ struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
             self.source = source
             layout = makeLayout(descriptors: descriptors, readingDirection: readingDirection)
 
-            if descriptorsChanged || directionChanged {
+            if descriptorsChanged || directionChanged || editionChanged {
                 pages = [:]
                 let currentAnchor = layout.anchorPage(for: position.page)
                 controller.setViewControllers(
@@ -705,6 +727,7 @@ struct ReaderSpreadPagedControllerRepresentable: UIViewControllerRepresentable {
                 spread: spread,
                 resolution: resolution,
                 source: source,
+                edition: edition,
                 model: model,
                 resetToken: resetToken ?? UUID()
             )
@@ -753,6 +776,7 @@ private final class ReaderNativeSpreadViewController: UIViewController, UIScroll
     private let spread: ReaderSpread
     private let resolution: ImageResolution
     private let source: ReaderContentSource
+    private let edition: ReadingEdition
     private let model: AppModel
     private let resetToken: UUID
     private let scrollView = UIScrollView()
@@ -762,6 +786,7 @@ private final class ReaderNativeSpreadViewController: UIViewController, UIScroll
         spread: ReaderSpread,
         resolution: ImageResolution,
         source: ReaderContentSource,
+        edition: ReadingEdition,
         model: AppModel,
         resetToken: UUID
     ) {
@@ -769,6 +794,7 @@ private final class ReaderNativeSpreadViewController: UIViewController, UIScroll
         self.spread = spread
         self.resolution = resolution
         self.source = source
+        self.edition = edition
         self.model = model
         self.resetToken = resetToken
         super.init(nibName: nil, bundle: nil)
@@ -809,7 +835,7 @@ private final class ReaderNativeSpreadViewController: UIViewController, UIScroll
             source: source,
             resetToken: resetToken
         )
-        let hostingController = UIHostingController(rootView: AnyView(spreadView.environment(model)))
+        let hostingController = UIHostingController(rootView: AnyView(spreadView.environment(model).environment(\.readingEdition, edition)))
         hostingController.view.backgroundColor = .clear
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(hostingController.view)

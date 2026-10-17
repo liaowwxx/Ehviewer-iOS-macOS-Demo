@@ -21,6 +21,7 @@ import EHDomain
 
 struct ReaderPage: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.readingEdition) private var edition
     let descriptor: GalleryPageDescriptor
     let resolution: ImageResolution
     let source: ReaderContentSource
@@ -88,7 +89,7 @@ struct ReaderPage: View {
             Button("保存媒体", systemImage: "square.and.arrow.down", action: saveMedia)
                 .disabled(media == nil || isSaving)
         }
-        .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)-\(loadToken)") {
+        .task(id: "\(descriptor.id)-\(resolution.rawValue)-\(source)-\(edition)-\(loadToken)") {
             await loadImage()
         }
         .alert("媒体已保存", isPresented: $showingSaveConfirmation) {
@@ -116,7 +117,7 @@ struct ReaderPage: View {
         Task {
             defer { isSaving = false }
             do {
-                try await model.savePage(descriptor, resolution: resolution)
+                try await model.savePage(descriptor, resolution: resolution, edition: edition)
                 showingSaveConfirmation = true
             } catch is CancellationError {
                 return
@@ -136,7 +137,8 @@ struct ReaderPage: View {
                 model: model,
                 descriptor: descriptor,
                 resolution: resolution,
-                source: source
+                source: source,
+                edition: edition
             )
             aspectRatio = loadedMedia.aspectRatio
             withAnimation(.easeOut(duration: 0.25)) {
@@ -156,19 +158,10 @@ struct ReaderPage: View {
         model: AppModel,
         descriptor: GalleryPageDescriptor,
         resolution: ImageResolution,
-        source: ReaderContentSource
+        source: ReaderContentSource,
+        edition: ReadingEdition = .original
     ) async throws -> LoadedMedia {
-        let data: Data
-        switch source {
-        case .remote:
-            let metadata = try await model.pageImage(for: descriptor)
-            data = try await model.imageData(for: metadata, resolution: resolution)
-        case .download:
-            guard let localData = await model.downloadedPageDataIfAvailable(for: descriptor) else {
-                throw EHError.storageFailed(String(localized: "本地下载文件缺失或无效"))
-            }
-            data = localData
-        }
+        let data = try await model.readerPageData(for: descriptor, resolution: resolution, source: source, edition: edition)
         try Task.checkCancellation()
         let content = try ReaderMediaView.Content.decode(data)
         return LoadedMedia(content: content, aspectRatio: content.aspectRatio)

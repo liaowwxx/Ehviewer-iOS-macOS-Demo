@@ -203,16 +203,18 @@ public struct DeviceSyncGalleryEntry: Codable, Hashable, Sendable, Identifiable 
 }
 
 public struct DeviceSyncManifest: Codable, Hashable, Sendable {
-    public static let currentFormatVersion = 1
+    public static let currentFormatVersion = 2
     public static let maximumGalleryCount = 100_000
     public static let maximumPageCount = 1_000_000
 
     public let formatVersion: Int
     public let galleries: [DeviceSyncGalleryEntry]
+    public let translations: [DeviceSyncTranslationEntry]?
 
     public init(
         galleries: [DeviceSyncGalleryEntry],
-        formatVersion: Int = Self.currentFormatVersion
+        formatVersion: Int = Self.currentFormatVersion,
+        translations: [DeviceSyncTranslationEntry]? = nil
     ) throws {
         guard galleries.count <= Self.maximumGalleryCount else {
             throw DeviceSyncManifestError.tooManyGalleries
@@ -230,6 +232,7 @@ public struct DeviceSyncManifest: Codable, Hashable, Sendable {
         }
         self.formatVersion = formatVersion
         self.galleries = galleries.sorted { $0.key.id < $1.key.id }
+        self.translations = translations
     }
 
     public init(
@@ -262,7 +265,18 @@ public struct DeviceSyncManifest: Codable, Hashable, Sendable {
     }
 
     public var pageCount: Int {
-        galleries.reduce(0) { $0 + $1.pages.count }
+        galleries.reduce(0) { $0 + $1.pages.count } + (translations ?? []).reduce(0) { $0 + $1.availablePages.count }
+    }
+
+    public func validate() throws {
+        let validated = try galleries.map { gallery in
+            let pages = try gallery.pages.map { try DeviceSyncPageEntry(pageIndex: $0.pageIndex, byteCount: $0.byteCount) }
+            return try DeviceSyncGalleryEntry(key: gallery.key, pages: pages, metadata: gallery.metadata)
+        }
+        _ = try DeviceSyncManifest(galleries: validated, formatVersion: formatVersion)
+        try DeviceSyncTranslationReconciler.validate(local: translations ?? [], remote: [])
+        let keys = Set(galleries.map(\.key))
+        guard (translations ?? []).allSatisfy({ keys.contains($0.manifest.gallery.key) }) else { throw DeviceSyncManifestError.orphanPageEntries }
     }
 }
 
@@ -291,6 +305,8 @@ public struct DeviceSyncPlan: Codable, Hashable, Sendable {
     public let sendGalleries: [GalleryKey]
     public let sendMetadata: [GalleryKey]
     public let sendPages: [DeviceSyncPageTransfer]
+    public let receiveTranslations: [DeviceSyncTranslationEntry]
+    public let sendTranslations: [DeviceSyncTranslationEntry]
 
     public init(
         receiveGalleries: [GalleryKey],
@@ -298,7 +314,9 @@ public struct DeviceSyncPlan: Codable, Hashable, Sendable {
         receivePages: [DeviceSyncPageTransfer],
         sendGalleries: [GalleryKey],
         sendMetadata: [GalleryKey],
-        sendPages: [DeviceSyncPageTransfer]
+        sendPages: [DeviceSyncPageTransfer],
+        receiveTranslations: [DeviceSyncTranslationEntry] = [],
+        sendTranslations: [DeviceSyncTranslationEntry] = []
     ) {
         self.receiveGalleries = receiveGalleries.sorted { $0.id < $1.id }
         self.receiveMetadata = receiveMetadata.sorted { $0.id < $1.id }
@@ -306,14 +324,16 @@ public struct DeviceSyncPlan: Codable, Hashable, Sendable {
         self.sendGalleries = sendGalleries.sorted { $0.id < $1.id }
         self.sendMetadata = sendMetadata.sorted { $0.id < $1.id }
         self.sendPages = sendPages.sorted { $0.id < $1.id }
+        self.receiveTranslations = receiveTranslations
+        self.sendTranslations = sendTranslations
     }
 
     public var receiveBytes: Int64 {
-        receivePages.reduce(0) { $0 + $1.byteCount }
+        receivePages.reduce(0) { $0 + $1.byteCount } + receiveTranslations.reduce(0) { $0 + $1.byteCount }
     }
 
     public var sendBytes: Int64 {
-        sendPages.reduce(0) { $0 + $1.byteCount }
+        sendPages.reduce(0) { $0 + $1.byteCount } + sendTranslations.reduce(0) { $0 + $1.byteCount }
     }
 }
 
@@ -394,7 +414,9 @@ public enum DeviceSyncReconciler {
             receivePages: receivePages,
             sendGalleries: sendGalleries,
             sendMetadata: sendMetadata,
-            sendPages: sendPages
+            sendPages: sendPages,
+            receiveTranslations: DeviceSyncTranslationReconciler.missing(local: local.translations ?? [], remote: remote.translations ?? []),
+            sendTranslations: DeviceSyncTranslationReconciler.missing(local: remote.translations ?? [], remote: local.translations ?? [])
         )
     }
 

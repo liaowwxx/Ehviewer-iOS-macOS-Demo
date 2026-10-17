@@ -108,6 +108,7 @@ struct DownloadsView: View {
     @State private var showingDownloadManagementSheet = false
     @State private var showingDownloadCategoryFilter = false
     @State private var deletionConfirmation: DownloadDeletionConfirmation?
+    @State private var translationDeletion: DownloadDeletionConfirmation?
     @State private var removalErrorMessage: String?
     @State private var jobPendingRedownload: DownloadJob?
     @State private var isSelectionMode = false
@@ -214,6 +215,17 @@ struct DownloadsView: View {
                         secondaryButton: .cancel(Text("取消"))
                     )
                 }
+            }
+            .confirmationDialog(
+                "此漫画含译件，是否同时移除？",
+                isPresented: Binding(get: { translationDeletion != nil }, set: { if !$0 { translationDeletion = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("仅移除原件，保留译件", role: .destructive) { finishTranslationDeletion(includeTranslations: false) }
+                Button("同时移除全部译件", role: .destructive) { finishTranslationDeletion(includeTranslations: true) }
+                Button("取消", role: .cancel) { translationDeletion = nil }
+            } message: {
+                Text("保留的译件可从设置中的译件资料库离线阅读；移除的译件将归档保存。")
             }
             .confirmationDialog(
                 "重新下载《\(displayTitle(for: jobPendingRedownload))》？",
@@ -728,22 +740,38 @@ struct DownloadsView: View {
             : String(localized: "全选")
     }
 
-    private func deleteDownload(_ job: DownloadJob) {
+    private func deleteDownload(_ job: DownloadJob, includeTranslations: Bool? = nil) {
         guard bulkRemovalProgress == nil else { return }
+        if includeTranslations == nil, model.translationLibrary.versions[job.key]?.isEmpty == false {
+            translationDeletion = .single(job)
+            return
+        }
         Task {
+            if includeTranslations == true {
+                do { try await archiveTranslations(for: [job.key]) }
+                catch { removalErrorMessage = error.localizedDescription; return }
+            }
             if case let .failed(message) = await model.downloads.remove(job.key) {
                 removalErrorMessage = message
             }
         }
     }
 
-    private func deleteSelectedDownloads() {
+    private func deleteSelectedDownloads(includeTranslations: Bool? = nil) {
         guard bulkRemovalProgress == nil else { return }
         let keys = selectedKeys.sorted { $0.id < $1.id }
         guard keys.isEmpty == false else { return }
+        if includeTranslations == nil, keys.contains(where: { model.translationLibrary.versions[$0]?.isEmpty == false }) {
+            translationDeletion = .multiple(keys.count)
+            return
+        }
         exitSelectionMode()
         bulkRemovalProgress = DownloadRemovalProgress(completed: 0, total: keys.count)
         bulkRemovalTask = Task { @MainActor in
+            if includeTranslations == true {
+                do { try await archiveTranslations(for: Set(keys)) }
+                catch { removalErrorMessage = error.localizedDescription; bulkRemovalProgress = nil; return }
+            }
             let result = await model.downloads.remove(keys) { progress in
                 await MainActor.run {
                     bulkRemovalProgress = progress
@@ -761,6 +789,27 @@ struct DownloadsView: View {
                 removalErrorMessage = details + suffix
             }
         }
+    }
+
+    private func finishTranslationDeletion(includeTranslations: Bool) {
+        let confirmation = translationDeletion
+        translationDeletion = nil
+        switch confirmation {
+        case .single(let job): deleteDownload(job, includeTranslations: includeTranslations)
+        case .multiple: deleteSelectedDownloads(includeTranslations: includeTranslations)
+        case nil: break
+        }
+    }
+
+    private func archiveTranslations(for keys: Set<GalleryKey>) async throws {
+        guard !model.deviceSync.hasActiveSession else { throw EHError.storageFailed(String(localized: "请等待设备同步完成。")) }
+        for key in keys {
+            for version in try await model.translationLibrary.files.manifests(for: key) {
+                try await model.translationLibrary.files.archiveVersion(for: key, versionID: version.id)
+            }
+            model.translationLibrary.select(.original, for: key)
+        }
+        await model.translationLibrary.refresh()
     }
 
     private func bulkRemovalProgressView(_ progress: DownloadRemovalProgress) -> some View {

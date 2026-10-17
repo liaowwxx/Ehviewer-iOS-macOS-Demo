@@ -14,6 +14,7 @@ import EHDomain
 
 struct ReaderSpreadView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.readingEdition) private var edition
     let spread: ReaderSpread
     let resolution: ImageResolution
     let source: ReaderContentSource
@@ -72,11 +73,11 @@ struct ReaderSpreadView: View {
     }
 
     private var leftTaskID: String {
-        "\(spread.id)-left-\(spread.leftPage?.id ?? "blank")-\(resolution.rawValue)-\(source)"
+        "\(spread.id)-left-\(spread.leftPage?.id ?? "blank")-\(resolution.rawValue)-\(source)-\(edition)"
     }
 
     private var rightTaskID: String {
-        "\(spread.id)-right-\(spread.rightPage?.id ?? "blank")-\(resolution.rawValue)-\(source)"
+        "\(spread.id)-right-\(spread.rightPage?.id ?? "blank")-\(resolution.rawValue)-\(source)-\(edition)"
     }
 
     private var spreadAccessibilityLabel: String {
@@ -173,7 +174,8 @@ struct ReaderSpreadView: View {
                 model: model,
                 descriptor: descriptor,
                 resolution: resolution,
-                source: source
+                source: source,
+                edition: edition
             )
             leftAspectRatio = loadedMedia.aspectRatio
             withAnimation(.easeOut(duration: 0.25)) {
@@ -198,7 +200,8 @@ struct ReaderSpreadView: View {
                 model: model,
                 descriptor: descriptor,
                 resolution: resolution,
-                source: source
+                source: source,
+                edition: edition
             )
             rightAspectRatio = loadedMedia.aspectRatio
             withAnimation(.easeOut(duration: 0.25)) {
@@ -219,7 +222,7 @@ struct ReaderSpreadView: View {
         Task {
             defer { isSaving = false }
             do {
-                try await model.savePage(descriptor, resolution: resolution)
+                try await model.savePage(descriptor, resolution: resolution, edition: edition)
                 showingSaveConfirmation = true
             } catch is CancellationError {
                 return

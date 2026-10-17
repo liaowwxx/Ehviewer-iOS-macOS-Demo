@@ -222,6 +222,7 @@ struct DeviceSyncView: View {
                     pages: preview.receivePageCount,
                     bytes: preview.receiveBytes
                 )
+                Text("其中 \(preview.receiveTranslationCount) 个译件版本")
             } header: {
                 Label("接收", systemImage: "arrow.down.circle")
             }
@@ -231,6 +232,7 @@ struct DeviceSyncView: View {
                     pages: preview.sendPageCount,
                     bytes: preview.sendBytes
                 )
+                Text("其中 \(preview.sendTranslationCount) 个译件版本")
             } header: {
                 Label("发送", systemImage: "arrow.up.circle")
             }
@@ -371,6 +373,7 @@ struct DeviceSyncView: View {
             VStack(spacing: 8) {
                 Text(description)
                 Text("发送 \(result.sentGalleryCount) 本，接收 \(result.receivedGalleryCount) 本。")
+                Text("译件版本：发送 \(result.sentTranslationCount)，接收 \(result.receivedTranslationCount)。")
             }
         }
     }

@@ -20,6 +20,7 @@ import SwiftUI
 import EHDomain
 
 struct ReaderProgressControl: View {
+    @Environment(\.readingEdition) private var edition
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     let page: Int
@@ -71,7 +72,7 @@ struct ReaderProgressControl: View {
                 .accessibilityValue(Text(pageText))
                 .disabled(pageCount <= 1)
 
-                if source == .download {
+                if source == .download || edition != .original {
                     Button(action: togglePreview) {
                         Image(systemName: isPreviewExpanded ? "chevron.down" : "chevron.up")
                             .foregroundStyle(.tint)
@@ -85,7 +86,7 @@ struct ReaderProgressControl: View {
                 }
             }
 
-            if isPreviewExpanded, source == .download, pageCount > 0 {
+            if isPreviewExpanded, (source == .download || edition != .original), pageCount > 0 {
                 VStack(spacing: 4) {
                     Button {
                         isGridExpanded.toggle()

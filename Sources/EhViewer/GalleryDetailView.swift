@@ -65,6 +65,8 @@ struct GalleryDetailView: View {
 
                             actionSection(detail, pageListReady: pageListReady)
 
+                            GalleryTranslationSection(detail: detail, job: downloadJob)
+
                             if detail.tags.isEmpty == false {
                                 GroupedTags(tags: detail.tags)
                             }
