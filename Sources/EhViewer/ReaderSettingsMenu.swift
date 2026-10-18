@@ -17,15 +17,28 @@
  */
 
 import SwiftUI
+import EHDomain
 
 struct ReaderSettingsMenu: View {
     @Environment(AppModel.self) private var model
+    let key: GalleryKey
+    @Binding var edition: ReadingEdition
 
     var body: some View {
         @Bindable var model = model
 
         Menu("阅读选项", systemImage: "ellipsis.circle") {
             Section("阅读") {
+                if edition != .original || !(model.translationLibrary.versions[key] ?? []).isEmpty {
+                    Picker("阅读版本", selection: $edition) {
+                        Text("原件").tag(ReadingEdition.original)
+                        ForEach(model.translationLibrary.versions[key] ?? []) { version in
+                            Text("译件 · \(version.targetLanguage) · \(Date(timeIntervalSince1970: version.createdAt).formatted(date: .numeric, time: .shortened))")
+                                .tag(ReadingEdition.translated(versionID: version.versionID))
+                        }
+                    }
+                    .accessibilityIdentifier("reader-edition-picker")
+                }
                 Picker("阅读模式", selection: $model.readingSettings.readingMode) {
                     ForEach(ReadingMode.allCases) { mode in
                         Text(mode.title).tag(mode)

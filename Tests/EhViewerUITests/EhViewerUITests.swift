@@ -200,6 +200,87 @@ final class EhViewerUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["详情"].waitForExistence(timeout: 5))
     }
 
+    func testLocalGalleryDetailGroupsReadingAndTranslationActions() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Checks compact iPhone layout")
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-UITestUseGuestMode", "YES", "-UITestLocalSearchFixtures", "YES",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"
+        ]
+        app.launch()
+        let later = app.alerts.buttons["稍后"]
+        if later.waitForExistence(timeout: 3) { later.tap() }
+        XCTAssertTrue(app.buttons["打开《Green Garden》"].waitForExistence(timeout: 10))
+        app.buttons["打开《Green Garden》"].tap()
+
+        let read = app.buttons["start-reading-action"]
+        XCTAssertTrue(read.waitForExistence(timeout: 10))
+        XCTAssertTrue(read.isHittable)
+        XCTAssertGreaterThanOrEqual(read.frame.height, 44)
+        let favorite = app.buttons["favorite-action"]
+        let share = app.buttons["share-action"]
+        let similar = app.buttons["similar-gallery-action"]
+        XCTAssertTrue(favorite.isHittable)
+        XCTAssertTrue(share.isHittable)
+        XCTAssertTrue(similar.isHittable)
+        XCTAssertEqual(favorite.frame.midY, share.frame.midY, accuracy: 2)
+        XCTAssertEqual(share.frame.midY, similar.frame.midY, accuracy: 2)
+        XCTAssertGreaterThan(read.frame.width, favorite.frame.width)
+        XCTAssertFalse(app.buttons["移除译件"].exists)
+        XCTAssertFalse(app.buttons["导入译件目录"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "compact-gallery-detail"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        let management = app.buttons["translation-management-menu"]
+        XCTAssertTrue(management.isHittable)
+        management.tap()
+        XCTAssertTrue(app.buttons["导入译件目录"].waitForExistence(timeout: 3))
+        app.navigationBars["详情"].staticTexts["详情"].tap()
+
+        let more = app.buttons["detail-more-actions"]
+        XCTAssertTrue(more.isHittable)
+        more.tap()
+        XCTAssertTrue(app.buttons["detail-refresh-action"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.descendants(matching: .any)["detail-open-site-action"].exists)
+    }
+
+    func testLocalGalleryTapOpensDetailInEveryLayout() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-UITestUseGuestMode", "YES", "-UITestLocalSearchFixtures", "YES",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"
+        ]
+        app.launch()
+        let later = app.alerts.buttons["稍后"]
+        if later.waitForExistence(timeout: 3) { later.tap() }
+
+        for layout in ["列表", "卡片", "瀑布流"] {
+            let toggle = app.buttons["downloads-layout-toggle"]
+            XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+            XCTAssertEqual(toggle.value as? String, layout)
+            let gallery = app.buttons["打开《Green Garden》"]
+            XCTAssertTrue(gallery.waitForExistence(timeout: 10))
+            gallery.tap()
+            XCTAssertTrue(app.navigationBars["详情"].waitForExistence(timeout: 5))
+            let read = app.buttons["start-reading-action"]
+            XCTAssertTrue(read.waitForExistence(timeout: 10))
+            XCTAssertFalse(app.buttons["reader-settings-menu"].exists)
+            read.tap()
+            let readerMenu = app.buttons["reader-settings-menu"]
+            XCTAssertTrue(readerMenu.waitForExistence(timeout: 10))
+            XCTAssertTrue(readerMenu.isHittable, "\(layout): reader must be in front immediately after tapping Read")
+            XCTAssertFalse(read.isHittable, "\(layout): detail must not cover the reader")
+            app.navigationBars["Green Garden"].buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(read.waitForExistence(timeout: 5))
+            XCTAssertTrue(read.isHittable, "\(layout): Back from reader must return to detail")
+            app.navigationBars["详情"].buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+            if layout != "瀑布流" { toggle.tap() }
+        }
+    }
+
     func testAdvancedSearchExplainsFiltersAndKeepsPageLabelsVisible() throws {
         let app = launchAdvancedSearch()
 

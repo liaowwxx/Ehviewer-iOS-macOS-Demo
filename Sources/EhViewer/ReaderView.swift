@@ -135,17 +135,6 @@ struct ReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                if edition != .original || !(model.translationLibrary.versions[key] ?? []).isEmpty {
-                    Picker("阅读版本", selection: $edition) {
-                        Text("原件").tag(ReadingEdition.original)
-                        ForEach(model.translationLibrary.versions[key] ?? []) { version in
-                            Text("译件 · \(version.targetLanguage) · \(String(version.id.uuidString.prefix(8)))").tag(ReadingEdition.translated(versionID: version.versionID))
-                        }
-                    }
-                    .accessibilityIdentifier("reader-edition-picker")
-                }
-            }
 #if os(macOS)
             ToolbarItem(placement: .primaryAction) {
                 ReaderPageLayoutButton(isEnabled: readingMode == .paged)
@@ -158,14 +147,7 @@ struct ReaderView: View {
             }
 #endif
             ToolbarItem(placement: .primaryAction) {
-                ReaderSettingsMenu()
-            }
-            ToolbarItem(placement: .primaryAction) {
-                if let externalURL = detail?.externalURL {
-                    ShareLink(item: externalURL) {
-                        Label("分享", systemImage: "square.and.arrow.up")
-                    }
-                }
+                ReaderSettingsMenu(key: key, edition: $edition)
             }
         }
         .task(id: "\(key.id)-\(source)-\(detailLoadToken)") {

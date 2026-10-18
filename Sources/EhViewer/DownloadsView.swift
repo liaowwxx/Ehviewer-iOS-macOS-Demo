@@ -116,7 +116,6 @@ struct DownloadsView: View {
     @State private var bulkRemovalProgress: DownloadRemovalProgress?
     @State private var bulkRemovalTask: Task<Void, Never>?
     @State private var showingShareFormatDialog = false
-    @State private var jobForReader: DownloadJob?
 #if os(iOS)
     @State private var pendingShareFile: PendingSharedFile?
 #else
@@ -190,9 +189,6 @@ struct DownloadsView: View {
                 if let progress = bulkRemovalProgress {
                     bulkRemovalProgressView(progress)
                 }
-            }
-            .navigationDestination(item: $jobForReader) { job in
-                ReaderView(downloaded: job, initialPage: 0)
             }
             .alert(item: $deletionConfirmation) { confirmation in
                 switch confirmation {
@@ -898,7 +894,6 @@ struct DownloadsView: View {
                 bulkRemovalInProgress: bulkRemovalProgress != nil,
                 select: { toggleSelection($0) },
                 requestSelection: { enterSelectionMode(selecting: $0) },
-                openReader: { jobForReader = $0 },
                 remove: {
                     guard bulkRemovalProgress == nil else { return }
                     deletionConfirmation = .single($0)
@@ -943,8 +938,7 @@ struct DownloadsView: View {
             isSelectionMode: isSelectionMode,
             isSelected: selectedKeys.contains(job.key),
             select: { toggleSelection(job.key) },
-            requestSelection: { enterSelectionMode(selecting: job.key) },
-            openReader: { jobForReader = job }
+            requestSelection: { enterSelectionMode(selecting: job.key) }
         ) {
             Task {
                 if job.state == .running || job.state == .queued { await model.downloads.pause(job.key) }
@@ -1435,7 +1429,6 @@ private struct LocalDownloadsList: View {
     let bulkRemovalInProgress: Bool
     let select: (GalleryKey) -> Void
     let requestSelection: (GalleryKey) -> Void
-    let openReader: (DownloadJob) -> Void
     let remove: (DownloadJob) -> Void
     let removeImmediately: (DownloadJob) -> Void
 
@@ -1480,7 +1473,6 @@ private struct LocalDownloadsList: View {
             isSelected: selectedKeys.contains(job.key),
             select: { select(job.key) },
             requestSelection: { requestSelection(job.key) },
-            openReader: { openReader(job) },
             remove: { remove(job) },
             removeImmediately: { removeImmediately(job) }
         )
@@ -1715,7 +1707,6 @@ private struct LocalDownloadCard: View, Equatable {
     let isSelected: Bool
     let select: () -> Void
     let requestSelection: () -> Void
-    let openReader: () -> Void
     let remove: () -> Void
     let removeImmediately: () -> Void
 
@@ -1744,25 +1735,25 @@ private struct LocalDownloadCard: View, Equatable {
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             } else {
                 if usesSwipeActions {
-                    Button(action: openReader) {
+                    NavigationLink(value: AppRoute.gallery(job.key)) {
                         galleryCard
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .buttonStyle(.plain)
                     .accessibilityLabel("打开《\(displayTitle)》")
-                    .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+                    .accessibilityHint("查看详情")
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         LocalGallerySwipeActions(key: job.key, remove: removeImmediately)
                     }
                 } else {
                     HStack(alignment: .top, spacing: 0) {
-                        Button(action: openReader) {
+                        NavigationLink(value: AppRoute.gallery(job.key)) {
                             galleryCardWithoutBackground
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .buttonStyle(.plain)
                         .accessibilityLabel("打开《\(displayTitle)》")
-                        .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+                        .accessibilityHint("查看详情")
 
                         LocalGalleryActionButtons(
                             key: job.key,
@@ -1906,7 +1897,6 @@ private struct DownloadCard: View {
     let isSelected: Bool
     let select: () -> Void
     let requestSelection: () -> Void
-    let openReader: () -> Void
     let toggle: () -> Void
     let redownload: () -> Void
     let remove: () -> Void
@@ -1932,13 +1922,13 @@ private struct DownloadCard: View {
             } else {
 #if os(macOS)
                 HStack(alignment: .top, spacing: 8) {
-                    Button(action: openReader) {
+                    NavigationLink(value: AppRoute.gallery(job.key)) {
                         cardContent
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .buttonStyle(.plain)
                     .accessibilityLabel("打开《\(displayTitle)》")
-                    .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+                    .accessibilityHint("查看详情")
 
                     VStack(spacing: 6) {
                         NavigationLink(value: AppRoute.gallery(job.key)) {
@@ -1959,13 +1949,13 @@ private struct DownloadCard: View {
                 }
 #else
                 HStack(alignment: .top, spacing: 8) {
-                    Button(action: openReader) {
+                    NavigationLink(value: AppRoute.gallery(job.key)) {
                         cardContent
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .buttonStyle(.plain)
                     .accessibilityLabel("打开《\(displayTitle)》")
-                    .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+                    .accessibilityHint("查看详情")
 
                     Menu("下载操作", systemImage: "ellipsis.circle") {
                         NavigationLink(value: AppRoute.gallery(job.key)) {
@@ -2156,9 +2146,7 @@ private struct DownloadGridCard: View, Equatable {
                 .accessibilityLabel(isSelected ? String(localized: "取消选择《\(displayTitle)》") : String(localized: "选择《\(displayTitle)》"))
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             } else {
-                NavigationLink {
-                    ReaderView(downloaded: job, initialPage: 0)
-                } label: {
+                NavigationLink(value: AppRoute.gallery(job.key)) {
                     coverContent
                 }
                 .buttonStyle(.plain)
@@ -2177,7 +2165,7 @@ private struct DownloadGridCard: View, Equatable {
                     Button("删除下载", systemImage: "trash", role: .destructive, action: remove)
                 }
                 .accessibilityLabel("打开《\(displayTitle)》")
-                .accessibilityHint("使用阅读器打开，优先读取已下载页面")
+                .accessibilityHint("查看详情")
             }
         }
     }

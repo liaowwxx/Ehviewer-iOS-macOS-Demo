@@ -154,17 +154,15 @@ struct GalleryDetailView: View {
         .navigationTitle("详情")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                if let externalURL = detail?.externalURL {
-                    Link(destination: externalURL) {
-                        Label("在站点打开", systemImage: "safari")
-                    }
-                    .accessibilityIdentifier("detail-open-site-action")
+#if os(iOS)
+                Menu("更多操作", systemImage: "ellipsis") {
+                    ratingAction(detail)
+                    detailToolbarActions
                 }
-                Button("刷新", systemImage: "arrow.clockwise") {
-                    shouldFullyRefreshDetail = true
-                    detailLoadToken = UUID()
-                }
-                .accessibilityIdentifier("detail-refresh-action")
+                .accessibilityIdentifier("detail-more-actions")
+#else
+                detailToolbarActions
+#endif
             }
         }
         .task(id: "\(key.id)-\(detailLoadToken)") {
@@ -181,7 +179,47 @@ struct GalleryDetailView: View {
     }
 
     @ViewBuilder
+    private var detailToolbarActions: some View {
+        if let externalURL = detail?.externalURL {
+            Link(destination: externalURL) {
+                Label("在站点打开", systemImage: "safari")
+            }
+            .accessibilityIdentifier("detail-open-site-action")
+        }
+        Button("刷新", systemImage: "arrow.clockwise") {
+            shouldFullyRefreshDetail = true
+            detailLoadToken = UUID()
+        }
+        .accessibilityIdentifier("detail-refresh-action")
+    }
+
+    @ViewBuilder
     private func actionSection(_ detail: GalleryDetail, pageListReady: Bool) -> some View {
+#if os(iOS)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                readingAction(detail, pageListReady: pageListReady, compact: true)
+                if downloadJob == nil {
+                    downloadAction(detail, pageListReady: pageListReady, compact: true)
+                }
+            }
+            .controlSize(.large)
+            .buttonBorderShape(.roundedRectangle(radius: 12))
+
+            if let downloadJob {
+                Label(downloadStatusTitle(downloadJob), systemImage: downloadStatusIcon(downloadJob))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("download-status")
+            }
+
+            HStack(spacing: 12) {
+                secondaryActionItems(detail, compact: true)
+            }
+            .font(.subheadline)
+            .buttonStyle(.borderless)
+        }
+#else
         VStack(spacing: 12) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
@@ -213,18 +251,13 @@ struct GalleryDetailView: View {
                 }
             }
         }
+        .buttonStyle(.bordered)
+#endif
     }
 
     @ViewBuilder
     private func primaryActionItems(_ detail: GalleryDetail, pageListReady: Bool) -> some View {
-        NavigationLink(value: AppRoute.reader(key, page: readerStartPage)) {
-            Label(readingActionTitle, systemImage: downloadJob == nil ? "book" : "internaldrive")
-                .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
-                .foregroundStyle(AppTheme.onAccent)
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(pageListReady == false)
-        .accessibilityIdentifier("start-reading-action")
+        readingAction(detail, pageListReady: pageListReady)
 #if os(macOS)
         Button {
             guard let profileID = profileSession.runtime?.descriptor.id else { return }
@@ -241,6 +274,22 @@ struct GalleryDetailView: View {
         .disabled(pageListReady == false)
         .accessibilityIdentifier("new-window-reader-action")
 #endif
+        downloadAction(detail, pageListReady: pageListReady)
+    }
+
+    private func readingAction(_ detail: GalleryDetail, pageListReady: Bool, compact: Bool = false) -> some View {
+        NavigationLink(value: AppRoute.reader(key, page: readerStartPage)) {
+            Label(readingActionTitle, systemImage: downloadJob == nil ? "book" : "internaldrive")
+                .frame(minWidth: compact ? nil : actionMinimumWidth, maxWidth: .infinity, minHeight: compact ? 24 : 44)
+                .foregroundStyle(AppTheme.onAccent)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(pageListReady == false)
+        .accessibilityIdentifier("start-reading-action")
+    }
+
+    @ViewBuilder
+    private func downloadAction(_ detail: GalleryDetail, pageListReady: Bool, compact: Bool = false) -> some View {
         if let downloadJob {
             Label(downloadStatusTitle(downloadJob), systemImage: downloadStatusIcon(downloadJob))
                 .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
@@ -256,7 +305,7 @@ struct GalleryDetailView: View {
                 }
             } label: {
                 Label("加入下载", systemImage: "arrow.down.circle")
-                    .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+                    .frame(minWidth: compact ? nil : actionMinimumWidth, maxWidth: compact ? nil : .infinity, minHeight: compact ? 24 : 44)
             }
             .buttonStyle(.bordered)
             .disabled(isEnqueueing || pageListReady == false)
@@ -265,7 +314,7 @@ struct GalleryDetailView: View {
     }
 
     @ViewBuilder
-    private func secondaryActionItems(_ detail: GalleryDetail) -> some View {
+    private func secondaryActionItems(_ detail: GalleryDetail, compact: Bool = false) -> some View {
         Button {
             isUpdatingFavorite = true
             Task {
@@ -275,13 +324,35 @@ struct GalleryDetailView: View {
             }
         } label: {
             Label(favoriteTitle, systemImage: isFavorite ? "heart.fill" : "heart")
-                .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+                .frame(minWidth: compact ? nil : actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(.bordered)
         .disabled(isUpdatingFavorite)
         .accessibilityIdentifier("favorite-action")
 
-        if detail.apiUID != nil, detail.apiKey != nil {
+        if !compact {
+            ratingAction(detail)
+        }
+
+        if let externalURL = detail.externalURL {
+            ShareLink(item: externalURL) {
+                Label("分享", systemImage: "square.and.arrow.up")
+                    .frame(minWidth: compact ? nil : actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+            }
+            .accessibilityIdentifier("share-action")
+        }
+
+        if let similarQuery = similarSearchQuery(for: detail) {
+            NavigationLink(value: AppRoute.search(similarQuery, advancedSearch: nil)) {
+                Label("相似画廊", systemImage: "rectangle.on.rectangle.angled")
+                    .frame(minWidth: compact ? nil : actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+            }
+            .accessibilityIdentifier("similar-gallery-action")
+        }
+    }
+
+    @ViewBuilder
+    private func ratingAction(_ detail: GalleryDetail?) -> some View {
+        if let detail, detail.apiUID != nil, detail.apiKey != nil {
             Menu {
                 ForEach(1...5, id: \.self) { value in
                     Button("评分 \(value)") {
@@ -294,29 +365,12 @@ struct GalleryDetailView: View {
                 }
             } label: {
                 Label("评分", systemImage: "star")
+#if os(macOS)
                     .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
+#endif
             }
-            .buttonStyle(.bordered)
             .disabled(isRating)
             .accessibilityIdentifier("rate-action")
-        }
-
-        if let externalURL = detail.externalURL {
-            ShareLink(item: externalURL) {
-                Label("分享", systemImage: "square.and.arrow.up")
-                    .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("share-action")
-        }
-
-        if let similarQuery = similarSearchQuery(for: detail) {
-            NavigationLink(value: AppRoute.search(similarQuery, advancedSearch: nil)) {
-                Label("相似画廊", systemImage: "rectangle.on.rectangle.angled")
-                    .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("similar-gallery-action")
         }
     }
 

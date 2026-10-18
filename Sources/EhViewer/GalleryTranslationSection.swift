@@ -11,28 +11,50 @@ struct GalleryTranslationSection: View {
     @State private var edition = ReadingEdition.original
     @State private var archiving: GalleryTranslationManifest?
     @State private var showingImporter = false
+    private var versions: [GalleryTranslationManifest] { model.translationLibrary.versions[key] ?? [] }
+    private var selectedVersion: GalleryTranslationManifest? {
+        guard case .translated(let id) = edition else { return nil }
+        return versions.first { $0.id == id }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("漫画翻译").font(.headline)
-            Button("导入译件目录", systemImage: "square.and.arrow.down") { showingImporter = true }
-            if let versions = model.translationLibrary.versions[key], !versions.isEmpty {
-                Picker("阅读版本", selection: $edition) {
-                    Text("原件").tag(ReadingEdition.original)
-                    ForEach(versions) { version in
-                        Text("译件 · \(version.targetLanguage) · \(Date(timeIntervalSince1970: version.createdAt).formatted(date: .numeric, time: .shortened))")
-                            .tag(ReadingEdition.translated(versionID: version.versionID))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                if versions.isEmpty {
+                    versionLabel
+                } else {
+                    Menu {
+                        Picker("阅读版本", selection: $edition) {
+                            Text("原件").tag(ReadingEdition.original)
+                            ForEach(versions) { version in
+                                Text("译件 · \(version.targetLanguage) · \(Date(timeIntervalSince1970: version.createdAt).formatted(date: .numeric, time: .shortened))")
+                                    .tag(ReadingEdition.translated(versionID: version.versionID))
+                            }
+                        }
+                    } label: {
+                        versionLabel
+                    }
+                    .accessibilityIdentifier("translation-edition-picker")
+                }
+
+                Divider().frame(height: 28)
+                Menu("译件管理", systemImage: "ellipsis") {
+                    Button("导入译件目录", systemImage: "square.and.arrow.down") { showingImporter = true }
+                    if let selectedVersion {
+                        Divider()
+                        Button("移除译件", systemImage: "archivebox", role: .destructive) { archiving = selectedVersion }
+                            .disabled(model.deviceSync.hasActiveSession)
                     }
                 }
-                .accessibilityIdentifier("translation-edition-picker")
-                if case .translated(let id) = edition,
-                   let version = versions.first(where: { $0.versionID == id }) {
-                    Text("\(version.pages.count) 页 · \(version.versionID.uuidString.prefix(8))")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Button("移除译件", systemImage: "archivebox", role: .destructive) { archiving = version }
-                        .disabled(model.deviceSync.hasActiveSession)
-                }
+                .labelStyle(.iconOnly)
+                .foregroundStyle(AppTheme.accent)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityIdentifier("translation-management-menu")
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
 #if os(macOS)
             HStack {
                 Button("发送到翻译应用", systemImage: "character.book.closed") {
@@ -65,6 +87,7 @@ struct GalleryTranslationSection: View {
             await model.translationLibrary.refresh()
             edition = model.translationLibrary.edition(for: key)
         }
+        .onChange(of: model.translationLibrary.edition(for: key)) { _, value in edition = value }
         .onChange(of: edition) { _, value in model.translationLibrary.select(value, for: key) }
         .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.folder]) { result in
             Task {
@@ -97,5 +120,26 @@ struct GalleryTranslationSection: View {
                 Task { await model.translationLibrary.archive(version); edition = model.translationLibrary.edition(for: key) }
             }
         }
+    }
+
+    private var versionLabel: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("阅读版本").font(.caption).foregroundStyle(.secondary)
+                if let selectedVersion {
+                    Text("译件 · \(selectedVersion.targetLanguage)")
+                } else {
+                    Text("原件")
+                }
+            }
+            .foregroundStyle(.primary)
+            Spacer(minLength: 0)
+            if !versions.isEmpty {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
