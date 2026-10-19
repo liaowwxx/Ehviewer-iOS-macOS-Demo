@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        A19000000000000000000021 /* EHTranslationMac in Frameworks */ = {isa = PBXBuildFile; productRef = A19000000000000000000022; platformFilter = macos; };
         A19000000000000000000004 /* TranslationLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000014; };
         A19000000000000000000001 /* AppTranslationLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000011; };
         A19000000000000000000002 /* GalleryTranslationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000012; };
@@ -150,6 +151,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        A19000000000000000000024 /* bridge */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Sources/EHTranslationMac/Resources/bridge; sourceTree = SOURCE_ROOT; };
         A19000000000000000000014 /* TranslationLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationLibraryView.swift; sourceTree = "<group>"; };
         A19000000000000000000011 /* AppTranslationLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTranslationLibrary.swift; sourceTree = "<group>"; };
         A19000000000000000000012 /* GalleryTranslationSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryTranslationSection.swift; sourceTree = "<group>"; };
@@ -267,6 +269,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0DA4185B302C7798007B166F /* EHDeviceSync in Frameworks */,
+                A19000000000000000000021 /* EHTranslationMac in Frameworks */,
 				0DA4185A302C7798007B166F /* EHDownloads in Frameworks */,
 				0DA41859302C7798007B166F /* EHPersistence in Frameworks */,
 				0DA41858302C7798007B166F /* EHNetworking in Frameworks */,
@@ -301,6 +304,7 @@
 				EHF00000000000000000055 /* CHANGELOG.md */,
 				EHF00000000000000000056 /* README.md */,
 				EHF00000000000000000062 /* Sources/EhViewer/Resources/Documentation */,
+                A19000000000000000000024 /* bridge */,
 				EHG00000000000000000002 /* Sources/EhViewer */,
 				EHF0000000000000000000C /* Sources/EhViewer/Resources/zh-Hans.lproj/Localizable.strings */,
 				EHF0000000000000000000D /* Sources/EhViewer/Resources/en.lproj/Localizable.strings */,
@@ -447,6 +451,7 @@
 			buildPhases = (
 				EHP00000000000000000001 /* Sources */,
 				EHP00000000000000000002 /* Resources */,
+                A19000000000000000000025 /* Copy macOS translation bridge */,
 				EHP00000000000000000003 /* Frameworks */,
 				EHP00000000000000000022 /* Embed Foundation Extensions */,
 			);
@@ -462,6 +467,7 @@
 				EHD00000000000000000003 /* EHPersistence */,
 				EHD00000000000000000004 /* EHDownloads */,
 				EHD00000000000000000005 /* EHDeviceSync */,
+                A19000000000000000000022 /* EHTranslationMac */,
 			);
 			productName = EhViewer;
 			productReference = EHF0000000000000000000B /* EhViewer.app */;
@@ -575,6 +581,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+        A19000000000000000000025 /* Copy macOS translation bridge */ = {
+            isa = PBXShellScriptBuildPhase;
+            alwaysOutOfDate = 1;
+            buildActionMask = 2147483647;
+            files = ();
+            inputPaths = ("$(SRCROOT)/Sources/EHTranslationMac/Resources/bridge", );
+            name = "Copy macOS translation bridge";
+            outputPaths = ();
+            runOnlyForDeploymentPostprocessing = 0;
+            shellPath = /bin/sh;
+            shellScript = "if [ \"$PLATFORM_NAME\" = \"macosx\" ]; then\n    /usr/bin/ditto \"$SRCROOT/Sources/EHTranslationMac/Resources/bridge\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/bridge\"\nfi\n";
+        };
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		EHP00000000000000000001 /* Sources */ = {
@@ -911,6 +932,7 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+        A19000000000000000000022 /* EHTranslationMac */ = {isa = XCSwiftPackageProductDependency; package = EHPKG000000000000000001; productName = EHTranslationMac; };
 		EHD00000000000000000001 /* EHDomain */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = EHPKG000000000000000001 /* XCLocalSwiftPackageReference "." */;

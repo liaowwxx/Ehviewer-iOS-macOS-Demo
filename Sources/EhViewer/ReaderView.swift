@@ -168,6 +168,9 @@ struct ReaderView: View {
             model.translationLibrary.select(value, for: key)
             resetZoom()
         }
+        .onChange(of: model.translationLibrary.edition(for: key)) { _, value in
+            if edition != value { edition = value }
+        }
 #if os(macOS)
         .onChange(of: detail != nil) { _, isReady in
             guard isReady else { return }

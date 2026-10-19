@@ -21,6 +21,9 @@ import SwiftData
 import EHDomain
 import EHPersistence
 import EHDownloads
+#if os(macOS)
+import EHTranslationMac
+#endif
 
 #if os(iOS)
 import UIKit
@@ -49,23 +52,47 @@ final class EhViewerAppDelegate: NSObject, UIApplicationDelegate {
 @main
 @MainActor
 struct EhViewerApp: App {
+#if os(macOS)
+    @NSApplicationDelegateAdaptor(TranslationApplicationDelegate.self) private var translationDelegate
+#endif
 #if os(iOS)
     @UIApplicationDelegateAdaptor(EhViewerAppDelegate.self) private var appDelegate
 #endif
     @State private var profileSession: ProfileSession
 
     init() {
+        #if DEBUG && os(macOS)
+        if ProcessInfo.processInfo.arguments.contains("-UITestTranslationWorkspace"),
+           let path = ProcessInfo.processInfo.environment["EH_TRANSLATION_TEST_PROFILES"] {
+            _profileSession = State(initialValue: ProfileSession(profilesRoot: URL(fileURLWithPath: path)))
+            return
+        }
+        #endif
         _profileSession = State(initialValue: ProfileSession())
     }
 
     var body: some Scene {
         WindowGroup {
             ProfileHostView(session: profileSession)
+            #if os(macOS)
+                .onChange(of: profileSession.runtime?.descriptor.id, initial: true) { _, id in
+                    TranslationCoordinator.shared.activate(id)
+                }
+            #endif
         }
         #if os(macOS)
         .defaultSize(width: 700, height: 700)
         #endif
         #if os(macOS)
+        WindowGroup("漫画翻译", id: "translation", for: UUID.self) { profileID in
+            if let runtime = profileSession.runtime, profileID.wrappedValue == runtime.descriptor.id {
+                NativeTranslationHost(model: runtime.model)
+            } else {
+                ContentUnavailableView("请切回对应用户以查看翻译任务", systemImage: "person.crop.circle.badge.exclamationmark")
+            }
+        }
+        .defaultSize(width: 1120, height: 740)
+        .commands { NativeTranslationCommands(session: profileSession) }
         WindowGroup("阅读器", for: ProfileReaderRoute.self) { route in
             if let runtime = profileSession.runtime,
                let route = route.wrappedValue,
@@ -95,6 +122,36 @@ struct EhViewerApp: App {
     }
 
 }
+
+#if os(macOS)
+private struct NativeTranslationCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+    let session: ProfileSession
+    var body: some Commands {
+        CommandGroup(after: .windowArrangement) {
+            Button("漫画翻译") {
+                if let runtime = session.runtime { openWindow(id: "translation", value: runtime.descriptor.id) }
+            }
+            .disabled(session.runtime == nil)
+        }
+    }
+}
+
+private struct NativeTranslationHost: View {
+    let model: AppModel
+    @State private var jobs: [DownloadJob] = []
+    var body: some View {
+        TranslationWindow(workspace: model.nativeTranslation, available: jobs, downloads: model.downloadFiles)
+            .task {
+                jobs = await model.downloads.snapshot()
+                await model.nativeTranslation.importReadyResults()
+            }
+            .onChange(of: model.localLibraryRevision) { _, _ in
+                Task { jobs = await model.downloads.snapshot() }
+            }
+    }
+}
+#endif
 
 private struct PersistenceRecoveryView: View {
     let errorMessage: String

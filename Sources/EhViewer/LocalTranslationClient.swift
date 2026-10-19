@@ -141,6 +141,7 @@ final class LocalTranslationClient {
     private(set) var statuses: [GalleryKey: String] = [:]
     private(set) var isSubmitting = false
     private(set) var isConnected = false
+    var hasUnfinishedRequests: Bool { pending.values.contains { $0.importedVersionID == nil } }
     var error: String?
 
     init(root: URL, library: AppTranslationLibrary) {

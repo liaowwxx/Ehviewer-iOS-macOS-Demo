@@ -246,6 +246,7 @@ final class AppModel {
     let translationLibrary: AppTranslationLibrary
 #if os(macOS)
     let localTranslation: LocalTranslationClient
+    let nativeTranslationProfileID: UUID
 #endif
     let deviceSync: DeviceSyncCoordinator
 #if os(iOS)
@@ -429,6 +430,9 @@ final class AppModel {
         self.translationLibrary = translationLibrary
 #if os(macOS)
         self.localTranslation = LocalTranslationClient(root: translationFiles.root.appendingPathComponent("Companion"), library: translationLibrary)
+        let nativeProfileID = profileID ?? UUID()
+        self.nativeTranslationProfileID = nativeProfileID
+        translationLibrary.reconnectNativeTranslation(profileID: nativeProfileID)
 #endif
         self.deviceSyncIndex = index
         self.deviceSync = DeviceSyncCoordinator(
@@ -610,7 +614,9 @@ final class AppModel {
             await self.restoreDownloads()
             await self.translationLibrary.refresh()
 #if os(macOS)
-            self.localTranslation.start()
+            // Finish delivery of legacy submissions without migrating their
+            // queue. New work uses the application-owned native workspace.
+            if self.localTranslation.hasUnfinishedRequests { self.localTranslation.start() }
 #endif
         }
         Task.detached(priority: .utility) {

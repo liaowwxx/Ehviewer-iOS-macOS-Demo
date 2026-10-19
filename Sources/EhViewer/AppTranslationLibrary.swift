@@ -3,6 +3,23 @@ import Observation
 import SwiftUI
 import EHDomain
 import EHDownloads
+#if os(macOS)
+import EHTranslationMac
+
+extension AppTranslationLibrary {
+    func reconnectNativeTranslation(profileID: UUID) {
+        TranslationCoordinator.shared.workspaces[profileID]?.onImported = { [weak self] in await self?.refresh() }
+    }
+}
+
+extension AppModel {
+    var nativeTranslation: TranslationWorkspace {
+        let workspace = TranslationCoordinator.shared.workspace(profileID: nativeTranslationProfileID, files: translationLibrary.files)
+        workspace.onImported = { [weak translationLibrary] in await translationLibrary?.refresh() }
+        return workspace
+    }
+}
+#endif
 
 private struct ReadingEditionKey: EnvironmentKey {
     static let defaultValue = ReadingEdition.original
@@ -31,7 +48,13 @@ final class AppTranslationLibrary {
 
     func refresh() async {
         do {
+            #if os(macOS)
+            // A background workspace can outlive the profile's AppModel and its
+            // file-store actor. Reload atomic manifests published by that owner.
+            let manifests = try await files.allManifests(refresh: true)
+            #else
             let manifests = try await files.allManifests()
+            #endif
             versions = Dictionary(grouping: manifests, by: { $0.gallery.key })
             for key in versions.keys where editions[key] == nil {
                 let saved = defaults.string(forKey: "translation.edition.\(key.id)")

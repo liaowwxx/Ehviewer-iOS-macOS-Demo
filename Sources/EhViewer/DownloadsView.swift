@@ -92,6 +92,9 @@ private enum DownloadVisibleJobsLoader {
 
 struct DownloadsView: View {
     @Environment(AppModel.self) private var model
+#if os(macOS)
+    @Environment(\.openWindow) private var openTranslationWindow
+#endif
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let page: DownloadsPage
     @State private var jobs: [DownloadJob] = []
@@ -312,6 +315,14 @@ struct DownloadsView: View {
                     toggleSelectAll()
                 }
                 if page == .local {
+#if os(macOS)
+                    Button("翻译所选漫画", systemImage: "character.book.closed") {
+                        let selected = jobs.filter { selectedKeys.contains($0.key) }
+                        openTranslationWindow(id: "translation", value: model.nativeTranslationProfileID)
+                        Task { await model.nativeTranslation.add(selected, downloads: model.downloadFiles) }
+                    }
+                    .disabled(selectedKeys.isEmpty || jobs.contains(where: { selectedKeys.contains($0.key) && $0.state != .completed }))
+#endif
                     Button {
                         showingShareFormatDialog = true
                     } label: {
@@ -1452,6 +1463,7 @@ private struct LocalDownloadsList: View {
 #else
         List(jobs) { job in
             localCard(for: job)
+                .navigationLinkIndicatorVisibility(.hidden)
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)

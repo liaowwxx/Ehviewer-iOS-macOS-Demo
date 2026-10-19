@@ -44,7 +44,6 @@ struct GalleryDetailView: View {
     @State private var detailLoadToken = UUID()
     @State private var isEnqueueing = false
     @State private var isUpdatingFavorite = false
-    @State private var isRating = false
     @State private var downloadJob: DownloadJob?
     @State private var shouldFullyRefreshDetail = false
     @ScaledMetric(relativeTo: .body) private var actionMinimumWidth: CGFloat = 148
@@ -156,7 +155,6 @@ struct GalleryDetailView: View {
             ToolbarItemGroup(placement: .primaryAction) {
 #if os(iOS)
                 Menu("更多操作", systemImage: "ellipsis") {
-                    ratingAction(detail)
                     detailToolbarActions
                 }
                 .accessibilityIdentifier("detail-more-actions")
@@ -329,10 +327,6 @@ struct GalleryDetailView: View {
         .disabled(isUpdatingFavorite)
         .accessibilityIdentifier("favorite-action")
 
-        if !compact {
-            ratingAction(detail)
-        }
-
         if let externalURL = detail.externalURL {
             ShareLink(item: externalURL) {
                 Label("分享", systemImage: "square.and.arrow.up")
@@ -347,30 +341,6 @@ struct GalleryDetailView: View {
                     .frame(minWidth: compact ? nil : actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
             }
             .accessibilityIdentifier("similar-gallery-action")
-        }
-    }
-
-    @ViewBuilder
-    private func ratingAction(_ detail: GalleryDetail?) -> some View {
-        if let detail, detail.apiUID != nil, detail.apiKey != nil {
-            Menu {
-                ForEach(1...5, id: \.self) { value in
-                    Button("评分 \(value)") {
-                        isRating = true
-                        Task {
-                            defer { isRating = false }
-                            await model.rate(detail, value: Double(value))
-                        }
-                    }
-                }
-            } label: {
-                Label("评分", systemImage: "star")
-#if os(macOS)
-                    .frame(minWidth: actionMinimumWidth, maxWidth: .infinity, minHeight: 44)
-#endif
-            }
-            .disabled(isRating)
-            .accessibilityIdentifier("rate-action")
         }
     }
 

@@ -25,7 +25,8 @@ public actor TranslationFileStore {
         return catalog?[key] ?? []
     }
 
-    public func allManifests() throws -> [GalleryTranslationManifest] {
+    public func allManifests(refresh: Bool = false) throws -> [GalleryTranslationManifest] {
+        if refresh { catalog = nil }
         try loadCatalog()
         return (catalog ?? [:]).values.flatMap { $0 }.sorted { $0.versionID.uuidString < $1.versionID.uuidString }
     }

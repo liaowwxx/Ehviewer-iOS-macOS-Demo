@@ -13,6 +13,9 @@ import EHDeviceSync
 import EHDownloads
 import EHNetworking
 import EHPersistence
+#if os(macOS)
+import EHTranslationMac
+#endif
 
 struct ProfileDescriptor: Codable, Identifiable, Hashable, Sendable {
     static let currentStorageVersion = 1
@@ -340,6 +343,11 @@ final class ProfileSession {
     /// re-authenticates immediately before the destructive cleanup begins.
     func deleteProfile(id: UUID) async {
         do {
+            #if os(macOS)
+            guard !TranslationCoordinator.shared.hasActiveWork(profileID: id) else {
+                throw EHError.storageFailed("请先停止该用户的翻译任务或环境准备，再删除用户。")
+            }
+            #endif
             guard profiles.count > 1 else { throw ProfileSessionError.lastProfile }
             guard let index = profiles.firstIndex(where: { $0.id == id }) else {
                 throw ProfileSessionError.profileNotFound

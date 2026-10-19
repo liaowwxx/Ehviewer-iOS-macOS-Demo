@@ -15,6 +15,7 @@ let package = Package(
         .library(name: "EHPersistence", targets: ["EHPersistence"]),
         .library(name: "EHDownloads", targets: ["EHDownloads"]),
         .library(name: "EHDeviceSync", targets: ["EHDeviceSync"]),
+        .library(name: "EHTranslationMac", targets: ["EHTranslationMac"]),
         .executable(name: "EhViewerPreview", targets: ["EhViewerPreview"])
     ],
     dependencies: [
@@ -60,10 +61,22 @@ let package = Package(
         ),
         .executableTarget(
             name: "EhViewerPreview",
-            dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads", "EHDeviceSync"],
+            dependencies: ["EHDomain", "EHNetworking", "EHPersistence", "EHDownloads", "EHDeviceSync",
+                           .target(name: "EHTranslationMac", condition: .when(platforms: [.macOS]))],
             path: "Sources/EhViewer",
             exclude: ["Info.plist", "Info-macOS.plist", "EhViewer-iOS.entitlements"],
             resources: [.process("Resources")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "EHTranslationMac",
+            dependencies: ["EHDomain", "EHDownloads"],
+            exclude: ["Resources"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "EHTranslationMacTests",
+            dependencies: ["EHTranslationMac"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

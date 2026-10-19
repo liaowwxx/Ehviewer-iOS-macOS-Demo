@@ -86,3 +86,23 @@
 "译件与当前画廊不匹配。" = "La traducción no coincide con esta galería.";
 "仅支持完整下载的漫画。" = "Solo se admiten cómics descargados por completo.";
 "原图缺失或格式不受支持。" = "Falta el original o su formato no es compatible.";
+
+/* macOS native translation workspace */
+"翻译设置" = "Ajustes de traducción";
+"环境与模型" = "Entorno y modelos";
+"任务" = "Tareas";
+"源语言" = "Idioma de origen";
+"目标语言" = "Idioma de destino";
+"添加漫画" = "Añadir cómics";
+"开始翻译" = "Iniciar traducción";
+"重新翻译" = "Traducir de nuevo";
+"取消任务" = "Cancelar tarea";
+"保存设置" = "Guardar ajustes";
+"导入配置" = "Importar ajustes";
+"检查环境" = "Comprobar entorno";
+"刷新模型目录" = "Actualizar catálogo de modelos";
+"准备环境与模型…" = "Preparar entorno y modelos…";
+"在翻译工作台中打开" = "Abrir en el espacio de traducción";
+"翻译所选漫画" = "Traducir cómics seleccionados";
+"仅添加完整下载的原图；在独立翻译窗口中配置并手动开始。" = "Añade originales descargados por completo y configura e inicia la traducción en una ventana independiente.";
+"请切回对应用户以查看翻译任务" = "Cambia al perfil correspondiente para ver sus tareas de traducción";

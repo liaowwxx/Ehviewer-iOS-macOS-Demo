@@ -233,17 +233,15 @@ final class EhViewerUITests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
 
-        let management = app.buttons["translation-management-menu"]
-        XCTAssertTrue(management.isHittable)
-        management.tap()
-        XCTAssertTrue(app.buttons["导入译件目录"].waitForExistence(timeout: 3))
-        app.navigationBars["详情"].staticTexts["详情"].tap()
+        XCTAssertFalse(app.buttons["translation-management-menu"].exists)
+        XCTAssertFalse(app.buttons["translation-import-action"].exists)
 
         let more = app.buttons["detail-more-actions"]
         XCTAssertTrue(more.isHittable)
         more.tap()
         XCTAssertTrue(app.buttons["detail-refresh-action"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["detail-open-site-action"].exists)
+        XCTAssertFalse(app.buttons["导入译件目录"].exists)
     }
 
     func testLocalGalleryTapOpensDetailInEveryLayout() throws {
