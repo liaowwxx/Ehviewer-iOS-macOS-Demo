@@ -133,7 +133,7 @@ public actor GalleryCacheStore {
     }
 
     public func usage() -> GalleryCacheUsage {
-        GalleryCacheUsage(byteCount: Self.byteCount(at: root))
+        GalleryCacheUsage(byteCount: Self.diskByteCount(at: root))
     }
 
     public func currentGeneration() -> UInt64 {
@@ -141,10 +141,16 @@ public actor GalleryCacheStore {
     }
 
     public func removeAll() async {
+        try? await clear()
+    }
+
+    public func clear() async throws {
         generation &+= 1
-        await imagePipeline.removeAll()
-        try? FileManager.default.removeItem(at: root)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try await imagePipeline.clear()
+        if FileManager.default.fileExists(atPath: root.path) {
+            try FileManager.default.removeItem(at: root)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         Self.excludeFromBackup(root)
     }
 
@@ -213,7 +219,7 @@ public actor GalleryCacheStore {
         return (GalleryKey(gid: gid, token: token), site)
     }
 
-    private static func byteCount(at root: URL) -> Int64 {
+    public static func diskByteCount(at root: URL) -> Int64 {
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],

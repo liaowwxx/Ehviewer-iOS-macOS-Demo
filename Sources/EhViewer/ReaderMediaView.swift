@@ -76,7 +76,25 @@ extension ReaderMediaView {
         }
 
         @MainActor
-        static func decode(_ data: Data) throws -> Self {
+        static func decode(_ data: Data) async throws -> Self {
+            let prepared = try await prepare(data)
+            try Task.checkCancellation()
+            switch prepared {
+            case .image(let sequence): return .image(sequence)
+            case .video:
+                let movie = AVMovie(data: data, options: nil)
+                return .video(VideoPlayback(item: AVPlayerItem(asset: movie)))
+            }
+        }
+
+        private enum Prepared: Sendable {
+            case image(ImageSequence)
+            case video
+        }
+
+        @concurrent
+        private static func prepare(_ data: Data) async throws -> Prepared {
+            try Task.checkCancellation()
             if let source = CGImageSourceCreateWithData(data as CFData, nil),
                CGImageSourceGetCount(source) > 0 {
                 return .image(try ImageSequence(source: source))
@@ -84,13 +102,12 @@ extension ReaderMediaView {
             guard DownloadMediaValidator.kind(of: data) == .video else {
                 throw EHError.parsingFailed(String(localized: "媒体数据无效"))
             }
-            let movie = AVMovie(data: data, options: nil)
-            return .video(VideoPlayback(item: AVPlayerItem(asset: movie)))
+            return .video
         }
     }
 
-    struct ImageSequence {
-        struct Frame {
+    struct ImageSequence: Sendable {
+        struct Frame: Sendable {
             let image: CGImage
             let duration: TimeInterval
         }
@@ -110,7 +127,8 @@ extension ReaderMediaView {
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize
             ] as CFDictionary
-            let frames = indexes.compactMap { index -> Frame? in
+            let frames = try indexes.compactMap { index -> Frame? in
+                try Task.checkCancellation()
                 guard let image = CGImageSourceCreateThumbnailAtIndex(source, index, options) else { return nil }
                 return Frame(image: image, duration: Self.frameDuration(source: source, index: index))
             }

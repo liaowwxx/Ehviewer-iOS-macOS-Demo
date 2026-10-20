@@ -69,6 +69,7 @@ enum ReaderContentSource: Hashable, Sendable {
 struct ReaderView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let key: GalleryKey
     let initialPage: Int
     private let downloadedJob: DownloadJob?
@@ -113,7 +114,7 @@ struct ReaderView: View {
     var body: some View {
         readerRoot
             .environment(\.readingEdition, edition)
-            .task(id: position.page) {
+            .task(id: "\(position.page)-\(source)-\(edition)-\(detail != nil)") {
             guard source == .remote, edition == .original, let detail else { return }
             await model.prefetch(
                 prefetchDescriptors(in: detail.pages, around: position.page),
@@ -340,7 +341,7 @@ struct ReaderView: View {
     }
 
     private func toggleControls() {
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
             isShowingControls.toggle()
         }
     }
@@ -393,6 +394,7 @@ struct ReaderView: View {
         } catch is CancellationError {
             return
         } catch {
+            guard !Task.isCancelled else { return }
             detailError = error.localizedDescription
         }
     }
@@ -404,6 +406,7 @@ struct ReaderView: View {
 
     private func scheduleProgressSave() {
         progressSaveTask?.cancel()
+        guard detail != nil else { return }
         let page = position.page
         progressSaveTask = Task {
             try? await Task.sleep(for: .milliseconds(300))
@@ -415,6 +418,7 @@ struct ReaderView: View {
     private func saveProgressImmediately() {
         progressSaveTask?.cancel()
         progressSaveTask = nil
+        guard detail != nil else { return }
         let page = position.page
         Task { await model.updateProgress(for: key, page: page) }
     }

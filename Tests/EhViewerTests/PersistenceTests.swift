@@ -163,7 +163,7 @@ struct PersistenceTests {
 
         try await store.removeFromHistory(for: [historyKey])
         #expect(try await store.recent().contains { $0.key == historyKey } == false)
-        #expect(try await store.readingPage(for: historyKey) == 0)
+        #expect(try await store.readingPage(for: historyKey) == 4)
         #expect(try await store.isFavorite(for: historyKey) == true)
 
         try await store.removeFromFavorites(for: [favoriteKey])

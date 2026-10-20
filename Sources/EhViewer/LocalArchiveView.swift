@@ -134,11 +134,14 @@ struct LocalArchiveImageView: View {
         .task(id: "\(entry.id)-\(loadToken)") {
             do {
                 let data = try await model.data(for: entry, in: document)
-                media = try ReaderMediaView.Content.decode(data)
+                let loaded = try await ReaderMediaView.Content.decode(data)
+                try Task.checkCancellation()
+                media = loaded
                 errorMessage = nil
             } catch is CancellationError {
                 return
             } catch {
+                guard !Task.isCancelled else { return }
                 errorMessage = error.localizedDescription
             }
         }

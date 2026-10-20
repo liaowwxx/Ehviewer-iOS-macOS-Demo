@@ -42,6 +42,9 @@ final class BrowsePageModel {
     var isUpdatingSearchSuggestions = false
     var advancedSearch: GalleryAdvancedSearch?
     var errorMessage: String?
+    var paginationErrorMessage: String?
+    var cacheErrorMessage: String?
+    var isContentFiltered = false
     var scrollPosition: GalleryKey?
 
     private var activeQuery: GalleryListQuery
@@ -50,6 +53,8 @@ final class BrowsePageModel {
     private var cachedQuickSearches: [String]?
     private var hasLoadedList = false
     private var loadedConfigurationID: String?
+    private var loadedRefreshToken: Int?
+    private var activeConfigurationID: String?
     private var consecutiveFilteredPages = 0
 
     var shouldAutomaticallyLoadMore: Bool {
@@ -102,17 +107,32 @@ final class BrowsePageModel {
     }
 
     func load(query: GalleryListQuery) async {
+        let configuration = configurationID
+        let refreshToken = model.browseRefreshToken
+        let rules = model.filterRules
+        let isChangingQuery = !isSameList(query, activeQuery) || activeConfigurationID != configuration
+        let previousNextPageURL = isChangingQuery ? nil : nextPageURL
+        if isChangingQuery {
+            galleries = []
+            scrollPosition = nil
+            hasLoadedList = false
+            consecutiveFilteredPages = 0
+            isContentFiltered = false
+        }
+        activeConfigurationID = configuration
         let requestID = UUID()
         activeRequestID = requestID
         isLoading = true
         errorMessage = nil
+        paginationErrorMessage = nil
+        cacheErrorMessage = nil
         nextPageURL = nil
         var loadedNextPageURL: URL?
         var didLoadPage = false
         defer {
             if activeRequestID == requestID {
                 isLoading = false
-                if didLoadPage { nextPageURL = loadedNextPageURL }
+                nextPageURL = didLoadPage ? loadedNextPageURL : previousNextPageURL
             }
         }
 
@@ -125,15 +145,25 @@ final class BrowsePageModel {
             }
             try Task.checkCancellation()
             guard activeRequestID == requestID else { return }
-            let items = await model.enrichedForBrowse(result.items)
-            galleries = items.filter(matchesFilter)
+            let items = await model.enrichedForBrowse(result.items, site: query.site)
+            try Task.checkCancellation()
+            guard activeRequestID == requestID, configurationID == configuration,
+                  model.browseRefreshToken == refreshToken else { return }
+            galleries = items.filter { matchesFilter($0, rules: rules) }
+            isContentFiltered = !items.isEmpty && galleries.isEmpty
             consecutiveFilteredPages = galleries.isEmpty ? 1 : 0
             errorMessage = nil
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
             hasLoadedList = true
-            loadedConfigurationID = configurationID
-            try await persistence.upsert(items)
+            loadedConfigurationID = configuration
+            loadedRefreshToken = refreshToken
+            do {
+                try await persistence.upsert(items)
+            } catch {
+                if activeRequestID == requestID { cacheErrorMessage = error.localizedDescription }
+            }
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
             if let searchText = query.searchText {
                 try? await persistence.recordQuickSearch(searchText)
                 cachedQuickSearches = nil
@@ -141,7 +171,7 @@ final class BrowsePageModel {
         } catch is CancellationError {
             return
         } catch {
-            if activeRequestID == requestID {
+            if activeRequestID == requestID, !Task.isCancelled {
                 errorMessage = error.localizedDescription
             }
         }
@@ -150,6 +180,7 @@ final class BrowsePageModel {
     func loadIfNeeded(query: GalleryListQuery) async {
         guard hasLoadedList == false
                 || isSameList(query, activeQuery) == false
+                || loadedRefreshToken != model.browseRefreshToken
                 || loadedConfigurationID != configurationID else { return }
         await load(query: query)
     }
@@ -164,9 +195,14 @@ final class BrowsePageModel {
               isLoading == false else { return }
 
         let requestID = activeRequestID
+        let configuration = configurationID
+        guard activeConfigurationID == configuration else { return }
+        let rules = model.filterRules
         var query = activeQuery
         query.page += 1
         isLoading = true
+        paginationErrorMessage = nil
+        cacheErrorMessage = nil
         var loadedNextPageURL: URL?
         var didLoadPage = false
         defer {
@@ -180,9 +216,12 @@ final class BrowsePageModel {
             let result = try await api.list(query: query, pageURL: pageURL)
             try Task.checkCancellation()
             guard activeRequestID == requestID else { return }
-            let items = await model.enrichedForBrowse(result.items)
-            let visibleItems = items.filter(matchesFilter)
+            let items = await model.enrichedForBrowse(result.items, site: query.site)
+            try Task.checkCancellation()
+            guard activeRequestID == requestID, configurationID == configuration else { return }
+            let visibleItems = items.filter { matchesFilter($0, rules: rules) }
             appendUniqueGalleries(visibleItems)
+            isContentFiltered = galleries.isEmpty && (isContentFiltered || !items.isEmpty)
             if visibleItems.isEmpty {
                 consecutiveFilteredPages += 1
             } else {
@@ -191,12 +230,16 @@ final class BrowsePageModel {
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
             activeQuery = query
-            try await persistence.upsert(items)
+            do {
+                try await persistence.upsert(items)
+            } catch {
+                if activeRequestID == requestID { cacheErrorMessage = error.localizedDescription }
+            }
         } catch is CancellationError {
             return
         } catch {
-            if activeRequestID == requestID {
-                errorMessage = error.localizedDescription
+            if activeRequestID == requestID, !Task.isCancelled {
+                paginationErrorMessage = error.localizedDescription
             }
         }
     }
@@ -318,8 +361,8 @@ final class BrowsePageModel {
         searchText = SearchQueryComposer.normalized(query)
     }
 
-    private func matchesFilter(_ gallery: GallerySummary) -> Bool {
-        return model.filterRules.contains { rule in
+    private func matchesFilter(_ gallery: GallerySummary, rules: [FilterRuleSnapshot]) -> Bool {
+        return rules.contains { rule in
             rule.isEnabled && GalleryFilterMatcher.isBlocked(gallery, mode: rule.mode, keyword: rule.pattern)
         } == false
     }

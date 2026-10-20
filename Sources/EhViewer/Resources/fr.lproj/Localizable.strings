@@ -106,3 +106,22 @@
 "翻译所选漫画" = "Traduire les mangas sélectionnés";
 "仅添加完整下载的原图；在独立翻译窗口中配置并手动开始。" = "Ajoutez les originaux entièrement téléchargés, puis configurez et lancez la traduction dans une fenêtre séparée.";
 "请切回对应用户以查看翻译任务" = "Revenez au profil correspondant pour afficher ses tâches de traduction";
+
+/* Review and reliability improvements */
+"重试加载更多" = "Réessayer de charger la suite";
+"内容已被屏蔽" = "Contenu filtré";
+"当前内容均匹配本地屏蔽规则，可在设置中调整规则。" = "Tout le contenu actuel correspond aux règles de blocage locales. Vous pouvez les modifier dans les réglages.";
+"内容已加载，但缓存写入失败：%@" = "Contenu chargé, mais écriture du cache impossible : %@";
+"部分缓存未能清除：%@" = "Certaines données du cache n’ont pas pu être effacées : %@";
+"缓存已清除。" = "Cache effacé.";
+"历史记录已清除，阅读进度已保留。" = "Historique effacé. La progression de lecture est conservée.";
+"收藏已清除。" = "Favoris effacés.";
+"正在清除缓存…" = "Effacement du cache…";
+"将清除图片、缩略图和详情缓存。下载、译件、收藏、历史和阅读进度均会保留。" = "Efface les images, miniatures et détails en cache. Les téléchargements, traductions, favoris, l’historique et la progression de lecture sont conservés.";
+"收藏与历史" = "Favoris et historique";
+"清除收藏" = "Effacer les favoris";
+"清除收藏？" = "Effacer les favoris ?";
+"仅清除本机收藏记录，保留历史、阅读进度及下载内容，不修改站点收藏。" = "Efface uniquement les favoris locaux. L’historique, la progression de lecture, les téléchargements et les favoris du site sont conservés.";
+"清除历史" = "Effacer l’historique";
+"清除历史？" = "Effacer l’historique ?";
+"仅清除本机浏览历史，保留每本书的阅读进度、收藏及下载内容。" = "Efface uniquement l’historique local. La progression de chaque livre, les favoris et les téléchargements sont conservés.";

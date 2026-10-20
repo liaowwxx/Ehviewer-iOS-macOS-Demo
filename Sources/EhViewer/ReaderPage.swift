@@ -20,6 +20,7 @@ import SwiftUI
 import EHDomain
 
 struct ReaderPage: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppModel.self) private var model
     @Environment(\.readingEdition) private var edition
     let descriptor: GalleryPageDescriptor
@@ -141,13 +142,15 @@ struct ReaderPage: View {
                 edition: edition
             )
             aspectRatio = loadedMedia.aspectRatio
-            withAnimation(.easeOut(duration: 0.25)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
                 media = loadedMedia.content
                 failed = false
             }
         } catch is CancellationError {
+            if !Task.isCancelled { failed = true }
             return
         } catch {
+            guard !Task.isCancelled else { return }
             loadErrorMessage = error.localizedDescription
             failed = true
         }
@@ -163,7 +166,7 @@ struct ReaderPage: View {
     ) async throws -> LoadedMedia {
         let data = try await model.readerPageData(for: descriptor, resolution: resolution, source: source, edition: edition)
         try Task.checkCancellation()
-        let content = try ReaderMediaView.Content.decode(data)
+        let content = try await ReaderMediaView.Content.decode(data)
         return LoadedMedia(content: content, aspectRatio: content.aspectRatio)
     }
 

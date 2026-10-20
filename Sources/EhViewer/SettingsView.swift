@@ -55,6 +55,8 @@ struct SettingsView: View {
     @Environment(ProfileSession.self) private var profileSession
     private let page: SettingsPage
     @State private var showingCookieSheet = false
+    @State private var showingHistoryClearConfirmation = false
+    @State private var showingFavoritesClearConfirmation = false
     @State private var showingWebLogin = false
     @State private var showingPasswordLogin = false
     @State private var showingGallerySyncExporter = false
@@ -268,10 +270,12 @@ struct SettingsView: View {
 
             Section("缓存") {
                 LabeledContent("缓存占用", value: galleryCacheSize)
+                if model.isClearingGalleryCache { ProgressView("正在清除缓存…") }
                 Button("清除缓存", role: .destructive) {
                     showingGalleryCacheClearConfirmation = true
                 }
                 .foregroundStyle(.red)
+                .disabled(model.isClearingGalleryCache || model.isClearingLibraryRecords)
                 .accessibilityIdentifier("clear-gallery-cache-action")
                 .confirmationDialog(
                     "清除缓存？",
@@ -283,7 +287,33 @@ struct SettingsView: View {
                     }
                     Button("取消", role: .cancel) {}
                 } message: {
-                    Text("不会删除下载文件或下载任务，但会清除收藏和历史记录。")
+                    Text("将清除图片、缩略图和详情缓存。下载、译件、收藏、历史和阅读进度均会保留。")
+                }
+            }
+            Section("收藏与历史") {
+                Button("清除收藏", role: .destructive) { showingFavoritesClearConfirmation = true }
+                    .disabled(model.isClearingLibraryRecords || model.isClearingGalleryCache)
+                    .accessibilityIdentifier("clear-favorites-action")
+                    .confirmationDialog("清除收藏？", isPresented: $showingFavoritesClearConfirmation, titleVisibility: .visible) {
+                        Button("清除收藏", role: .destructive) { Task { await model.clearFavorites() } }
+                        Button("取消", role: .cancel) {}
+                    } message: {
+                        Text("仅清除本机收藏记录，保留历史、阅读进度及下载内容，不修改站点收藏。")
+                    }
+                Button("清除历史", role: .destructive) { showingHistoryClearConfirmation = true }
+                    .disabled(model.isClearingLibraryRecords || model.isClearingGalleryCache)
+                    .accessibilityIdentifier("clear-history-action")
+                    .confirmationDialog("清除历史？", isPresented: $showingHistoryClearConfirmation, titleVisibility: .visible) {
+                        Button("清除历史", role: .destructive) { Task { await model.clearHistory() } }
+                        Button("取消", role: .cancel) {}
+                    } message: {
+                        Text("仅清除本机浏览历史，保留每本书的阅读进度、收藏及下载内容。")
+                    }
+                if model.isClearingLibraryRecords { ProgressView() }
+            }
+            if let message = model.storageMaintenanceMessage {
+                Section {
+                    Text(message).font(.footnote).foregroundStyle(.secondary)
                 }
             }
         }

@@ -203,7 +203,7 @@ struct ReaderInteractionTests {
 
     @MainActor
     @Test("Animated GIF pages retain all frames and their timing")
-    func animatedGIFRetainsFrames() throws {
+    func animatedGIFRetainsFrames() async throws {
         let png = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
         let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
         let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
@@ -221,7 +221,7 @@ struct ReaderInteractionTests {
         CGImageDestinationAddImage(destination, image, properties)
         #expect(CGImageDestinationFinalize(destination))
 
-        let content = try ReaderMediaView.Content.decode(data as Data)
+        let content = try await ReaderMediaView.Content.decode(data as Data)
         guard case .image(let sequence) = content else {
             Issue.record("GIF should decode as an image sequence")
             return

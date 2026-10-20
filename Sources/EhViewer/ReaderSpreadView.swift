@@ -13,6 +13,7 @@ import SwiftUI
 import EHDomain
 
 struct ReaderSpreadView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppModel.self) private var model
     @Environment(\.readingEdition) private var edition
     let spread: ReaderSpread
@@ -178,13 +179,15 @@ struct ReaderSpreadView: View {
                 edition: edition
             )
             leftAspectRatio = loadedMedia.aspectRatio
-            withAnimation(.easeOut(duration: 0.25)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
                 leftMedia = loadedMedia.content
                 leftFailed = false
             }
         } catch is CancellationError {
+            if !Task.isCancelled { leftFailed = true }
             return
         } catch {
+            guard !Task.isCancelled else { return }
             leftErrorMessage = error.localizedDescription
             leftFailed = true
         }
@@ -204,13 +207,15 @@ struct ReaderSpreadView: View {
                 edition: edition
             )
             rightAspectRatio = loadedMedia.aspectRatio
-            withAnimation(.easeOut(duration: 0.25)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
                 rightMedia = loadedMedia.content
                 rightFailed = false
             }
         } catch is CancellationError {
+            if !Task.isCancelled { rightFailed = true }
             return
         } catch {
+            guard !Task.isCancelled else { return }
             rightErrorMessage = error.localizedDescription
             rightFailed = true
         }

@@ -651,3 +651,22 @@
 "翻译所选漫画" = "Translate Selected Books";
 "仅添加完整下载的原图；在独立翻译窗口中配置并手动开始。" = "Add fully downloaded originals, then configure and start them in the separate translation window.";
 "请切回对应用户以查看翻译任务" = "Switch to the corresponding profile to view its translation tasks";
+
+/* Review and reliability improvements */
+"重试加载更多" = "Retry Loading More";
+"内容已被屏蔽" = "Content Filtered";
+"当前内容均匹配本地屏蔽规则，可在设置中调整规则。" = "All current content matches local blocking rules. You can adjust the rules in Settings.";
+"内容已加载，但缓存写入失败：%@" = "Content loaded, but writing to the cache failed: %@";
+"部分缓存未能清除：%@" = "Some cached data could not be cleared: %@";
+"缓存已清除。" = "Cache cleared.";
+"历史记录已清除，阅读进度已保留。" = "History cleared. Reading progress was preserved.";
+"收藏已清除。" = "Favorites cleared.";
+"正在清除缓存…" = "Clearing Cache…";
+"将清除图片、缩略图和详情缓存。下载、译件、收藏、历史和阅读进度均会保留。" = "Clears cached images, thumbnails, and details. Downloads, translations, favorites, history, and reading progress are preserved.";
+"收藏与历史" = "Favorites and History";
+"清除收藏" = "Clear Favorites";
+"清除收藏？" = "Clear Favorites?";
+"仅清除本机收藏记录，保留历史、阅读进度及下载内容，不修改站点收藏。" = "Clears only local favorites. History, reading progress, downloads, and favorites on the website are preserved.";
+"清除历史" = "Clear History";
+"清除历史？" = "Clear History?";
+"仅清除本机浏览历史，保留每本书的阅读进度、收藏及下载内容。" = "Clears only local history. Reading progress for each book, favorites, and downloads are preserved.";

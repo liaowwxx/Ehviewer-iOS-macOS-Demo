@@ -264,6 +264,9 @@ final class AppModel {
     var downloadLayoutMode: DownloadsLayoutMode
     var downloadCategoryFilter: Set<GalleryCategory>
     private(set) var galleryCacheByteCount: Int64 = 0
+    private(set) var isClearingGalleryCache = false
+    private(set) var isClearingLibraryRecords = false
+    private(set) var storageMaintenanceMessage: String?
     private(set) var localDownloadGalleryCount = 0
     private(set) var localDownloadByteCount: Int64 = 0
     private(set) var hasLoadedLocalDownloadUsage = false
@@ -317,6 +320,7 @@ final class AppModel {
     private var activeQuery = GalleryListQuery()
     private var activeListRequestID = UUID()
     @ObservationIgnored private var searchPageModels: [SearchPageKey: BrowsePageModel] = [:]
+    @ObservationIgnored private var loadedListConfiguration: [FilterRuleSnapshot]?
     @ObservationIgnored private var incomingStagingGeneration = 0
     @ObservationIgnored private var incomingStagingTask: Task<Void, Never>?
     @ObservationIgnored private var currentFileOperationTask: Task<Void, Never>?
@@ -715,6 +719,17 @@ final class AppModel {
     }
 
     func load(query: GalleryListQuery? = nil) async {
+        let query = query ?? GalleryListQuery(site: site, searchText: searchText.nilIfEmpty)
+        let sourceSite = site
+        let rules = filterRules
+        var previousQuery = activeQuery
+        previousQuery.page = 0
+        var requestedQuery = query
+        requestedQuery.page = 0
+        let isChangingQuery = previousQuery != requestedQuery || loadedListConfiguration != rules
+        let previousNextPageURL = isChangingQuery ? nil : nextPageURL
+        if isChangingQuery { galleries = [] }
+        loadedListConfiguration = rules
         let requestID = UUID()
         activeListRequestID = requestID
         isLoading = true
@@ -724,12 +739,9 @@ final class AppModel {
         defer {
             if activeListRequestID == requestID {
                 isLoading = false
-                if didLoadPage {
-                    nextPageURL = loadedNextPageURL
-                }
+                nextPageURL = didLoadPage ? loadedNextPageURL : previousNextPageURL
             }
         }
-        let query = query ?? GalleryListQuery(site: site, searchText: searchText.nilIfEmpty)
         activeQuery = query
         do {
             let result = if query.kind == .favorites {
@@ -739,22 +751,31 @@ final class AppModel {
             }
             try Task.checkCancellation()
             guard activeListRequestID == requestID else { return }
-            let items = await enrichedForBrowse(result.items)
-            galleries = items.filter(matchesFilter)
+            let items = await enrichedForBrowse(result.items, site: query.site)
+            try Task.checkCancellation()
+            guard activeListRequestID == requestID, filterRules == rules, site == sourceSite else { return }
+            galleries = items.filter { gallery in
+                !rules.contains { $0.isEnabled && GalleryFilterMatcher.isBlocked(gallery, mode: $0.mode, keyword: $0.pattern) }
+            }
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
             for item in items {
+                guard activeListRequestID == requestID, !Task.isCancelled else { return }
                 try await persistence.upsertStableSnapshot(
-                    StableGalleryMetadataSnapshot(summary: item, sourceSite: site)
+                    StableGalleryMetadataSnapshot(summary: item, sourceSite: query.site)
                 )
             }
+            guard activeListRequestID == requestID, !Task.isCancelled else { return }
             if let searchText = query.searchText { try? await persistence.recordQuickSearch(searchText) }
-            quickSearches = (try? await persistence.quickSearches()) ?? quickSearches
+            let searches = try? await persistence.quickSearches()
+            if activeListRequestID == requestID, let searches { quickSearches = searches }
         } catch is CancellationError {
             // View lifecycle cancellation is expected.
         } catch {
-            if activeListRequestID == requestID {
-                errorMessage = error.localizedDescription
+            if activeListRequestID == requestID, !Task.isCancelled {
+                errorMessage = didLoadPage
+                    ? String(localized: "内容已加载，但缓存写入失败：\(error.localizedDescription)")
+                    : error.localizedDescription
             }
         }
     }
@@ -826,9 +847,9 @@ final class AppModel {
 
     /// List pages only carry a few summary tags. Fetch the full tag list for
     /// every browse page so cards can display the same tags used for filtering.
-    func enrichedForBrowse(_ items: [GallerySummary]) async -> [GallerySummary] {
+    func enrichedForBrowse(_ items: [GallerySummary], site sourceSite: SiteMode? = nil) async -> [GallerySummary] {
         guard items.isEmpty == false else { return items }
-        guard let fetched = try? await api.gallerySummaries(for: items.map(\.key), site: site),
+        guard let fetched = try? await api.gallerySummaries(for: items.map(\.key), site: sourceSite ?? site),
               fetched.isEmpty == false else { return items }
         let summariesByKey = Dictionary(uniqueKeysWithValues: fetched.map { ($0.key, $0) })
         return items.map { item in
@@ -927,6 +948,8 @@ final class AppModel {
     func loadMore() async {
         guard let pageURL = nextPageURL, isLoading == false else { return }
         let requestID = activeListRequestID
+        let rules = filterRules
+        let sourceSite = site
         var query = activeQuery
         query.page += 1
         isLoading = true
@@ -944,15 +967,18 @@ final class AppModel {
             let result = try await api.list(query: query, pageURL: pageURL)
             try Task.checkCancellation()
             guard activeListRequestID == requestID else { return }
-            appendUniqueGalleries(result.items)
+            let items = await enrichedForBrowse(result.items, site: query.site)
+            try Task.checkCancellation()
+            guard activeListRequestID == requestID, filterRules == rules, site == sourceSite else { return }
+            appendUniqueGalleries(items)
             loadedNextPageURL = result.cursor?.nextPageURL
             didLoadPage = true
             activeQuery = query
-            try await persistence.upsert(result.items)
+            try await persistence.upsert(items)
         } catch is CancellationError {
             return
         } catch {
-            if activeListRequestID == requestID {
+            if activeListRequestID == requestID, !Task.isCancelled {
                 errorMessage = error.localizedDescription
             }
         }
@@ -1201,16 +1227,56 @@ final class AppModel {
     }
 
     func refreshGalleryCacheUsage() async {
-        galleryCacheByteCount = await galleryCache.usage().byteCount
+        async let galleryBytes = galleryCache.usage().byteCount
+        async let imageBytes = imagePipeline.diskUsage()
+        async let thumbnailBytes = galleryCoverLoader.diskUsage()
+        galleryCacheByteCount = await galleryBytes + imageBytes + thumbnailBytes
     }
 
     func clearGalleryCache() async {
-        try? await persistence.clearOrdinaryCache()
-        await galleryCache.removeAll()
-        try? await persistence.clearLibraryState()
-        historyGalleries = []
-        favoriteGalleries = []
+        guard !isClearingGalleryCache, !isClearingLibraryRecords else { return }
+        isClearingGalleryCache = true
+        storageMaintenanceMessage = nil
+        defer { isClearingGalleryCache = false }
+        var failures: [String] = []
+        do { try await persistence.clearOrdinaryCache() }
+        catch { failures.append(error.localizedDescription) }
+        do { try await galleryCache.clear() }
+        catch { failures.append(error.localizedDescription) }
+        do { try await imagePipeline.clear() }
+        catch { failures.append(error.localizedDescription) }
+        do { try await galleryCoverLoader.clear() }
+        catch { failures.append(error.localizedDescription) }
         await refreshGalleryCacheUsage()
+        if failures.isEmpty {
+            storageMaintenanceMessage = String(localized: "缓存已清除。")
+        } else {
+            errorMessage = String(localized: "部分缓存未能清除：\(failures.joined(separator: "\n"))")
+        }
+    }
+
+    func clearHistory() async {
+        guard !isClearingLibraryRecords, !isClearingGalleryCache else { return }
+        isClearingLibraryRecords = true
+        storageMaintenanceMessage = nil
+        defer { isClearingLibraryRecords = false }
+        do {
+            try await persistence.clearHistory()
+            historyGalleries = []
+            storageMaintenanceMessage = String(localized: "历史记录已清除，阅读进度已保留。")
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func clearFavorites() async {
+        guard !isClearingLibraryRecords, !isClearingGalleryCache else { return }
+        isClearingLibraryRecords = true
+        storageMaintenanceMessage = nil
+        defer { isClearingLibraryRecords = false }
+        do {
+            try await persistence.clearFavorites()
+            favoriteGalleries = []
+            storageMaintenanceMessage = String(localized: "收藏已清除。")
+        } catch { errorMessage = error.localizedDescription }
     }
 
     func refreshLocalDownloadUsage() async {
@@ -1294,19 +1360,41 @@ final class AppModel {
             throw EHError.storageFailed(String(localized: "找不到可写入的下载目录"))
         }
         try FileManager.default.createDirectory(at: downloadsDirectory, withIntermediateDirectories: true)
-        let fileExtension = DownloadMediaValidator.kind(of: data) == .video
-            ? "mp4"
-            : (descriptor.pageURL.pathExtension.isEmpty ? "img" : descriptor.pageURL.pathExtension)
+        guard let fileExtension = DownloadMediaValidator.fileExtension(of: data) else {
+            throw EHError.parsingFailed(String(localized: "媒体数据无效"))
+        }
         let editionSuffix: String
-        let outputExtension: String
         if case .translated(let id) = edition {
             editionSuffix = "-translated-\(id.uuidString)"
-            outputExtension = (try? await translationLibrary.files.manifests(for: descriptor.galleryKey))?
-                .first(where: { $0.versionID == id })?.pages[descriptor.index].fileName.components(separatedBy: ".").last ?? "img"
-        } else { editionSuffix = ""; outputExtension = fileExtension }
-        let fileName = "ehviewer-\(descriptor.galleryKey.gid)-\(descriptor.index + 1)\(editionSuffix).\(outputExtension)"
-        try data.write(to: downloadsDirectory.appendingPathComponent(fileName), options: .atomic)
+        } else { editionSuffix = "" }
+        let fileName = "ehviewer-\(descriptor.galleryKey.gid)-\(descriptor.index + 1)\(editionSuffix).\(fileExtension)"
+        _ = try Self.saveMediaData(data, named: fileName, in: downloadsDirectory)
         #endif
+    }
+
+    /// Exclusive creation also protects files saved by another reader window.
+    static func saveMediaData(_ data: Data, named fileName: String, in directory: URL) throws -> URL {
+        let requested = directory.appendingPathComponent(fileName)
+        let staged = directory.appendingPathComponent(".ehviewer-export-\(UUID().uuidString).partial")
+        defer {
+            if FileManager.default.fileExists(atPath: staged.path) {
+                try? FileManager.default.removeItem(at: staged)
+            }
+        }
+        try data.write(to: staged, options: .withoutOverwriting)
+        var target = requested
+        while true {
+            do {
+                // Same-directory publication exposes only a complete file;
+                // FileManager refuses to replace an existing destination.
+                try FileManager.default.moveItem(at: staged, to: target)
+                return target
+            } catch CocoaError.fileWriteFileExists {
+                target = directory.appendingPathComponent(
+                    "\(requested.deletingPathExtension().lastPathComponent)-\(UUID().uuidString).\(requested.pathExtension)"
+                )
+            }
+        }
     }
 
     func prefetch(_ descriptors: [GalleryPageDescriptor], resolution: ImageResolution = .preview) async {

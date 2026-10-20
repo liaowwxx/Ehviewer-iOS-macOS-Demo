@@ -794,20 +794,24 @@ public actor PersistenceStore {
                 record.dynamicSnapshot = nil
             }
             record.cacheRetention = false
-            record.title = ""
-            record.japaneseTitle = nil
-            record.thumbnailURLString = nil
-            record.category = nil
-            record.pageCount = nil
-            record.postedAt = nil
-            record.rating = nil
-            record.ratingCount = nil
-            record.favoriteCategory = nil
-            record.uploader = nil
-            record.tags = []
-            record.metadataTitleComplete = false
-            record.metadataJapaneseTitleComplete = false
-            record.metadataTagsComplete = false
+            // Library records need a small display snapshot even after their
+            // regenerable detail and image caches have been cleared.
+            if !record.isFavorite && record.lastReadAt == nil && record.lastReadPage == 0 {
+                record.title = ""
+                record.japaneseTitle = nil
+                record.thumbnailURLString = nil
+                record.category = nil
+                record.pageCount = nil
+                record.postedAt = nil
+                record.rating = nil
+                record.ratingCount = nil
+                record.favoriteCategory = nil
+                record.uploader = nil
+                record.tags = []
+                record.metadataTitleComplete = false
+                record.metadataJapaneseTitleComplete = false
+                record.metadataTagsComplete = false
+            }
             didChange = true
         }
         let imageRecords = try modelContext.fetch(FetchDescriptor<GalleryImageIndexRecord>())
@@ -835,6 +839,22 @@ public actor PersistenceStore {
         }
     }
 
+    public func clearHistory() throws {
+        let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>(
+            predicate: #Predicate { $0.lastReadAt != nil }
+        ))
+        for record in records { record.lastReadAt = nil }
+        try modelContext.save()
+    }
+
+    public func clearFavorites() throws {
+        let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>(
+            predicate: #Predicate { $0.isFavorite }
+        ))
+        for record in records { record.isFavorite = false }
+        try modelContext.save()
+    }
+
     public func recordImageIndex(
         key: GalleryKey,
         site: SiteMode,
@@ -845,11 +865,16 @@ public actor PersistenceStore {
         byteCount: Int64,
         lastAccessedAt: Date = Date()
     ) throws {
-        let existing = try modelContext.fetch(FetchDescriptor<GalleryImageIndexRecord>()).first {
-            $0.gid == key.gid && $0.token == key.token
-                && $0.siteRaw == site.rawValue && $0.kindRaw == kind
-                && $0.pageIndex == pageIndex && $0.originalURLString == originalURL.absoluteString
-        }
+        let gid = key.gid
+        let token = key.token
+        let siteRaw = site.rawValue
+        let urlString = originalURL.absoluteString
+        var descriptor = FetchDescriptor<GalleryImageIndexRecord>(predicate: #Predicate {
+            $0.gid == gid && $0.token == token && $0.siteRaw == siteRaw
+                && $0.kindRaw == kind && $0.pageIndex == pageIndex && $0.originalURLString == urlString
+        })
+        descriptor.fetchLimit = 1
+        let existing = try modelContext.fetch(descriptor).first
         if let existing {
             existing.localPath = localPath
             existing.byteCount = max(0, byteCount)
@@ -1066,8 +1091,7 @@ public actor PersistenceStore {
         let records = try modelContext.fetch(FetchDescriptor<GalleryRecord>())
         var didChange = false
         for record in records where keys.contains(record.key) {
-            guard record.lastReadAt != nil || record.lastReadPage != 0 else { continue }
-            record.lastReadPage = 0
+            guard record.lastReadAt != nil else { continue }
             record.lastReadAt = nil
             didChange = true
         }
@@ -1718,7 +1742,8 @@ public struct GallerySyncImportOutcome: Sendable, Hashable {
 
 private extension GalleryRecord {
     var summary: GallerySummary {
-        if cacheRetention == false, downloadRetention == false {
+        if cacheRetention == false, downloadRetention == false,
+           !isFavorite, lastReadAt == nil, lastReadPage == 0 {
             return GallerySummary(key: key, title: "")
         }
         if let stableMetadata {

@@ -257,6 +257,8 @@ struct GallerySnapshotTests {
 
         try await store.clearOrdinaryCache()
         #expect(try await store.stableSnapshot(for: ordinaryKey) == nil)
+        #expect(try await store.recent().first?.title == "普通缓存")
+        #expect(try await store.favorites().first?.title == "普通缓存")
         #expect(try await store.readingPage(for: ordinaryKey) == 4)
         #expect(try await store.isFavorite(for: ordinaryKey) == true)
         #expect(try await store.stableSnapshot(for: downloadedKey) == nil)

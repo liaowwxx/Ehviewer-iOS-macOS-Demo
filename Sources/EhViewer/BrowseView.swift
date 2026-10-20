@@ -107,9 +107,12 @@ struct BrowseView: View {
                     }
                 }
                 if pageModel.nextPageURL != nil {
-                    if pageModel.shouldAutomaticallyLoadMore {
-                        BrowsePaginationFooter()
+                    if pageModel.shouldAutomaticallyLoadMore || pageModel.paginationErrorMessage != nil {
+                        BrowsePaginationFooter(errorMessage: pageModel.paginationErrorMessage) {
+                            Task { await pageModel.loadMore() }
+                        }
                             .task(id: pageModel.nextPageURL) {
+                                guard pageModel.paginationErrorMessage == nil else { return }
                                 await pageModel.loadMore()
                             }
                     } else {
@@ -138,7 +141,34 @@ struct BrowseView: View {
                 }
                 .padding()
             }
-            else if pageModel.galleries.isEmpty { ContentUnavailableView("没有结果", systemImage: "magnifyingglass") }
+            else if pageModel.galleries.isEmpty, pageModel.nextPageURL == nil {
+                if pageModel.isContentFiltered {
+                    ContentUnavailableView("内容已被屏蔽", systemImage: "line.3.horizontal.decrease", description: Text("当前内容均匹配本地屏蔽规则，可在设置中调整规则。"))
+                } else {
+                    ContentUnavailableView("没有结果", systemImage: "magnifyingglass")
+                }
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let message = pageModel.errorMessage, !pageModel.galleries.isEmpty {
+                VStack(spacing: 6) {
+                    Text(message).font(.callout)
+                    Button("重试", systemImage: "arrow.clockwise") {
+                        Task { await pageModel.load(query: pageModel.listQuery) }
+                    }
+                    .disabled(pageModel.isLoading)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(8)
+                .background(.regularMaterial)
+            }
+            if let message = pageModel.cacheErrorMessage {
+                Text("内容已加载，但缓存写入失败：\(message)")
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity)
+                    .padding(8)
+                    .background(.regularMaterial)
+            }
         }
         .overlay(alignment: .topTrailing) {
             GeometryReader { proxy in
@@ -438,9 +468,13 @@ struct SearchTagChipBar: View {
                         }
                         .font(.caption)
                         .padding(.horizontal, 10)
-                        .frame(height: 22)
+                        .padding(.vertical, 4)
                         .foregroundStyle(.white)
                         .background(AppTheme.accent, in: Capsule())
+                        #if os(iOS)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                        #endif
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("移除标签 \(token.fullTag)")

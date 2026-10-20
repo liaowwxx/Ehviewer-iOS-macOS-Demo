@@ -442,7 +442,7 @@ public struct GalleryHTMLParser: Sendable {
             var namespace = try cells[0].text().trimmingCharacters(in: .whitespacesAndNewlines)
             if namespace.hasSuffix(":") { namespace.removeLast() }
             guard namespace.isEmpty == false else { continue }
-            for container in try cells[1].children() {
+            for container in cells[1].children() {
                 var name = try container.text().trimmingCharacters(in: .whitespacesAndNewlines)
                 // The site sometimes appends "| english title" to parody tags.
                 if let separator = name.firstIndex(of: "|") {

@@ -17,6 +17,7 @@
  */
 
 import Foundation
+import CryptoKit
 
 public actor ImagePipeline {
     private struct CacheEntry: Sendable {
@@ -27,6 +28,7 @@ public actor ImagePipeline {
     private var cache: [URL: CacheEntry] = [:]
     private var inFlight: [URL: Task<Data, Error>] = [:]
     private var cachedBytes = 0
+    private var generation: UInt64 = 0
     private let byteLimit: Int
     private let diskRoot: URL?
 
@@ -61,20 +63,26 @@ public actor ImagePipeline {
             insert(diskData, for: url)
             return diskData
         }
+        let generation = self.generation
         if let task = inFlight[url] {
-            return try await task.value
+            let data = try await task.value
+            guard self.generation == generation else { throw CancellationError() }
+            try Task.checkCancellation()
+            return data
         }
 
         let task = Task<Data, Error> { try await fetcher() }
         inFlight[url] = task
         do {
             let data = try await task.value
+            guard self.generation == generation else { throw CancellationError() }
             inFlight[url] = nil
             insert(data, for: url)
             writeToDisk(data, url: url)
+            try Task.checkCancellation()
             return data
         } catch {
-            inFlight[url] = nil
+            if self.generation == generation { inFlight[url] = nil }
             throw error
         }
     }
@@ -90,18 +98,29 @@ public actor ImagePipeline {
     }
 
     public func diskPath(for url: URL) -> String? {
-        diskURL(for: url)?.path
+        guard let fileURL = diskURL(for: url),
+              FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        return fileURL.path
     }
 
     public func removeAll() {
+        try? clear()
+    }
+
+    public func diskUsage() -> Int64 {
+        diskRoot.map(GalleryCacheStore.diskByteCount(at:)) ?? 0
+    }
+
+    public func clear() throws {
+        generation &+= 1
         for task in inFlight.values {
             task.cancel()
         }
         inFlight.removeAll()
         cache.removeAll()
         cachedBytes = 0
-        if let diskRoot {
-            try? FileManager.default.removeItem(at: diskRoot)
+        if let diskRoot, FileManager.default.fileExists(atPath: diskRoot.path) {
+            try FileManager.default.removeItem(at: diskRoot)
         }
     }
 
@@ -120,8 +139,17 @@ public actor ImagePipeline {
     }
 
     private func readFromDisk(url: URL) -> Data? {
-        guard let fileURL = diskURL(for: url),
-              let data = try? Data(contentsOf: fileURL) else { return nil }
+        guard let fileURL = diskURL(for: url) else { return nil }
+        let data: Data
+        if let current = try? Data(contentsOf: fileURL) {
+            data = current
+        } else if let legacyURL = legacyDiskURL(for: url),
+                  let legacy = try? Data(contentsOf: legacyURL) {
+            data = legacy
+            writeToDisk(data, url: url)
+        } else {
+            return nil
+        }
         try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: fileURL.path)
         return data
     }
@@ -163,11 +191,19 @@ public actor ImagePipeline {
 
     private func diskURL(for url: URL) -> URL? {
         guard let diskRoot else { return nil }
+        let key = SHA256.hash(data: Data(url.absoluteString.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return diskRoot.appendingPathComponent("v2-\(key).bin", isDirectory: false)
+    }
+
+    private func legacyDiskURL(for url: URL) -> URL? {
+        guard let diskRoot else { return nil }
         let key = Data(url.absoluteString.utf8)
             .base64EncodedString()
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "=", with: "")
+        guard key.utf8.count + 4 <= 255 else { return nil }
         return diskRoot.appendingPathComponent("\(key).bin", isDirectory: false)
     }
 

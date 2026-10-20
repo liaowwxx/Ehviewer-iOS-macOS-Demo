@@ -18,6 +18,7 @@
 
 import Foundation
 import ImageIO
+import UniformTypeIdentifiers
 import EHDomain
 
 public enum DownloadMediaKind: Sendable {
@@ -26,6 +27,20 @@ public enum DownloadMediaKind: Sendable {
 }
 
 public enum DownloadMediaValidator {
+    /// Detect the actual container, rather than the gallery's HTML page URL.
+    public static func fileExtension(of data: Data) -> String? {
+        if let source = CGImageSourceCreateWithData(data as CFData, nil),
+           CGImageSourceGetCount(source) > 0,
+           let type = CGImageSourceGetType(source) {
+            return UTType(type as String)?.preferredFilenameExtension
+        }
+        guard hasSupportedVideoSignature(data) else { return nil }
+        let bytes = [UInt8](data.prefix(12))
+        if bytes.count >= 8, bytes[4...7].elementsEqual([0x66, 0x74, 0x79, 0x70]) { return "mp4" }
+        if bytes[0...3].elementsEqual([0x1A, 0x45, 0xDF, 0xA3]) { return "webm" }
+        return "mpg"
+    }
+
     public static func kind(of url: URL) -> DownloadMediaKind? {
         if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
            CGImageSourceGetCount(source) > 0 {
