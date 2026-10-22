@@ -181,24 +181,21 @@ final class ProfileRuntime {
         if descriptor.usesLegacyStorage == false {
             try FileManager.default.createDirectory(at: layout.root, withIntermediateDirectories: true)
         }
-        let container = try ModelContainerFactory.make(
-            storeURL: descriptor.usesLegacyStorage ? nil : layout.storeURL
-        )
+        let resources = try await ProfileDownloadResources.get(descriptor: descriptor, profilesRoot: profilesRoot)
+        let container = resources.container
         self.container = container
 
         let defaults = UserDefaults(suiteName: Self.defaultsSuiteName(for: descriptor.id)) ?? .standard
-        let index = DeviceSyncIndexStore(root: layout.deviceSyncIndexRoot)
-        let files = DownloadFileStore(root: layout.downloadsRoot, indexSink: index)
+        let index = resources.index
+        let files = resources.files
         let cache = GalleryCacheStore(root: layout.galleryCacheRoot)
         let tagProvider = TagSuggestionProvider(cacheURL: layout.tagDatabaseURL)
-        let store = await Task.detached(priority: .utility) {
-            PersistenceStore(modelContainer: container)
-        }.value
+        let store = resources.store
         model = AppModel(
             container: container,
             persistenceStore: store,
             beforeLocalRestore: beforeLocalRestore,
-            sessionVault: SessionVault(service: Self.keychainServiceName(for: descriptor.id)),
+            sessionVault: resources.vault,
             defaults: defaults,
             downloadFiles: files,
             translationRoot: layout.translationRoot,
@@ -209,6 +206,7 @@ final class ProfileRuntime {
             deviceSyncIndex: index,
             deviceSyncTransactionRoot: layout.deviceSyncTransactionRoot,
             backgroundDownloadIdentifier: "com.liao.ehviewer.background-downloads.\(descriptor.id.uuidString)",
+            downloadSession: resources.session,
             profileID: descriptor.id
         )
     }
@@ -219,6 +217,88 @@ final class ProfileRuntime {
 
     static func keychainServiceName(for id: UUID) -> String {
         "com.liao.ehviewer.profile.\(id.uuidString)"
+    }
+}
+
+/// Shares the same download session and store between a UIKit background
+/// launch and the subsequently constructed profile UI.
+@MainActor
+final class ProfileDownloadResources {
+    private static var pending: [String: Task<ProfileDownloadResources, Error>] = [:]
+    private static var legacySessions: [String: BackgroundDownloadSession] = [:]
+    let container: ModelContainer
+    let store: PersistenceStore
+    let index: DeviceSyncIndexStore
+    let files: DownloadFileStore
+    let vault: SessionVault
+    let session: BackgroundDownloadSession
+
+    private init(descriptor: ProfileDescriptor, profilesRoot: URL) async throws {
+        let layout = descriptor.usesLegacyStorage
+            ? ProfileStorageLayout.legacy(for: descriptor.id)
+            : ProfileStorageLayout.isolated(for: descriptor.id, profilesRoot: profilesRoot)
+        try FileManager.default.createDirectory(at: layout.root, withIntermediateDirectories: true)
+        let container = try ModelContainerFactory.make(storeURL: descriptor.usesLegacyStorage ? nil : layout.storeURL)
+        self.container = container
+        let store = await Task.detached(priority: .utility) { PersistenceStore(modelContainer: container) }.value
+        self.store = store
+        let index = DeviceSyncIndexStore(root: layout.deviceSyncIndexRoot)
+        self.index = index
+        files = DownloadFileStore(root: layout.downloadsRoot, indexSink: index)
+        vault = SessionVault(service: ProfileRuntime.keychainServiceName(for: descriptor.id))
+        let defaults = UserDefaults(suiteName: ProfileRuntime.defaultsSuiteName(for: descriptor.id)) ?? .standard
+        session = makeBackgroundDownloadSession(
+            identifier: "com.liao.ehviewer.background-downloads.\(descriptor.id.uuidString)",
+            profileID: descriptor.id.uuidString, client: EHClient(sessionVault: vault),
+            vault: vault, store: store, files: files,
+            fallbackSite: SiteMode(rawValue: defaults.string(forKey: "site") ?? "") ?? .eHentai
+        )
+    }
+
+    static func get(descriptor: ProfileDescriptor, profilesRoot: URL) async throws -> ProfileDownloadResources {
+        let key = profilesRoot.path + "/" + descriptor.id.uuidString
+        if let task = pending[key] { return try await task.value }
+        let task = Task { try await ProfileDownloadResources(descriptor: descriptor, profilesRoot: profilesRoot) }
+        pending[key] = task
+        do { return try await task.value }
+        catch { pending[key] = nil; throw error }
+    }
+
+    static func release(id: UUID, profilesRoot: URL) {
+        pending[profilesRoot.path + "/" + id.uuidString] = nil
+    }
+
+    static func stopLegacyTransfers() async {
+        for session in legacySessions.values { await session.cancelAll() }
+    }
+
+    static func reconnect(identifier: String, profilesRoot: URL = ProfileStorageLayout.profilesRoot) async throws {
+        let prefix = "com.liao.ehviewer.background-downloads."
+        let registry = try JSONDecoder().decode(ProfileRegistryDocument.self, from: Data(contentsOf: profilesRoot.appendingPathComponent("registry.json")))
+        if identifier == "com.liao.ehviewer.background-downloads" {
+            guard let descriptor = registry.profiles.first(where: { $0.usesLegacyStorage && !$0.isDeleting }) else {
+                throw ProfileSessionError.profileNotFound
+            }
+            let resources = try await get(descriptor: descriptor, profilesRoot: profilesRoot)
+            if legacySessions[identifier] == nil {
+                legacySessions[identifier] = makeBackgroundDownloadSession(
+                    identifier: identifier, profileID: nil, client: EHClient(sessionVault: resources.vault),
+                    vault: resources.vault, store: resources.store, files: resources.files,
+                    fallbackSite: .eHentai,
+                    queueRoot: resources.files.backgroundTransfersRoot.appendingPathComponent("Legacy")
+                )
+            }
+            await legacySessions[identifier]?.reconnect()
+            return
+        }
+        guard identifier.hasPrefix(prefix), let id = UUID(uuidString: String(identifier.dropFirst(prefix.count))) else {
+            throw ProfileSessionError.profileNotFound
+        }
+        guard let descriptor = registry.profiles.first(where: { $0.id == id && !$0.isDeleting }) else {
+            throw ProfileSessionError.profileNotFound
+        }
+        let resources = try await get(descriptor: descriptor, profilesRoot: profilesRoot)
+        await resources.session.reconnect()
     }
 }
 
@@ -358,6 +438,7 @@ final class ProfileSession {
             profiles[index].isDeleting = true
             try persistRegistry()
             if runtime?.descriptor.id == id { await closeRuntime() }
+            ProfileDownloadResources.release(id: id, profilesRoot: profilesRoot)
             try await cleanup(profile: profiles[index])
             profiles.remove(at: index)
             if selectedProfileID == id {
@@ -415,6 +496,7 @@ final class ProfileSession {
         activationID = UUID()
         guard let runtime else { return }
         await runtime.model.shutdown()
+        if runtime.descriptor.usesLegacyStorage { await ProfileDownloadResources.stopLegacyTransfers() }
         self.runtime = nil
     }
 

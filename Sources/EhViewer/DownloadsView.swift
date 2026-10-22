@@ -2066,7 +2066,10 @@ private struct DownloadCard: View {
                     HStack {
                         Text(statusTitle)
                         Spacer()
-                        Text("\(job.completedPageIndexes.count)/\(job.totalPageCount) 页")
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("已准备 \(job.preparedPageIndexes.union(job.completedPageIndexes).count)/\(job.totalPageCount) 页")
+                            Text("已下载 \(job.completedPageIndexes.count)/\(job.totalPageCount) 页")
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -2221,6 +2224,9 @@ private struct DownloadGridCard: View, Equatable {
                                 .progressViewStyle(.linear)
                                 .tint(.white)
                             Text("\(Int((job.progress * 100).rounded()))%")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.white)
+                            Text("已准备 \(job.preparedPageIndexes.union(job.completedPageIndexes).count)/\(job.totalPageCount) 页")
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.white)
                         }

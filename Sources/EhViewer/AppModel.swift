@@ -17,6 +17,9 @@
  */
 
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 import CoreGraphics
 import Observation
 import SwiftData
@@ -251,7 +254,7 @@ final class AppModel {
     let deviceSync: DeviceSyncCoordinator
 #if os(iOS)
     let deviceSyncRuntime: DeviceSyncRuntime
-    let downloadBackgroundTask: DownloadBackgroundTaskController
+    let downloadPreparation: DownloadPreparationController
 #endif
     let deviceSyncIndex: DeviceSyncIndexStore
     let galleryCache: GalleryCacheStore
@@ -351,6 +354,7 @@ final class AppModel {
         deviceSyncIndex: DeviceSyncIndexStore? = nil,
         deviceSyncTransactionRoot: URL? = nil,
         backgroundDownloadIdentifier: String = "com.liao.ehviewer.background-downloads",
+        downloadSession: BackgroundDownloadSession? = nil,
         profileID: UUID? = nil
     ) {
         let arguments = ProcessInfo.processInfo.arguments
@@ -451,84 +455,16 @@ final class AppModel {
 #endif
         self.galleryCache = galleryCache ?? GalleryCacheStore()
         self.galleryCoverLoader = galleryCoverLoader ?? GalleryCoverLoader()
-        let expectedProfileID = profileID?.uuidString
-        let backgroundSession = BackgroundDownloadSession(
-            identifier: backgroundDownloadIdentifier,
-            taskObserver: { description, identifier in
-                guard let parsed = parseDownloadTaskDescription(description),
-                      parsed.profileID == expectedProfileID else { return }
-                let (key, pageIndex) = (parsed.key, parsed.pageIndex)
-                try? await store.setBackgroundTaskIdentifier(identifier, for: key, pageIndex: pageIndex)
-            },
-            orphanCompletion: { description, data, statusCode in
-                guard (200..<300).contains(statusCode),
-                      let parsed = parseDownloadTaskDescription(description),
-                      parsed.profileID == expectedProfileID else { return }
-                let (key, pageIndex) = (parsed.key, parsed.pageIndex)
-                do {
-                    _ = try await fileStore.write(data, for: key, pageIndex: pageIndex)
-                    try await store.markDownloadPageCompleted(for: key, pageIndex: pageIndex, bytes: Int64(data.count))
-                } catch {
-                    return
-                }
-            }
+        let backgroundSession = downloadSession ?? makeBackgroundDownloadSession(
+            identifier: backgroundDownloadIdentifier, profileID: profileID?.uuidString,
+            client: client, vault: sessionVault, store: store, files: fileStore,
+            fallbackSite: selectedSite
         )
         self.backgroundSession = backgroundSession
         let downloadClient = client
         let downloadSite = selectedSite
         downloads = DownloadCoordinator(
-            pageLoader: { descriptor in
-                let pageSite = SiteMode.allCases.first { $0.host == descriptor.pageURL.host?.lowercased() } ?? downloadSite
-                var pageDescriptor = descriptor
-                var lastValidationError: EHError?
-
-                for attempt in 0..<5 {
-                    try Task.checkCancellation()
-                    let pageImage: GalleryPageImage
-                    if pageDescriptor.requiresPageResolution {
-                        pageImage = try await downloadClient.pageImage(for: pageDescriptor, site: pageSite)
-                    } else {
-                        pageImage = GalleryPageImage(
-                            galleryKey: pageDescriptor.galleryKey,
-                            index: pageDescriptor.index,
-                            imageURL: pageDescriptor.pageURL
-                        )
-                    }
-
-                    var request = URLRequest(url: pageImage.imageURL)
-                    request.httpMethod = "GET"
-                    request.setValue("image/avif,image/webp,image/apng,video/mp4,video/*,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
-                    request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
-                    request.setValue(pageDescriptor.pageURL.absoluteString, forHTTPHeaderField: "Referer")
-                    if CookieHeader.isTrustedURL(pageImage.imageURL),
-                       let cookieHeader = try? await sessionVault.loadAuthenticatedCookieHeader() {
-                        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
-                    }
-
-                    let data = try await backgroundSession.data(
-                        for: request,
-                        taskDescription: makeDownloadTaskDescription(
-                            profileID: expectedProfileID,
-                            key: descriptor.galleryKey,
-                            pageIndex: descriptor.index
-                        )
-                    )
-                    do {
-                        try DownloadMediaValidator.validate(data)
-                        return data
-                    } catch let error as EHError {
-                        lastValidationError = error
-                        guard attempt < 4 else { throw error }
-                        if descriptor.requiresPageResolution,
-                           let skipHathKey = pageImage.skipHathKey {
-                            pageDescriptor = Self.pageDescriptor(descriptor, skippingHathNodeWith: skipHathKey)
-                        } else {
-                            pageDescriptor = descriptor
-                        }
-                    }
-                }
-                throw lastValidationError ?? EHError.parsingFailed(String(localized: "下载结果不是有效图片或视频"))
-            },
+            transferService: backgroundSession,
             pageListLoader: { job, index in
                 try await downloadClient.previewPages(for: job.key, site: job.sourceSite ?? downloadSite, startingAt: index)
             },
@@ -547,11 +483,12 @@ final class AppModel {
                     completedPageIndexes: job.completedPageIndexes,
                     stateRaw: job.state.rawValue,
                     errorMessage: job.errorMessage,
-                    label: job.label
+                    label: job.label,
+                    preservingCompletedPages: job.state != .queued
                 )
             },
             batchPersistence: { jobs in
-                try? await store.upsertDownloads(jobs.map(makePersistedDownloadSnapshot))
+                try? await store.upsertDownloads(jobs.map(makePersistedDownloadSnapshot), preservingCompletedPages: true)
             },
             removal: { key in
                 if (try await translationFiles.manifests(for: key)).isEmpty == false,
@@ -571,7 +508,7 @@ final class AppModel {
             }
         )
         #if os(iOS)
-        self.downloadBackgroundTask = DownloadBackgroundTaskController(coordinator: self.downloads)
+        self.downloadPreparation = DownloadPreparationController(coordinator: self.downloads)
         #endif
         startupMaintenanceTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -647,7 +584,7 @@ final class AppModel {
             for await event in await downloads.events() {
                 guard let self else { return }
                 #if os(iOS)
-                self.downloadBackgroundTask.update(event)
+                self.downloadPreparation.update(event)
                 #endif
                 switch event {
                 case .reset, .removed, .removedMany:
@@ -690,7 +627,7 @@ final class AppModel {
         await backgroundSession.cancelAll()
 #if os(iOS)
         deviceSyncRuntime.shutdown()
-        downloadBackgroundTask.shutdown()
+        downloadPreparation.shutdown()
 #endif
         deviceSync.stop()
         await galleryCoverLoader.removeAll()
@@ -2402,26 +2339,6 @@ final class AppModel {
         )
     }
 
-    nonisolated private static func pageDescriptor(
-        _ descriptor: GalleryPageDescriptor,
-        skippingHathNodeWith key: String
-    ) -> GalleryPageDescriptor {
-        guard var components = URLComponents(url: descriptor.pageURL, resolvingAgainstBaseURL: false) else {
-            return descriptor
-        }
-        var queryItems = components.queryItems ?? []
-        queryItems.removeAll { $0.name == "nl" }
-        queryItems.append(URLQueryItem(name: "nl", value: key))
-        components.queryItems = queryItems
-        guard let pageURL = components.url else { return descriptor }
-        return GalleryPageDescriptor(
-            galleryKey: descriptor.galleryKey,
-            index: descriptor.index,
-            pageURL: pageURL,
-            previewURL: descriptor.previewURL
-        )
-    }
-
     /// Reloads downloads after device sync without resolving missing pages
     /// through the website or automatically starting queued jobs. Device sync
     /// owns only local media and must not turn a partial reconciliation into a
@@ -2447,6 +2364,7 @@ final class AppModel {
         localDownloadLoadError = nil
         let persisted: [PersistedDownload]
         do {
+            await backgroundSession.reconnect()
             if let downloadBaselineLoader {
                 persisted = try await downloadBaselineLoader()
             } else {
@@ -2477,6 +2395,9 @@ final class AppModel {
         _ = await downloads.reconcilePersisted(reconciliations)
         progress?(persisted.count, persisted.count)
         if startQueued, !Task.isCancelled, !isShuttingDown {
+            #if os(iOS)
+            await downloads.setPreparationEnabled(UIApplication.shared.applicationState == .active)
+            #endif
             await downloads.startRestoredJobs()
         }
         let restoredSummaries = await downloadedSummaries
@@ -2549,9 +2470,6 @@ final class AppModel {
             } else if job.state == .completed {
                 job.state = .paused
                 job.errorMessage = String(localized: "部分下载页面信息缺失，请继续下载")
-            } else if item.inFlightPageIndexes.isEmpty == false {
-                job.state = .paused
-                job.errorMessage = String(localized: "后台下载任务恢复中")
             }
             reconciliations.append((job: job, baseline: baseline))
         }
@@ -2572,10 +2490,6 @@ final class AppModel {
         job.state = normalizedRestoredState(item.stateRaw)
         job.label = item.label
         job.errorMessage = item.errorMessage
-        if item.inFlightPageIndexes.isEmpty == false {
-            job.state = .paused
-            job.errorMessage = String(localized: "后台下载任务恢复中")
-        }
         return job
     }
 
@@ -4113,13 +4027,6 @@ private struct BackgroundDownloadTaskDescription: Sendable {
     let pageIndex: Int
 }
 
-private func makeDownloadTaskDescription(profileID: String?, key: GalleryKey, pageIndex: Int) -> String {
-    if let profileID {
-        return "\(profileID)|\(key.gid)|\(key.token)|\(pageIndex)"
-    }
-    return "\(key.gid)|\(key.token)|\(pageIndex)"
-}
-
 private func parseDownloadTaskDescription(_ description: String) -> BackgroundDownloadTaskDescription? {
     let pieces = description.split(separator: "|", omittingEmptySubsequences: false)
     let offset: Int
@@ -4135,11 +4042,63 @@ private func parseDownloadTaskDescription(_ description: String) -> BackgroundDo
         return nil
     }
     guard let gid = Int64(pieces[offset]),
-          let pageIndex = Int(pieces[offset + 2]),
+          let pageIndex = Int(pieces[offset + 2]), pageIndex >= 0,
           pieces[offset + 1].isEmpty == false else { return nil }
     return BackgroundDownloadTaskDescription(
         profileID: profileID,
         key: GalleryKey(gid: gid, token: String(pieces[offset + 1])),
         pageIndex: pageIndex
+    )
+}
+
+func makeBackgroundDownloadSession(
+    identifier: String, profileID: String?, client: any EHAPI,
+    vault: SessionVault, store: PersistenceStore, files: DownloadFileStore,
+    fallbackSite: SiteMode, queueRoot: URL? = nil
+) -> BackgroundDownloadSession {
+    BackgroundDownloadSession(
+        identifier: identifier,
+        root: queueRoot ?? files.backgroundTransfersRoot,
+        resolver: { page in
+            let site = SiteMode.allCases.first { $0.host == page.pageURL.host?.lowercased() } ?? fallbackSite
+            if page.requiresPageResolution { return try await client.pageImage(for: page, site: site) }
+            return GalleryPageImage(galleryKey: page.galleryKey, index: page.index, imageURL: page.pageURL)
+        },
+        requestBuilder: { page, image in
+            var request = URLRequest(url: image.imageURL)
+            request.httpMethod = "GET"
+            request.setValue("image/avif,image/webp,image/apng,video/mp4,video/*,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            request.setValue("EhViewer/0.1 (personal use)", forHTTPHeaderField: "User-Agent")
+            request.setValue(page.pageURL.absoluteString, forHTTPHeaderField: "Referer")
+            if CookieHeader.isTrustedURL(image.imageURL), let cookie = try? await vault.loadAuthenticatedCookieHeader() {
+                request.setValue(cookie, forHTTPHeaderField: "Cookie")
+            }
+            return request
+        },
+        fileCompletion: { ticket, url in
+            guard try await store.acceptsDownloadCompletion(for: ticket.page.galleryKey) else { throw CancellationError() }
+            try await files.publishBackgroundFile(at: url, ticket: ticket)
+            try await store.completeBackgroundDownloadPage(for: ticket.page.galleryKey, pageIndex: ticket.page.index)
+        },
+        taskObserver: { page, identifier in
+            try await store.setBackgroundTaskIdentifier(identifier, for: page.galleryKey, pageIndex: page.index)
+        },
+        batchObserver: { key, batchID in await files.setDownloadBatch(batchID, for: key) },
+        legacyCompletion: { description, url, status in
+            guard (200..<300).contains(status), let parsed = parseDownloadTaskDescription(description),
+                  parsed.profileID == profileID,
+                  try await store.acceptsDownloadCompletion(for: parsed.key) else { return }
+            let finalURL = await files.finalURL(for: parsed.key, pageIndex: parsed.pageIndex)
+            if FileManager.default.fileExists(atPath: url.path) {
+                _ = try await files.importFile(at: url, for: parsed.key, pageIndex: parsed.pageIndex)
+            } else {
+                try DownloadMediaValidator.validateFile(at: finalURL)
+            }
+            try await store.completeBackgroundDownloadPage(for: parsed.key, pageIndex: parsed.pageIndex)
+        },
+        legacyIdentity: { description in
+            guard let parsed = parseDownloadTaskDescription(description), parsed.profileID == profileID else { return nil }
+            return (parsed.key, parsed.pageIndex)
+        }
     )
 }

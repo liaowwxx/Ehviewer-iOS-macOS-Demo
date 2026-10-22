@@ -13,11 +13,12 @@ struct AppModelTests {
         let requests = AsyncStream<SiteMode>.makeStream()
         let api = DownloadPaginationSiteAPI(requests: requests.continuation)
         let suiteName = "EhViewerPaginationSite-\(UUID().uuidString)"
+        let files = DownloadFileStore(root: FileManager.default.temporaryDirectory.appendingPathComponent(suiteName))
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.set(SiteMode.eHentai.rawValue, forKey: "site")
         let model = AppModel(
             container: try ModelContainerFactory.make(inMemory: true), api: api,
-            sessionVault: SessionVault(service: suiteName), defaults: defaults
+            sessionVault: SessionVault(service: suiteName), defaults: defaults, downloadFiles: files
         )
         await model.waitUntilReady()
         model.site = .exHentai
@@ -1664,13 +1665,15 @@ struct AppModelTests {
     @Test("Enqueue keeps page URLs so each download attempt can resolve a fresh image node")
     func enqueueKeepsResolvablePageURL() async throws {
         let suiteName = "EhViewerResolvableDownloadTests-\(UUID().uuidString)"
+        let files = DownloadFileStore(root: FileManager.default.temporaryDirectory.appendingPathComponent(suiteName))
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let model = AppModel(
             container: try ModelContainerFactory.make(inMemory: true),
             api: OfflineReaderAPI(),
             sessionVault: SessionVault(service: suiteName),
-            defaults: defaults
+            defaults: defaults,
+            downloadFiles: files
         )
         let key = GalleryKey(gid: 23, token: "fresh")
         let pageURL = try #require(URL(string: "https://e-hentai.org/s/page-token/23-1"))

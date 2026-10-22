@@ -125,3 +125,5 @@
 "清除历史" = "Borrar historial";
 "清除历史？" = "¿Borrar historial?";
 "仅清除本机浏览历史，保留每本书的阅读进度、收藏及下载内容。" = "Borra solo el historial local. Se conservan el progreso de cada libro, los favoritos y las descargas.";
+"已准备 %lld/%lld 页" = "%lld/%lld páginas preparadas";
+"已下载 %lld/%lld 页" = "%lld/%lld páginas descargadas";

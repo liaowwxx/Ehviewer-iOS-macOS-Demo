@@ -35,7 +35,6 @@ final class EhViewerAppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         DeviceSyncBackgroundTaskRegistry.shared.register()
-        DownloadBackgroundTaskRegistry.shared.register()
         return true
     }
 
@@ -44,7 +43,16 @@ final class EhViewerAppDelegate: NSObject, UIApplicationDelegate {
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping () -> Void
     ) {
-        BackgroundDownloadEvents.register(completionHandler)
+        BackgroundDownloadEvents.register(identifier: identifier, completionHandler)
+        Task {
+            do {
+                try await ProfileDownloadResources.reconnect(identifier: identifier)
+            } catch {
+                // An unknown/deleted profile cannot be reconstructed. Do not
+                // attach its files to whichever profile happens to be selected.
+                BackgroundDownloadEvents.finish(identifier: identifier)
+            }
+        }
     }
 }
 #endif

@@ -1170,7 +1170,8 @@ public actor PersistenceStore {
         completedPageIndexes: Set<Int>,
         stateRaw: String,
         errorMessage: String?,
-        label: String? = nil
+        label: String? = nil,
+        preservingCompletedPages: Bool = false
     ) async throws {
         let job = PersistedDownload(
             key: key,
@@ -1184,7 +1185,7 @@ public actor PersistenceStore {
             stateRaw: stateRaw,
             errorMessage: errorMessage
         )
-        try applyDownload(job)
+        try applyDownload(job, preservingCompletedPages: preservingCompletedPages)
         try modelContext.save()
         await flushDeviceSyncIndex()
     }
@@ -1193,22 +1194,22 @@ public actor PersistenceStore {
     /// Startup reconciliation can touch hundreds of jobs; saving each job
     /// independently makes the store repeatedly rebuild the same indexes and
     /// flush the device-sync metadata queue.
-    public func upsertDownloads(_ jobs: [PersistedDownload]) async throws {
+    public func upsertDownloads(_ jobs: [PersistedDownload], preservingCompletedPages: Bool = false) async throws {
         guard jobs.isEmpty == false else { return }
         for job in jobs {
-            try applyDownload(job)
+            try applyDownload(job, preservingCompletedPages: preservingCompletedPages)
         }
         try modelContext.save()
         await flushDeviceSyncIndex()
     }
 
-    private func applyDownload(_ job: PersistedDownload) throws {
+    private func applyDownload(_ job: PersistedDownload, preservingCompletedPages: Bool = false) throws {
         let key = job.key
         let title = job.title
         let japaneseTitle = job.japaneseTitle
         let tags = job.tags
         let pages = job.pages
-        let completedPageIndexes = job.completedPageIndexes
+        var completedPageIndexes = job.completedPageIndexes
         let stateRaw = job.stateRaw
         let errorMessage = job.errorMessage
         let label = job.label
@@ -1241,6 +1242,11 @@ public actor PersistenceStore {
         } else {
             record = DownloadJobRecord(key: key, title: title, japaneseTitle: japaneseTitle, totalPages: pages.count)
             modelContext.insert(record)
+        }
+        if preservingCompletedPages {
+            completedPageIndexes.formUnion(record.pages.filter {
+                $0.stateRaw == "completed" && $0.pageIndex >= 0 && $0.pageIndex < job.totalPageCount
+            }.map(\.pageIndex))
         }
         record.title = title
         record.japaneseTitle = japaneseTitle
@@ -1343,6 +1349,20 @@ public actor PersistenceStore {
         page.backgroundTaskIdentifier = identifier
         record.updatedAt = Date()
         try modelContext.save()
+    }
+
+    public func acceptsDownloadCompletion(for key: GalleryKey) throws -> Bool {
+        var descriptor = FetchDescriptor<DownloadJobRecord>(predicate: #Predicate {
+            $0.gid == key.gid && $0.token == key.token
+        })
+        descriptor.fetchLimit = 1
+        guard let record = try modelContext.fetch(descriptor).first else { return false }
+        return record.stateRaw == "queued" || record.stateRaw == "running" || record.stateRaw == "completed"
+    }
+
+    public func completeBackgroundDownloadPage(for key: GalleryKey, pageIndex: Int) throws {
+        guard try acceptsDownloadCompletion(for: key) else { throw CancellationError() }
+        try markDownloadPageCompleted(for: key, pageIndex: pageIndex)
     }
 
     public func markDownloadPageCompleted(for key: GalleryKey, pageIndex: Int, bytes: Int64? = nil) throws {

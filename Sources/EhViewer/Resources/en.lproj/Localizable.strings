@@ -670,3 +670,5 @@
 "清除历史" = "Clear History";
 "清除历史？" = "Clear History?";
 "仅清除本机浏览历史，保留每本书的阅读进度、收藏及下载内容。" = "Clears only local history. Reading progress for each book, favorites, and downloads are preserved.";
+"已准备 %lld/%lld 页" = "Prepared %lld/%lld pages";
+"已下载 %lld/%lld 页" = "Downloaded %lld/%lld pages";

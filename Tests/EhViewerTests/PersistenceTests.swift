@@ -210,6 +210,21 @@ struct PersistenceTests {
         #expect(try await store.downloadJobs().isEmpty)
     }
 
+    @Test("A stale running snapshot preserves freshly completed background pages; redownload resets them")
+    func backgroundCompletionSurvivesStaleSnapshot() async throws {
+        let store = PersistenceStore(modelContainer: try ModelContainerFactory.make(inMemory: true))
+        let key = GalleryKey(gid: 812, token: "concurrent-completion")
+        let page = GalleryPageDescriptor(galleryKey: key, index: 0, pageURL: URL(string: "https://example.invalid/page")!)
+        try await store.upsertDownload(key: key, title: "Concurrent", pages: [page], totalPageCount: 2, completedPageIndexes: [], stateRaw: "running", errorMessage: nil)
+        try await store.completeBackgroundDownloadPage(for: key, pageIndex: 0)
+        try await store.upsertDownload(key: key, title: "Concurrent", pages: [page], totalPageCount: 2, completedPageIndexes: [], stateRaw: "running", errorMessage: nil, preservingCompletedPages: true)
+        #expect(try await store.downloadJobs().first?.completedPageIndexes == [0])
+        try await store.upsertDownload(key: key, title: "Concurrent", pages: [page], totalPageCount: 2, completedPageIndexes: [], stateRaw: "queued", errorMessage: nil)
+        #expect(try await store.downloadJobs().first?.completedPageIndexes.isEmpty == true)
+        try await store.upsertDownload(key: key, title: "Concurrent", pages: [page], totalPageCount: 2, completedPageIndexes: [], stateRaw: "paused", errorMessage: nil)
+        await #expect(throws: CancellationError.self) { try await store.completeBackgroundDownloadPage(for: key, pageIndex: 0) }
+    }
+
     @Test("Download baseline can skip the separate metadata blob")
     func downloadBaselineCanSkipMetadataBlob() async throws {
         let container = try ModelContainerFactory.make(inMemory: true)

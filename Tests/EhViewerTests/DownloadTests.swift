@@ -98,7 +98,7 @@ struct DownloadTests {
         Issue.record("Expected a pagination failure")
     }
 
-    @Test("Large downloads acquire page lists only after downloading the current batch", .timeLimit(.minutes(1)))
+    @Test("Legacy page loaders retain demand-driven pagination", .timeLimit(.minutes(1)))
     func largeDownloadPageListsAreDemandDriven() async throws {
         let key = GalleryKey(gid: 1001, token: "demand")
         let probe = DemandDownloadProbe(key: key, total: 1001)

@@ -124,9 +124,26 @@ public enum DownloadReceiveError: Error, LocalizedError, Sendable, Equatable {
 
 public actor DownloadFileStore {
     private let root: URL
+    public nonisolated let backgroundTransfersRoot: URL
     private let minimumFreeBytes: Int64
     private var indexSink: (any DeviceSyncIndexSink)?
     private var receivingPages: [UUID: ReceivingPage] = [:]
+    private var downloadBatches: [GalleryKey: UUID] = [:]
+
+    public func setDownloadBatch(_ batchID: UUID?, for key: GalleryKey) {
+        downloadBatches[key] = batchID
+    }
+
+    public func publishBackgroundFile(at url: URL, ticket: DownloadTransferTicket) async throws {
+        let key = ticket.page.galleryKey
+        guard downloadBatches[key] == ticket.batchID else { throw CancellationError() }
+        // A crash may happen after publication but before the completion bitmap
+        // is saved. Replaying its durable receipt must still finish that save.
+        if !FileManager.default.fileExists(atPath: url.path),
+           DownloadMediaValidator.kind(of: finalURL(for: key, pageIndex: ticket.page.index)) != nil { return }
+        _ = try await importFile(at: url, for: key, pageIndex: ticket.page.index)
+        guard downloadBatches[key] == ticket.batchID else { throw CancellationError() }
+    }
 
     private struct ReceivingPage {
         let key: GalleryKey
@@ -156,6 +173,7 @@ public actor DownloadFileStore {
     ) {
         var resolvedRoot = root ?? Self.defaultRoot
         self.root = resolvedRoot
+        self.backgroundTransfersRoot = resolvedRoot.appendingPathComponent(".background-transfers", isDirectory: true)
         self.minimumFreeBytes = minimumFreeBytes
         self.indexSink = indexSink
         try? FileManager.default.createDirectory(at: resolvedRoot, withIntermediateDirectories: true)

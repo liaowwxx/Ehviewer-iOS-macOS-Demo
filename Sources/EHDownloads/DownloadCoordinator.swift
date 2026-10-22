@@ -42,6 +42,7 @@ public struct DownloadJob: Identifiable, Hashable, Sendable {
     public let addedAt: Date
     public var label: String?
     public var completedPageIndexes: Set<Int>
+    public var preparedPageIndexes: Set<Int> = []
     public var state: DownloadState
     public var errorMessage: String?
 
@@ -249,6 +250,9 @@ public actor DownloadCoordinator {
     private let pageListLoader: (@Sendable (DownloadJob, Int) async throws -> [GalleryPageDescriptor])?
     private let pageCompletionPersistence: (@Sendable (GalleryKey, Int) async -> Void)?
     private let maxConcurrentPages: Int
+    private let transferService: (any DownloadTransferService)?
+    private var preparationEnabled = true
+    private var preparationWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     private let fileStore: DownloadFileStore?
     private let persistence: JobPersistence?
     private let batchPersistence: BatchJobPersistence?
@@ -257,6 +261,7 @@ public actor DownloadCoordinator {
 
     public init(
         maxConcurrentPages: Int = 3,
+        transferService: (any DownloadTransferService)? = nil,
         pageLoader: @escaping PageLoader = DownloadCoordinator.defaultPageLoader,
         pageListLoader: (@Sendable (DownloadJob, Int) async throws -> [GalleryPageDescriptor])? = nil,
         pageCompletionPersistence: (@Sendable (GalleryKey, Int) async -> Void)? = nil,
@@ -267,6 +272,7 @@ public actor DownloadCoordinator {
         batchRemoval: BatchJobRemoval? = nil
     ) {
         self.maxConcurrentPages = max(1, maxConcurrentPages)
+        self.transferService = transferService
         self.pageLoader = pageLoader
         self.pageListLoader = pageListLoader
         self.pageCompletionPersistence = pageCompletionPersistence
@@ -313,6 +319,7 @@ public actor DownloadCoordinator {
         tasks[key]?.cancel()
         job.state = .paused
         jobs[key] = job
+        await transferService?.cancel(key)
         await save(job)
         emit(.changed(job))
     }
@@ -361,6 +368,7 @@ public actor DownloadCoordinator {
             guard job.state == .running || job.state == .queued else { continue }
             job.state = .paused
             jobs[key] = job
+            await transferService?.cancel(key)
             await save(job)
             emit(.changed(job))
         }
@@ -384,6 +392,7 @@ public actor DownloadCoordinator {
         guard var job = jobs[key] else { return }
         job.state = .cancelled
         jobs[key] = job
+        await transferService?.cancel(key, preservingStagedFiles: false)
         await save(job)
         emit(.changed(job))
         startNextQueuedJobIfNeeded()
@@ -395,6 +404,7 @@ public actor DownloadCoordinator {
         tasks[key] = nil
         runTokens[key] = nil
         if activeKey == key { activeKey = nil }
+        await transferService?.cancel(key, preservingStagedFiles: false)
 
         do {
             if let fileStore { try await fileStore.remove(key) }
@@ -403,6 +413,7 @@ public actor DownloadCoordinator {
                 return .removed
             }
             job.completedPageIndexes = []
+            job.preparedPageIndexes = []
             job.state = .queued
             job.errorMessage = nil
             jobs[key] = job
@@ -433,6 +444,7 @@ public actor DownloadCoordinator {
         tasks[key] = nil
         runTokens[key] = nil
         if activeKey == key { activeKey = nil }
+        await transferService?.cancel(key, preservingStagedFiles: false)
 
         do {
             await waitForPendingPersistence(for: key)
@@ -485,6 +497,7 @@ public actor DownloadCoordinator {
             tasks[key] = nil
             runTokens[key] = nil
             if activeKey == key { activeKey = nil }
+            await transferService?.cancel(key, preservingStagedFiles: false)
         }
 
         for key in uniqueKeys {
@@ -623,6 +636,7 @@ public actor DownloadCoordinator {
                     addedAt: min(existing.addedAt, incoming.addedAt)
                 )
                 merged.completedPageIndexes = completedIndexes.intersection(expectedIndexes)
+                merged.preparedPageIndexes = existing.preparedPageIndexes.union(incoming.preparedPageIndexes).intersection(expectedIndexes)
                 if expectedIndexes.count == merged.totalPageCount && expectedIndexes.isEmpty == false && merged.completedPageIndexes == expectedIndexes {
                     merged.state = .completed
                     merged.errorMessage = nil
@@ -743,6 +757,32 @@ public actor DownloadCoordinator {
         startNextQueuedJobIfNeeded()
     }
 
+    public func setPreparationEnabled(_ enabled: Bool) async {
+        preparationEnabled = enabled
+        await transferService?.setPreparationEnabled(enabled)
+        if enabled {
+            let waiters = preparationWaiters
+            preparationWaiters.removeAll()
+            waiters.values.forEach { $0.resume() }
+        }
+    }
+
+    private func waitForPreparation() async throws {
+        try Task.checkCancellation()
+        guard preparationEnabled == false else { return }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { preparationWaiters[id] = $0 }
+        } onCancel: {
+            Task { await self.cancelPreparationWaiter(id) }
+        }
+        try Task.checkCancellation()
+    }
+
+    private func cancelPreparationWaiter(_ id: UUID) {
+        preparationWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
     private func startNextQueuedJobIfNeeded() {
         guard activeKey == nil,
               let next = jobs.values
@@ -778,55 +818,59 @@ public actor DownloadCoordinator {
         emit(.changed(job))
 
         do {
-            while true {
-                try Task.checkCancellation()
-                guard runTokens[key] == runToken, let latest = jobs[key], latest.state == .running else { return }
-                let batch = Array(latest.pages.filter { latest.completedPageIndexes.contains($0.index) == false }.prefix(maxConcurrentPages))
-                if batch.isEmpty {
-                    guard let missingIndex = (0..<latest.totalPageCount).first(where: { !latest.completedPageIndexes.contains($0) }) else { break }
-                    guard let pageListLoader else { throw EHError.parsingFailed(String(localized: "部分下载页面信息缺失，请继续下载")) }
-                    let loadedPages = try await pageListLoader(latest, missingIndex)
+            if let transferService {
+                try await runTransfers(key: key, runToken: runToken, service: transferService)
+            } else {
+                while true {
                     try Task.checkCancellation()
-                    guard runTokens[key] == runToken, var current = jobs[key], current.state == .running else { return }
-                    guard loadedPages.contains(where: { $0.galleryKey == key && $0.index == missingIndex }) else {
-                        throw EHError.parsingFailed(String(localized: "无法获取第 \(missingIndex + 1) 页的页面信息，请重试。"))
-                    }
-                    var byIndex = Dictionary(current.pages.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
-                    for page in loadedPages where page.galleryKey == key && page.index >= 0 && page.index < current.totalPageCount {
-                        byIndex[page.index] = page
-                    }
-                    current.pages = byIndex.values.sorted { $0.index < $1.index }
-                    jobs[key] = current
-                    await save(current)
-                    continue
-                }
-
-                try await withThrowingTaskGroup(of: Int.self) { group in
-                    for page in batch {
-                        group.addTask { [pageLoader, fileStore] in
-                            let data = try await Self.loadWithRetry(page, loader: pageLoader)
-                            if let fileStore {
-                                _ = try await fileStore.write(data, for: page.galleryKey, pageIndex: page.index)
-                            }
-                            return page.index
-                        }
-                    }
-                    for try await index in group {
+                    guard runTokens[key] == runToken, let latest = jobs[key], latest.state == .running else { return }
+                    let batch = Array(latest.pages.filter { latest.completedPageIndexes.contains($0.index) == false }.prefix(maxConcurrentPages))
+                    if batch.isEmpty {
+                        guard let missingIndex = (0..<latest.totalPageCount).first(where: { !latest.completedPageIndexes.contains($0) }) else { break }
+                        guard let pageListLoader else { throw EHError.parsingFailed(String(localized: "部分下载页面信息缺失，请继续下载")) }
+                        let loadedPages = try await pageListLoader(latest, missingIndex)
                         try Task.checkCancellation()
-                        guard runTokens[key] == runToken,
-                              var current = jobs[key], current.state == .running else {
-                            group.cancelAll()
-                            return
+                        guard runTokens[key] == runToken, var current = jobs[key], current.state == .running else { return }
+                        guard loadedPages.contains(where: { $0.galleryKey == key && $0.index == missingIndex }) else {
+                            throw EHError.parsingFailed(String(localized: "无法获取第 \(missingIndex + 1) 页的页面信息，请重试。"))
                         }
-                        current.completedPageIndexes.insert(index)
+                        var byIndex = Dictionary(current.pages.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+                        for page in loadedPages where page.galleryKey == key && page.index >= 0 && page.index < current.totalPageCount {
+                            byIndex[page.index] = page
+                        }
+                        current.pages = byIndex.values.sorted { $0.index < $1.index }
                         jobs[key] = current
-                        if let pageCompletionPersistence {
-                            await persistCompletion(key: key, index: index, writer: pageCompletionPersistence)
-                        } else {
-                            await save(current)
+                        await save(current)
+                        continue
+                    }
+
+                    try await withThrowingTaskGroup(of: Int.self) { group in
+                        for page in batch {
+                            group.addTask { [pageLoader, fileStore] in
+                                let data = try await Self.loadWithRetry(page, loader: pageLoader)
+                                if let fileStore {
+                                    _ = try await fileStore.write(data, for: page.galleryKey, pageIndex: page.index)
+                                }
+                                return page.index
+                            }
                         }
-                        if runTokens[key] == runToken, jobs[key] == current {
-                            emit(.changed(current))
+                        for try await index in group {
+                            try Task.checkCancellation()
+                            guard runTokens[key] == runToken,
+                                  var current = jobs[key], current.state == .running else {
+                                group.cancelAll()
+                                return
+                            }
+                            current.completedPageIndexes.insert(index)
+                            jobs[key] = current
+                            if let pageCompletionPersistence {
+                                await persistCompletion(key: key, index: index, writer: pageCompletionPersistence)
+                            } else {
+                                await save(current)
+                            }
+                            if runTokens[key] == runToken, jobs[key] == current {
+                                emit(.changed(current))
+                            }
                         }
                     }
                 }
@@ -866,7 +910,152 @@ public actor DownloadCoordinator {
             await save(failed)
             emit(.changed(failed))
         }
+        if runTokens[key] == runToken, jobs[key]?.state != .completed { await transferService?.cancel(key) }
         finishRun(key: key, runToken: runToken)
+    }
+
+    private enum TransferWork: Sendable {
+        case listed(Int, [GalleryPageDescriptor])
+        case prepared(DownloadTransferTicket)
+        case transferred(DownloadTransferTicket, EHError?)
+        case retry(GalleryPageDescriptor, Int)
+    }
+
+    /// Resolver slots are bounded; waiting for system transfers never consumes
+    /// a resolver slot. Page-list pagination has its own single slot.
+    private func runTransfers(key: GalleryKey, runToken: UUID, service: any DownloadTransferService) async throws {
+        guard let job = jobs[key] else { throw CancellationError() }
+        let batch = try await service.begin(job)
+        try Task.checkCancellation()
+        guard runTokens[key] == runToken, jobs[key]?.state == .running else { throw CancellationError() }
+        jobs[key]?.preparedPageIndexes = job.completedPageIndexes
+        var scheduled = job.completedPageIndexes
+        var pending: [(GalleryPageDescriptor, Int)] = []
+        var resolverCount = 0
+        var loadingList = false
+        var transientAttempts: [Int: Int] = [:]
+
+        try await withThrowingTaskGroup(of: TransferWork.self) { group in
+            for ticket in batch.tickets where !job.completedPageIndexes.contains(ticket.page.index) {
+                scheduled.insert(ticket.page.index)
+                jobs[key]?.preparedPageIndexes.insert(ticket.page.index)
+                group.addTask { try await Self.waitForTransfer(ticket, service: service) }
+            }
+            while true {
+                try Task.checkCancellation()
+                guard runTokens[key] == runToken, let current = jobs[key], current.state == .running else { throw CancellationError() }
+                for page in current.pages where scheduled.insert(page.index).inserted {
+                    pending.append((page, 0))
+                }
+                while resolverCount < maxConcurrentPages, !pending.isEmpty {
+                    let (page, attempt) = pending.removeFirst()
+                    resolverCount += 1
+                    group.addTask { [self] in
+                        var networkAttempt = 0
+                        while true {
+                            try await waitForPreparation()
+                            do {
+                                return .prepared(try await service.prepare(page, batchID: batch.id, attempt: attempt))
+                            } catch is CancellationError {
+                                try Task.checkCancellation()
+                                // Background execution expired while resolution was pending.
+                            } catch {
+                                guard Self.isTransient(error) else { throw error }
+                                try await Self.retryDelay(networkAttempt)
+                                networkAttempt = min(networkAttempt + 1, 9)
+                            }
+                        }
+                    }
+                }
+                let known = Set(current.pages.map(\.index))
+                if !loadingList, let missing = (0..<current.totalPageCount).first(where: { !known.contains($0) }) {
+                    guard let pageListLoader else { throw EHError.parsingFailed(String(localized: "部分下载页面信息缺失，请继续下载")) }
+                    loadingList = true
+                    group.addTask { [self] in
+                        var attempt = 0
+                        while true {
+                            try await waitForPreparation()
+                            do { return .listed(missing, try await pageListLoader(current, missing)) }
+                            catch {
+                                guard Self.isTransient(error) else { throw error }
+                                try await Self.retryDelay(attempt)
+                                attempt = min(attempt + 1, 9)
+                            }
+                        }
+                    }
+                }
+                if current.totalPageCount > 0, current.completedPageIndexes.count == current.totalPageCount { break }
+                guard let result = try await group.next() else {
+                    if current.totalPageCount == 0 { break }
+                    throw EHError.parsingFailed(String(localized: "部分下载页面信息缺失，请继续下载"))
+                }
+                guard runTokens[key] == runToken, var latest = jobs[key], latest.state == .running else { throw CancellationError() }
+                switch result {
+                case let .listed(missing, pages):
+                    loadingList = false
+                    guard pages.contains(where: { $0.galleryKey == key && $0.index == missing }) else {
+                        throw EHError.parsingFailed(String(localized: "无法获取第 \(missing + 1) 页的页面信息，请重试。"))
+                    }
+                    var byIndex = Dictionary(latest.pages.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+                    for page in pages where page.galleryKey == key && page.index >= 0 && page.index < latest.totalPageCount {
+                        byIndex[page.index] = page
+                    }
+                    latest.pages = byIndex.values.sorted { $0.index < $1.index }
+                    jobs[key] = latest
+                    await save(latest)
+                case .prepared(let ticket):
+                    resolverCount -= 1
+                    latest.preparedPageIndexes.insert(ticket.page.index)
+                    jobs[key] = latest
+                    group.addTask { try await Self.waitForTransfer(ticket, service: service) }
+                case let .transferred(ticket, error):
+                    if let error {
+                        if Self.shouldRetry(error) {
+                            let attempt = transientAttempts[ticket.page.index, default: 0]
+                            transientAttempts[ticket.page.index] = min(attempt + 1, 9)
+                            group.addTask {
+                                try await Self.retryDelay(attempt)
+                                return .retry(ticket.page, ticket.attempt)
+                            }
+                        } else if Self.needsNewLink(error), ticket.attempt < 4 {
+                            pending.append((ticket.retryPage, ticket.attempt + 1))
+                        } else { throw error }
+                    } else {
+                        latest.completedPageIndexes.insert(ticket.page.index)
+                        latest.preparedPageIndexes.insert(ticket.page.index)
+                        jobs[key] = latest
+                    }
+                case let .retry(page, attempt):
+                    pending.append((page, attempt))
+                }
+                if let updated = jobs[key], runTokens[key] == runToken { emit(.changed(updated)) }
+            }
+        }
+    }
+
+    private static func waitForTransfer(_ ticket: DownloadTransferTicket, service: any DownloadTransferService) async throws -> TransferWork {
+        do {
+            try await service.finish(ticket)
+            return .transferred(ticket, nil)
+        } catch is CancellationError { throw CancellationError() }
+        catch { return .transferred(ticket, (error as? EHError) ?? .networkFailed(error.localizedDescription)) }
+    }
+
+    private static func retryDelay(_ attempt: Int) async throws {
+        try await Task.sleep(for: .milliseconds(min(30_000, 100 * (1 << min(attempt, 9)))))
+    }
+
+    private static func isTransient(_ error: any Error) -> Bool {
+        if let error = error as? EHError { return shouldRetry(error) }
+        guard let error = error as? URLError else { return false }
+        return [.timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost, .dnsLookupFailed, .notConnectedToInternet, .resourceUnavailable, .internationalRoamingOff, .callIsActive, .dataNotAllowed].contains(error.code)
+    }
+
+    private static func needsNewLink(_ error: EHError) -> Bool {
+        switch error {
+        case .parsingFailed, .httpStatus(403), .httpStatus(404), .httpStatus(410): true
+        default: false
+        }
     }
 
     private func finishRun(key: GalleryKey, runToken: UUID) {
@@ -930,7 +1119,11 @@ public actor DownloadCoordinator {
               let persistence else { return }
 
         let id = UUID()
-        let task = Task { await persistence(job) }
+        let previous = pendingPersistence[job.key]?.last?.task
+        let task = Task {
+            await previous?.value
+            await persistence(job)
+        }
         pendingPersistence[job.key, default: []].append(
             PendingPersistence(id: id, task: task)
         )
@@ -948,7 +1141,11 @@ public actor DownloadCoordinator {
     ) async {
         guard removedKeys.contains(key) == false else { return }
         let id = UUID()
-        let task = Task { await writer(key, index) }
+        let previous = pendingPersistence[key]?.last?.task
+        let task = Task {
+            await previous?.value
+            await writer(key, index)
+        }
         pendingPersistence[key, default: []].append(PendingPersistence(id: id, task: task))
         await task.value
         pendingPersistence[key]?.removeAll { $0.id == id }
@@ -996,6 +1193,7 @@ public actor DownloadCoordinator {
             addedAt: existing.addedAt
         )
         updated.completedPageIndexes = existing.completedPageIndexes
+        updated.preparedPageIndexes = existing.preparedPageIndexes
         updated.state = existing.state
         updated.errorMessage = existing.errorMessage
         return updated

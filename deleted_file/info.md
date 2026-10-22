@@ -32,3 +32,12 @@
 - 原因与任务背景：用户指出改动偏离范围，停止测试并撤回本轮实验性修改。
 - SHA-256：`58beea22050335b9708695ff237796b4997de212e0e088288bff43e8b4a3aeec`
 - 恢复方法：如需恢复，将归档文件移动回原始路径；本轮添加的 Xcode 工程引用已撤回。
+
+## 2026-10-23T00:25:42.248301+08:00 — 下载实时活动控制器
+
+- 原路径：`Sources/EhViewer/DownloadBackgroundTaskController.swift`
+- 归档路径：`deleted_file/2026-10-23T002542+0800/Sources/EhViewer/DownloadBackgroundTaskController.swift`
+- 用途：下载专用 BGContinuedProcessingTask 注册与系统实时进度。
+- 原因：用户要求移除下载实时活动，并采用独立直链队列和 Background URLSession。
+- SHA-256：`9f8bd2e1315d5759f4087690b200c36fbb103252584b8ecfc348e278a6a51f61`
+- 恢复：将归档文件移回原路径，并恢复对应工程、AppModel、应用入口及 plist 引用。
