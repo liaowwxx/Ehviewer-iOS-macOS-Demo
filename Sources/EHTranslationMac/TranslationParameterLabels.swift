@@ -3,6 +3,7 @@ enum TranslationParameterLabels {
     static let values = [
         "device": "计算设备", "model": "模型", "language": "识别语言", "precision": "计算精度",
         "inpaint_size": "修复尺寸", "detect_size": "检测尺寸", "delay": "请求间隔（秒）",
+        "det_rearrange_max_batches": "检测批次数上限",
         "name": "配置名称", "backend": "API 协议", "base_url": "API 地址", "api_key": "API Key",
         "vision_model": "OCR / 视觉模型", "image_model": "图像修复模型", "image_base_url": "图像 API 地址",
         "support_text": "用于文字翻译", "support_vision": "用于视觉识别", "support_image": "用于图像修复",

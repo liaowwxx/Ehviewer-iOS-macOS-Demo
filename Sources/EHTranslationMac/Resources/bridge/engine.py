@@ -51,6 +51,7 @@ def install_window_adapter(launch, options) -> None:
             self.managed_job = TranslationJob(str(options.job))
             app.setQuitOnLastWindowClosed(False)
             super().__init__(app, program_config, **kwargs)
+            self.imsave_thread.img_writed.connect(self.on_managed_page_saved)
             self.progress_timer = QTimer(self)
             self.progress_timer.timeout.connect(self.update_progress)
             self.progress_timer.start(500)
@@ -75,6 +76,9 @@ def install_window_adapter(launch, options) -> None:
         def on_pagtrans_finished(self, index):
             super().on_pagtrans_finished(index)
             self.managed_job.page_finished(index)
+
+        def on_managed_page_saved(self, name):
+            self.managed_job.page_saved(self, name)
 
         def on_imgtrans_pipeline_finished(self):
             self.progress_timer.stop()
@@ -139,6 +143,10 @@ def main() -> int:
         return message
     logging.Formatter.format = safe_format
     from ballontranslator import launch
+    from ballontranslator.modules.llm_chat import LLMChatRequester
+    from .activity import LLMActivity, install_llm_activity
+    request_id = json.loads(options.job.read_text())['requestID']
+    install_llm_activity(LLMChatRequester, LLMActivity(options.job.parent, request_id, secrets))
     from ballontranslator.utils import core_requirements, network_mirrors
     # The companion owns dependency installation and its environment. Startup
     # must not silently install/restart or rewrite the user's chosen preset.

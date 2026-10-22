@@ -353,6 +353,9 @@ private struct CompactRootView: View {
 
 private struct SplitRootView: View {
     @Environment(AppModel.self) private var model
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
     @Binding var selection: AppRoute?
     @Binding var detailPath: [AppRoute]
     @State private var windowWidth = 0.0
@@ -379,6 +382,31 @@ private struct SplitRootView: View {
             }
             .listItemTint(.preferred(AppTheme.accent))
             .navigationTitle("EhViewer")
+            #if os(macOS)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                    Button {
+                        openWindow(id: "translation", value: model.nativeTranslationProfileID)
+                    } label: {
+                        HStack {
+                            Label("漫画翻译", systemImage: "character.book.closed")
+                            Spacer()
+                            Image(systemName: "arrow.up.forward.square").foregroundStyle(.secondary)
+                        }
+                        .font(.callout)
+                        .padding(.horizontal, 14)
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .help("打开独立翻译窗口")
+                    .accessibilityIdentifier("translation-sidebar-open")
+                    .padding(8)
+                }
+                .background(.bar)
+            }
+            #endif
         } detail: {
             RootNavigationStack(path: $detailPath) { path in
                 DestinationView(route: selection ?? .browse, navigationPath: path)

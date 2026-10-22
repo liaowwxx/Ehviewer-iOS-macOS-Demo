@@ -1,12 +1,14 @@
 # macOS 原生翻译工作台
 
-从「窗口 → 漫画翻译」打开独立窗口，也可以在完整下载的漫画详情页或本地列表批量选择后加入任务。添加漫画不会自动调用模型；在「翻译设置」确认源语言、目标语言和各阶段模型后，选中任务并点击「开始翻译」。
+从主应用侧边栏底部的「漫画翻译」或「窗口 → 漫画翻译」打开独立窗口，也可以在完整下载的漫画详情页或本地列表批量选择后加入任务。添加漫画不会自动调用模型；在「设置 → 翻译配置」确认源语言、目标语言和各阶段模型后，选中任务并点击「开始翻译」。
+
+侧边栏分为「当前任务」「历史任务」「设置」。当前任务展示待开始与执行中的队列、各阶段进度、最新保存完成的译图、LLM 实际返回内容与运行日志。模型输出在上游请求返回后立即更新；沿用上游请求方式，不额外发起推理请求，也不模拟逐字输出。输出面板可关闭「跟随输出」以阅读前文。已完成、失败、取消与中断的任务保留在历史任务中，可搜索、查看预览或建立新的重试任务。环境安装与翻译配置统一放在设置中。
 
 工作台属于当前 EhViewer 用户。关闭窗口不会停止任务；退出整个 EhViewer 时可以取消退出、等待已开始的队列完成，或者停止后退出。切换用户不会展示另一用户的任务，结果会保留并在回到所属用户后导入。崩溃或停止造成的中断需要手动重试，不会自动重新调用收费服务。
 
 ## 环境与模型
 
-首次使用，在「环境与模型」选择现有 BallonsTranslator 安装目录。优先使用安装目录内的 `.venv/bin/python`。若缺少环境，选择兼容的 Python 3.10–3.12 作为创建虚拟环境的解释器；不会自动安装系统 Python 或其他系统工具。
+首次使用，在「设置 → 环境与模型」选择现有 BallonsTranslator 安装目录。优先使用安装目录内的 `.venv/bin/python`。若缺少环境，选择兼容的 Python 3.10–3.12 作为创建虚拟环境的解释器；不会自动安装系统 Python 或其他系统工具。
 
 先点击「检查环境」，查看缺少的依赖和模型文件，再点击「准备环境与模型」。准备操作复用 BallonsTranslator 的依赖管理和模型下载校验接口，允许写入所选安装的 `.venv`、`data/models` 及工作台私有缓存。它不执行整套 `scripts/install.sh`，不替换源码，也不修改原软件配置。安装或下载中止后，请再次检查实际状态；安装不提供回滚。
 
@@ -35,7 +37,7 @@
 针对性验证：
 
 ```sh
-swift test --filter 'TranslationWorkstationTests|TranslationSettingChoicesTests'
+swift test --filter 'TranslationWorkstationTests|TranslationSettingChoicesTests|TranslationTaskActivityTests'
 python3 -B -m unittest discover -s Tests/TranslationAdapterTests -v
 xcodebuild -project EhViewer.xcodeproj -scheme EhViewer -sdk macosx CODE_SIGNING_ALLOWED=NO build
 xcodebuild -project EhViewer.xcodeproj -scheme EhViewer -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build

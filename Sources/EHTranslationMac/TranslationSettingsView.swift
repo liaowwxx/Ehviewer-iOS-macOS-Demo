@@ -26,8 +26,7 @@ struct TranslationSettingsView: View {
                                                    set: { workspace.configuration[path: ["module", "enable_" + flag]] = .bool($0) }))
                                 .toggleStyle(.checkbox)
                             Spacer()
-                            TranslationParameterEditor(value: field(["module", stage]), title: "\(title)模型", options: modelOptions(stage))
-                                .labelsHidden().frame(width: 230)
+                            TranslationParameterEditor(value: field(["module", stage]), title: "\(title)模型", options: modelOptions(stage), showsLabel: false)
                         }
                         llmSelector(stage)
                     }
@@ -86,6 +85,8 @@ struct TranslationSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .disclosureGroupStyle(TranslationDisclosureStyle())
+        .controlSize(.regular)
         .toolbar {
             ToolbarItem { Button("导入配置", systemImage: "square.and.arrow.down") { importPreset() } }
             ToolbarItem {
@@ -112,11 +113,14 @@ struct TranslationSettingsView: View {
         let required = stage == "translator" ? ("LLMTranslator", "translator_llm_id", "support_text") : stage == "ocr" ? ("LLMOCR", "ocr_llm_id", "support_vision") : ("LLMInpaint", "inpaint_llm_id", "support_image")
         let flag = stage == "translator" ? "translate" : stage == "inpainter" ? "inpaint" : "ocr"
         if workspace.configuration["module"][stage].string == required.0 && workspace.configuration["module"]["enable_" + flag] != .bool(false) {
-            Picker("LLM 服务配置", selection: field(["module", required.1])) {
-                Text("未选择").tag(TranslationJSON.string(""))
-                ForEach(workspace.configuration["module"]["llm_profiles"].array.filter { $0[required.2].bool }, id: \.self) { profile in
-                    Text(profile["name"].string).tag(profile["id"])
+            LabeledContent("LLM 服务配置") {
+                Picker("LLM 服务配置", selection: field(["module", required.1])) {
+                    Text("未选择").tag(TranslationJSON.string(""))
+                    ForEach(workspace.configuration["module"]["llm_profiles"].array.filter { $0[required.2].bool }, id: \.self) { profile in
+                        Text(profile["name"].string).tag(profile["id"])
+                    }
                 }
+                .labelsHidden().pickerStyle(.menu).frame(width: 260)
             }
         }
     }
@@ -124,10 +128,13 @@ struct TranslationSettingsView: View {
     private var llmSection: some View {
         Section {
             DisclosureGroup("LLM 服务与模型", isExpanded: $editingServices) {
-                Picker("服务配置", selection: $profileIndex) {
-                    ForEach(Array(workspace.configuration["module"]["llm_profiles"].array.enumerated()), id: \.offset) { index, profile in
-                        Text(profile["name"].string).tag(index)
+                LabeledContent("服务配置") {
+                    Picker("服务配置", selection: $profileIndex) {
+                        ForEach(Array(workspace.configuration["module"]["llm_profiles"].array.enumerated()), id: \.offset) { index, profile in
+                            Text(profile["name"].string).tag(index)
+                        }
                     }
+                    .labelsHidden().pickerStyle(.menu).frame(width: 260)
                 }
                 Button("新增服务配置", systemImage: "plus") {
                     var profiles = workspace.configuration["module"]["llm_profiles"].array

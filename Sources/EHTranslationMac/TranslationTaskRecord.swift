@@ -26,6 +26,7 @@ public struct TranslationTaskRecord: Codable, Identifiable, Sendable {
     public var error: String?
     public var isActive: Bool { ["accepted", "preparing", "running", "rendering"].contains(state) }
     public var canStart: Bool { state == "queued" }
+    public var isCurrent: Bool { canStart || isActive || state == "awaitingImport" }
     public var canRetry: Bool { ["failed", "cancelled", "interrupted", "delivered"].contains(state) }
     public var stateTitle: String {
         switch state {
@@ -35,6 +36,7 @@ public struct TranslationTaskRecord: Codable, Identifiable, Sendable {
         case "running": "翻译中"
         case "rendering": "生成译图"
         case "awaitingImport": "等待导入"
+        case "succeeded": "校验结果"
         case "delivered": "已保存译本"
         case "cancelled": "已取消"
         case "interrupted": "已中断"

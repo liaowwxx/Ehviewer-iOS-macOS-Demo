@@ -74,6 +74,65 @@ else:
         self.assertNotIn(secret, output.getvalue())
         self.assertIn('[REDACTED]', output.getvalue())
 
+    def test_llm_activity_preserves_response_and_redacts_bounded_output(self):
+        from bridge.activity import LLMActivity, install_llm_activity
+        directory = Path(tempfile.mkdtemp(prefix='eh-llm-activity-'))
+        activity = LLMActivity(directory, 'owned-task', ['private-key'])
+        response = SimpleNamespace(content='译文 private-key')
+        class Requester:
+            def request_chat_completion(self, profile, api_args, **kwargs):
+                snapshot = json.loads(activity.path.read_text())
+                self_test.assertEqual(snapshot['state'], 'requesting')
+                return response
+        self_test = self
+        install_llm_activity(Requester, activity)
+        self.assertIs(Requester().request_chat_completion(None, {}, codex_turn=None), response)
+        snapshot = json.loads(activity.path.read_text())
+        self.assertEqual(snapshot['requestID'], 'owned-task')
+        self.assertEqual(snapshot['state'], 'received')
+        self.assertIn('译文 [REDACTED]', snapshot['text'])
+        self.assertNotIn('private-key', snapshot['text'])
+        activity.publish('received', 'x' * 100000)
+        self.assertLessEqual(len(json.loads(activity.path.read_text())['text']), 32000)
+
+    def test_llm_activity_preserves_failure_without_logging_provider_secrets(self):
+        from bridge.activity import LLMActivity, install_llm_activity
+        activity = LLMActivity(Path(tempfile.mkdtemp(prefix='eh-llm-activity-')), 'task', [])
+        class Requester:
+            def request_chat_completion(self, profile, api_args):
+                raise RuntimeError('provider-private-key')
+        install_llm_activity(Requester, activity)
+        with self.assertRaises(RuntimeError):
+            Requester().request_chat_completion(None, {})
+        snapshot = json.loads(activity.path.read_text())
+        self.assertEqual(snapshot['state'], 'failed')
+        self.assertNotIn('provider-private-key', activity.path.read_text())
+
+    def test_preview_waits_for_saved_result_and_preserves_latest_page_in_progress(self):
+        from bridge.job import TranslationJob
+        directory = Path(tempfile.mkdtemp(prefix='eh-page-preview-'))
+        request = directory / 'request.json'
+        request.write_text(json.dumps({'requestID': 'task', 'pages': [{'index': 0, 'fileName': 'source.jpg'}]}))
+        job = TranslationJob(str(request))
+        result = directory / 'project/result/source.png'
+        window = SimpleNamespace(imgtrans_proj=SimpleNamespace(get_result_path=lambda name: str(result)),
+                                 module_manager=SimpleNamespace(imgtrans_thread=SimpleNamespace(ocr_counter=1, parallel_trans=True),
+                                                                translate_thread=SimpleNamespace(finished_counter=1)))
+        job.page_finished(0)
+        job.page_saved(window, 'source.jpg')
+        status = lambda: json.loads((directory / 'engine-status.json').read_text())
+        self.assertIsNone(status()['latestPage'])
+        self.assertEqual(status()['completedPages'], 0)
+        result.parent.mkdir(parents=True)
+        result.write_bytes(b'test-image')
+        with patch('bridge.job.validate_image'):
+            job.page_saved(window, 'source.jpg')
+        job.progress(window)
+        self.assertEqual(status()['latestPage'], {'index': 0, 'fileName': 'source.png'})
+        self.assertEqual(status()['completedPages'], 1)
+        self.assertEqual(status()['stages']['ocr'], 1)
+        self.assertEqual(status()['stages']['translate'], 1)
+
     def test_model_list_uses_metadata_endpoint_and_preserves_full_model_ids(self):
         from bridge import model_list
         response = io.BytesIO(json.dumps({'data': [{'id': 'qwen3:14b'}, {'id': 'qwen3:14b'},

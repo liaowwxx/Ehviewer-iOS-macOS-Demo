@@ -54,10 +54,15 @@ class TranslationJob:
         self.error = False
         self.done = False
         self.rendered = set()
+        self.saved = set()
+        self.latest_page = None
+        self.stages = {}
 
     def status(self, state: str, **extra) -> None:
         atomic_json(self.path.parent / 'engine-status.json', {
-            'requestID': self.request['requestID'], 'state': state, **extra,
+            'requestID': self.request['requestID'], 'state': state,
+            'completedPages': len(self.saved), 'latestPage': self.latest_page,
+            'stages': self.stages, **extra,
         })
 
     def start(self, window) -> None:
@@ -89,15 +94,34 @@ class TranslationJob:
 
     def page_finished(self, index: int) -> None:
         self.rendered.add(index)
-        self.status('rendering', completedPages=len(self.rendered))
+        self.status('rendering')
+
+    def page_saved(self, window, name: str) -> None:
+        if self.done or self.error:
+            return
+        index = next((p['index'] for p in self.request['pages'] if p['fileName'] == name), None)
+        if index is None or index not in self.rendered:
+            return
+        result = Path(window.imgtrans_proj.get_result_path(name)).resolve()
+        if result.parent != (self.project / 'result').resolve() or not result.is_file():
+            return
+        try:
+            validate_image(result)
+        except (OSError, ValueError):
+            return
+        self.saved.add(index)
+        self.latest_page = {'index': index, 'fileName': result.name}
+        self.status('rendering')
 
     def progress(self, window) -> None:
         if self.done or self.error:
             return
         thread = window.module_manager.imgtrans_thread
-        counters = {stage: getattr(thread, stage + '_counter', 0) for stage in ('detect', 'ocr', 'translate', 'inpaint')}
-        state = 'running' if any(counters.values()) else 'preparing'
-        self.status(state, completedPages=len(self.rendered), stages=counters)
+        self.stages = {stage: getattr(thread, stage + '_counter', 0) for stage in ('detect', 'ocr', 'translate', 'inpaint')}
+        if getattr(thread, 'parallel_trans', False):
+            self.stages['translate'] = window.module_manager.translate_thread.finished_counter
+        state = 'running' if any(self.stages.values()) else 'preparing'
+        self.status(state)
 
     def finish(self, window) -> None:
         if self.done:
@@ -125,6 +149,9 @@ class TranslationJob:
                     'byteCount': result.stat().st_size, 'sha256': digest(result),
                     'sourceSHA256': page['sha256'],
                 })
+            self.saved = set(self.rendered)
+            last = outputs[-1]
+            self.latest_page = {'index': last['index'], 'fileName': last['fileName']}
             self.status('succeeded', pages=outputs)
             window.app.exit(0)
         except Exception:

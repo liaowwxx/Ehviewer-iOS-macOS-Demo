@@ -8,10 +8,12 @@ public struct TranslationWindow: View {
     @Bindable private var workspace: TranslationWorkspace
     private let available: [DownloadJob]
     private let downloads: DownloadFileStore
-    @State private var section = "tasks"
+    @State private var section = "current"
     @State private var showingPicker = false
     @State private var selectedBooks = Set<GalleryKey>()
-    @State private var filter = "all"
+    @State private var historySelection: UUID?
+    @State private var historySearch = ""
+    @State private var settingsTab = "translation"
 
     public init(workspace: TranslationWorkspace, available: [DownloadJob], downloads: DownloadFileStore) {
         self.workspace = workspace
@@ -22,9 +24,9 @@ public struct TranslationWindow: View {
     public var body: some View {
         NavigationSplitView {
             List(selection: $section) {
-                Label("任务", systemImage: "list.bullet.rectangle").tag("tasks")
-                Label("翻译设置", systemImage: "slider.horizontal.3").tag("settings")
-                Label("环境与模型", systemImage: "shippingbox").tag("environment")
+                Label("当前任务", systemImage: "play.rectangle").badge(workspace.currentTasks.count).tag("current")
+                Label("历史任务", systemImage: "clock.arrow.circlepath").tag("history")
+                Label("设置", systemImage: "slider.horizontal.3").tag("settings")
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 190, max: 230)
             .safeAreaInset(edge: .bottom) {
@@ -44,91 +46,114 @@ public struct TranslationWindow: View {
                     .font(.callout).padding().background(.orange.opacity(0.12))
                 }
                 switch section {
-                case "settings": TranslationSettingsView(workspace: workspace)
-                case "environment": TranslationEnvironmentView(workspace: workspace)
-                default: tasksView
+                case "settings":
+                    VStack(spacing: 0) {
+                        Picker("设置分类", selection: $settingsTab) {
+                            Text("翻译配置").tag("translation")
+                            Text("环境与模型").tag("environment")
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 360)
+                        .padding()
+                        Divider()
+                        if settingsTab == "environment" {
+                            TranslationEnvironmentView(workspace: workspace)
+                        } else {
+                            TranslationSettingsView(workspace: workspace)
+                        }
+                    }
+                case "history": historyView
+                default: currentView
                 }
             }
-            .navigationTitle(section == "tasks" ? "漫画翻译" : section == "settings" ? "翻译设置" : "环境与模型")
+            .navigationTitle(section == "current" ? "当前任务" : section == "history" ? "历史任务" : "翻译设置")
         }
-        .frame(minWidth: 880, minHeight: 600)
+        .frame(minWidth: 960, minHeight: 680)
         .sheet(isPresented: $showingPicker) { bookPicker }
         .task {
             await workspace.importReadyResults()
-            if workspace.focusedTaskID == nil { workspace.focusedTaskID = workspace.tasks.last?.id }
+            if workspace.focusedTaskID == nil {
+                workspace.focusedTaskID = workspace.currentTasks.first(where: \.isActive)?.id ?? workspace.currentTasks.first?.id
+            }
             if !workspace.coordinator.enginePath.isEmpty { workspace.configureFromInstallation() }
             if !workspace.coordinator.enginePath.isEmpty, workspace.catalog.object.isEmpty, !workspace.coordinator.isBusy {
                 workspace.coordinator.perform("catalog", workspace: workspace)
             }
         }
         .onChange(of: workspace.focusedTaskID) { _, id in
-            if !filteredTasks.contains(where: { $0.id == id }) { filter = "all" }
+            if workspace.currentTasks.contains(where: { $0.id == id }) { section = "current" }
         }
     }
 
-    private var filteredTasks: [TranslationTaskRecord] {
-        workspace.tasks.filter { filter == "all" || (filter == "active" ? $0.isActive || $0.canStart : $0.state == "delivered") }
+    private var currentTask: TranslationTaskRecord? {
+        let focused = workspace.tasks.first { $0.id == workspace.focusedTaskID }
+        if let focused, focused.isCurrent { return focused }
+        return workspace.currentTasks.first(where: \.isActive) ?? workspace.currentTasks.first ?? focused
     }
 
-    private var tasksView: some View {
+    private var currentView: some View {
         VStack(spacing: 0) {
-            if workspace.tasks.isEmpty {
+            if workspace.currentTasks.isEmpty && currentTask == nil {
                 ContentUnavailableView {
                     Label("添加漫画开始翻译", systemImage: "character.book.closed")
                 } description: {
                     Text("选择完整下载的漫画，确认语言和模型后手动开始。关闭此窗口后，任务仍会继续。")
                 } actions: {
                     Button("添加漫画", systemImage: "plus") { showingPicker = true }.buttonStyle(.borderedProminent)
-                    Button("配置环境与模型") { section = "environment" }
+                    Button("配置环境与模型") { settingsTab = "environment"; section = "settings" }
                 }
             } else {
-                Table(filteredTasks, selection: $workspace.focusedTaskID) {
-                    TableColumn("漫画") { task in Text(task.input.gallery.title).lineLimit(2) }
-                    TableColumn("状态") { task in Text(task.stateTitle).foregroundStyle(task.state == "failed" ? .red : .secondary) }.width(100)
-                    TableColumn("页数") { task in Text("\(task.completedPages) / \(task.input.pageCount)").monospacedDigit() }.width(85)
-                    TableColumn("目标语言", value: \.targetLanguage).width(110)
-                }
-                .alternatingRowBackgrounds(.disabled)
-                if let task = workspace.tasks.first(where: { $0.id == workspace.focusedTaskID }) {
+                if !workspace.currentTasks.isEmpty {
+                    Table(workspace.currentTasks, selection: $workspace.focusedTaskID) {
+                        TableColumn("漫画") { task in Text(task.input.gallery.title).lineLimit(2) }
+                        TableColumn("状态") { task in Text(task.stateTitle) }.width(100)
+                        TableColumn("已生成") { task in Text("\(task.completedPages) / \(task.input.pageCount)").monospacedDigit() }.width(85)
+                    }
+                    .frame(height: min(150, CGFloat(workspace.currentTasks.count) * 34 + 32))
                     Divider()
-                    taskInspector(task).padding(20)
+                }
+                if let task = currentTask {
+                    TranslationTaskDetailView(workspace: workspace, task: task)
                 }
             }
         }
         .toolbar {
             ToolbarItem {
-                Picker("筛选任务", selection: $filter) {
-                    Text("全部").tag("all"); Text("待处理").tag("active"); Text("已完成").tag("completed")
-                }.frame(width: 120)
-            }
-            ToolbarItem {
-                Button("添加漫画", systemImage: "plus") { showingPicker = true }
+                Button("添加漫画", systemImage: "plus") { selectedBooks = []; showingPicker = true }
                     .disabled(workspace.isAdding || workspace.coordinator.isDraining)
                     .accessibilityIdentifier("translation-add-books")
             }
         }
     }
 
-    private func taskInspector(_ task: TranslationTaskRecord) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(task.input.gallery.title).font(.headline).textSelection(.enabled)
-            Text("\(task.input.pageCount) 页 · \(task.stateTitle)").foregroundStyle(.secondary)
-            if let error = task.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            HStack {
-                if task.canStart {
-                    Button("开始翻译", systemImage: "play.fill") { workspace.start(task.id) }
-                        .buttonStyle(.borderedProminent).disabled(workspace.coordinator.isDraining)
+    private var historyTasks: [TranslationTaskRecord] {
+        workspace.historyTasks.filter { historySearch.isEmpty || $0.input.gallery.title.localizedStandardContains(historySearch) }
+    }
+
+    private var historyView: some View {
+        VStack(spacing: 0) {
+            if workspace.historyTasks.isEmpty {
+                ContentUnavailableView("暂无历史任务", systemImage: "clock.arrow.circlepath",
+                                       description: Text("已完成、失败、取消和中断的任务会保留在这里。"))
+            } else {
+                Table(historyTasks, selection: $historySelection) {
+                    TableColumn("漫画") { task in Text(task.input.gallery.title).lineLimit(2) }
+                    TableColumn("状态") { task in Text(task.stateTitle).foregroundStyle(task.state == "failed" ? .red : .secondary) }.width(100)
+                    TableColumn("目标语言", value: \.targetLanguage).width(100)
+                    TableColumn("创建时间") { task in Text(task.created, format: .dateTime.month().day().hour().minute()) }.width(130)
                 }
-                if task.isActive || task.canStart { Button("取消任务", systemImage: "stop") { workspace.cancel(task.id) } }
-                if task.canRetry {
-                    Button(task.state == "delivered" ? "重新翻译" : "建立重试任务", systemImage: "arrow.clockwise") {
-                        Task { await workspace.retry(task.id) }
-                    }.disabled(workspace.coordinator.isDraining)
+                .frame(minHeight: 110, idealHeight: 150, maxHeight: 210)
+                .overlay { if historyTasks.isEmpty { ContentUnavailableView.search(text: historySearch) } }
+                Divider()
+                if let task = historyTasks.first(where: { $0.id == historySelection }) {
+                    TranslationTaskDetailView(workspace: workspace, task: task)
+                } else {
+                    ContentUnavailableView("选择一个历史任务", systemImage: "doc.text.magnifyingglass",
+                                           description: Text("查看译图、模型输出与诊断，或建立重试任务。"))
                 }
-                Spacer()
-                Button("打开诊断目录", systemImage: "folder") { NSWorkspace.shared.open(workspace.directory(task.id)) }
             }
         }
+        .searchable(text: $historySearch, prompt: "搜索历史任务")
     }
 
     private var bookPicker: some View {

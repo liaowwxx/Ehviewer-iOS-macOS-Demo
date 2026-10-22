@@ -18,6 +18,8 @@ public final class TranslationWorkspace {
     public var isAdding = false
     public var focusedTaskID: UUID?
     public var onImported: (@MainActor () async -> Void)?
+    var currentTasks: [TranslationTaskRecord] { tasks.filter(\.isCurrent) }
+    var historyTasks: [TranslationTaskRecord] { tasks.filter { !$0.isCurrent }.reversed() }
     let coordinator: TranslationCoordinator
     private let files: TranslationFileStore
     private var configRevision: Data?
@@ -171,8 +173,12 @@ public final class TranslationWorkspace {
     func refreshProgress(_ id: UUID) {
         guard let index = tasks.firstIndex(where: { $0.id == id }), tasks[index].isActive,
               let data = try? Data(contentsOf: directory(id).appendingPathComponent("engine-status.json")),
-              let status = try? JSONDecoder().decode(TranslationJSON.self, from: data) else { return }
-        tasks[index].completedPages = Int(status["completedPages"].number)
+              let status = try? JSONDecoder().decode(TranslationJSON.self, from: data),
+              status["requestID"].string == tasks[index].input.requestID else { return }
+        let completed = status["completedPages"].number
+        if completed.isFinite, completed >= 0, completed <= Double(tasks[index].input.pageCount) {
+            tasks[index].completedPages = Int(completed)
+        }
         if ["preparing", "running", "rendering"].contains(status["state"].string) { tasks[index].state = status["state"].string }
     }
 
